@@ -5,20 +5,46 @@ use std::cmp::min;
 use std::hash::Hash;
 use itertools::Itertools;
 use std::borrow::Borrow;
+use crate::graph::EdgeEnd::{Head, Tail};
 
 pub mod schnyder;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct VertexIndex(pub usize);
+pub struct VertexI(pub usize);
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct EdgeIndex(pub usize);
+pub struct EdgeI(pub usize);
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+enum EdgeEnd {
+    Tail, Head
+}
+
+struct Edge<E> {
+    id: EdgeI,
+    tail: VertexI,
+    head: VertexI,
+    weight: E
+}
+
+struct Vertex<N> {
+    id: VertexI,
+    neighbors: Vec<NbVertex>,
+    weight: N
+}
+
+struct NbVertex {
+    other: VertexI,
+    edge: EdgeI,
+    end: EdgeEnd
+}
+
 
 pub struct PlanarMap<N, E> {
     vertices: usize,
     edges: usize,
     //
-    vertices_by_edges: Vec<(VertexIndex, VertexIndex)>,
-    neighbors: Vec<Vec<(EdgeIndex, VertexIndex)>>,
+    vertices_by_edges: Vec<(VertexI, VertexI)>,
+    neighbors: Vec<Vec<(EdgeI, VertexI, EdgeEnd)>>,
     //
     vertex_weights: Vec<N>,
     edge_weights: Vec<E>,
@@ -41,47 +67,49 @@ impl<N, E> PlanarMap<N, E> {
         }
     }
 
-    pub fn add_vertex(&mut self, weight: N) -> VertexIndex {
+    pub fn add_vertex(&mut self, weight: N) -> VertexI {
         self.vertices += 1;
         self.vertex_weights.push(weight);
         self.neighbors.push(Vec::new());
-        return VertexIndex(self.vertices - 1);
+        return VertexI(self.vertices - 1);
     }
 
-    pub fn add_edge(&mut self, v1: VertexIndex, v2: VertexIndex, weight: E) -> Result<EdgeIndex, &str> {
+    pub fn add_edge(&mut self, v1: VertexI, v2: VertexI, weight: E) -> Result<EdgeI, &str> {
         if self.enforce_simple && (v1 == v2 || self.vertices_by_edges.contains(&(v1, v2))) {
             return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
         }
 
         self.edges += 1;
         let e = self.edges - 1;
+
+        // v1 --> v2 (v1 = tail, v2 = head)
         self.vertices_by_edges.push((v1, v2));
-        self.neighbors[v1.0].push((EdgeIndex(e), v2));
-        self.neighbors[v2.0].push((EdgeIndex(e), v1));
+        self.neighbors[v1.0].push((EdgeI(e), v2, Tail));
+        self.neighbors[v2.0].push((EdgeI(e), v1, Head));
         self.edge_weights.push(weight);
-        return Ok(EdgeIndex(e));
+        return Ok(EdgeI(e));
     }
 
-    pub fn is_valid_vertex(&self, v: &VertexIndex) -> bool {
+    pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
         return v.0 < self.vertices;
     }
 
-    pub fn is_valid_edge(&self, e: &EdgeIndex) -> bool {
+    pub fn is_valid_edge(&self, e: &EdgeI) -> bool {
         return e.0 < self.edges;
     }
 
-    pub fn has_edge(&self, e: (&VertexIndex, &VertexIndex)) -> bool {
-        return self.neighbors[(e.0).0].iter().any(|p| match p { (_, v) => v == e.1 })
+    pub fn has_edge(&self, e: (&VertexI, &VertexI)) -> bool {
+        return self.neighbors[(e.0).0].iter().any(|p| match p { (_, v, _) => v == e.1 })
     }
 
-    pub fn get_edge_(&self, e: (&VertexIndex, &VertexIndex)) -> Option<EdgeIndex> {
+    pub fn get_edge_(&self, e: (&VertexI, &VertexI)) -> Option<EdgeI> {
         self.neighbors[(e.0).0].iter()
-            .filter(|p| match p { (_, v) => v == e.1 })
+            .filter(|p| match p { (_, v, _) => v == e.1 })
             .map(|p| p.0)
             .find(|p| true)
     }
 
-    pub fn get_edge(&self, e: EdgeIndex) -> (VertexIndex, VertexIndex, &E) {
+    pub fn get_edge(&self, e: EdgeI) -> (VertexI, VertexI, &E) {
         let (v1, v2) = self.vertices_by_edges[e.0];
         (v1, v2, &self.edge_weights[e.0])
     }
@@ -102,20 +130,22 @@ impl<N, E> PlanarMap<N, E> {
         }
 
         let mut visited = vec![false; self.vertices];
-        self.visit_all(VertexIndex(0), &mut visited);
+        let mut to_visit = vec![&VertexI(0)];
+
+        while !to_visit.is_empty() {
+            let v = to_visit.remove(to_visit.len() - 1);
+            visited[v.0] = true;
+            for (_, nb, _) in &self.neighbors[v.0] {
+                if !visited[nb.0] {
+                    to_visit.push(nb);
+                }
+            }
+        }
+
         !visited.contains(&false)
     }
 
-    fn visit_all(&self, v: VertexIndex, visited: &mut Vec<bool>) {
-        visited[v.0] = true;
-        for (e, nb) in &self.neighbors[v.0] {
-            if !visited[nb.0] {
-                self.visit_all(*nb, visited);
-            }
-        }
-    }
-
-    fn is_forward(&self, e: EdgeIndex, t: (VertexIndex, VertexIndex)) -> Result<bool, &str> {
+    fn is_forward(&self, e: EdgeI, t: (VertexI, VertexI)) -> Result<bool, &str> {
         let (v1, v2) = self.vertices_by_edges[e.0];
         if v1 == t.0 && v2 == t.1 {
             Ok(true)
@@ -133,7 +163,12 @@ impl<N, E> PlanarMap<N, E> {
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
     /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
     /// specifying the order of vertices around the face in counterclockwise direction.
-    pub fn set_embedding(&mut self, faces: Vec<Vec<VertexIndex>>) -> Result<(), String> {
+    pub fn set_embedding(&mut self, faces: Vec<Vec<VertexI>>) -> Result<(), String> {
+        if !(self.is_simple() && self.is_connected()) {
+            return Err(String::from("Embeddings can only be set if the graph is simple and connected"));
+        }
+
+
         let v: Vec<_> = faces.iter().flat_map(|fc|fc.iter()).filter(|v| !self.is_valid_vertex(v)).collect();
 
         if !v.is_empty() {
@@ -192,9 +227,9 @@ impl<N, E> PlanarMap<N, E> {
             }
 
             {
-                let neighbors: HashSet<&VertexIndex> = self.neighbors[i].iter().map(|(e, v)| v).collect();
-                let angle_entering: HashSet<&VertexIndex> = vertex_angles.iter().map(|(u, v)| u).collect();
-                let angle_leaving: HashSet<&VertexIndex> = vertex_angles.iter().map(|(u, v)| v).collect();
+                let neighbors: HashSet<&VertexI> = self.neighbors[i].iter().map(|(_, v, _)| v).collect();
+                let angle_entering: HashSet<&VertexI> = vertex_angles.iter().map(|(u, _)| u).collect();
+                let angle_leaving: HashSet<&VertexI> = vertex_angles.iter().map(|(_, v)| v).collect();
 
                 if neighbors != angle_entering {
                     return Err(String::from("total order fail (entering)"));
@@ -207,15 +242,16 @@ impl<N, E> PlanarMap<N, E> {
 
             let len = self.neighbors[i].len();
             if len > 1 {
+                let old_neighbors = self.neighbors[i].clone();
                 let begin = self.neighbors[i][0];
                 let mut cur = begin;
                 self.neighbors[i].clear();
 
                 for _ in 0..len {
                     let next_vector = vertex_angles.get(&cur.1).unwrap();
-                    let next_e = (self.get_edge_((&cur.1, next_vector)).unwrap(), *next_vector);
-                    self.neighbors[i].push(next_e);
-                    cur = next_e;
+                    let next_nb_tuble = old_neighbors.iter().find(|(_,v,_)| v == next_vector).unwrap();
+                    self.neighbors[i].push(*next_nb_tuble);
+                    cur = *next_nb_tuble;
                 }
             }
         }
