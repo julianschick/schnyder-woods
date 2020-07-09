@@ -4,9 +4,10 @@ use std::cmp::Ordering;
 
 use crate::graph::{PlanarMap, VertexI};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
-use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, UnicoloredForward, UnicoloredBackward};
+use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection};
+use crate::graph::Signum::Forward;
 
 mod graph;
 
@@ -54,9 +55,9 @@ fn main() {
     map.add_edge(r, b, SchnyderEdge::new(Bicolored(Blue, Red))).expect("edge");
     map.add_edge(b, g, SchnyderEdge::new(Bicolored(Green, Blue))).expect("edge");
 
-    map.add_edge(c, r, SchnyderEdge::new(UnicoloredForward(Red))).expect("edge");
-    map.add_edge(c, g, SchnyderEdge::new(UnicoloredForward(Green))).expect("edge");
-    map.add_edge(c, b, SchnyderEdge::new(UnicoloredForward(Blue))).expect("edge");
+    map.add_edge(c, r, SchnyderEdge::new(Unicolored(Red, Forward))).expect("edge");
+    map.add_edge(c, g, SchnyderEdge::new(Unicolored(Green, Forward))).expect("edge");
+    map.add_edge(c, b, SchnyderEdge::new(Unicolored(Blue, Forward))).expect("edge");
 
     println!("is_simple() = {}", map.is_simple());
     println!("is_connected() = {}", map.is_connected());

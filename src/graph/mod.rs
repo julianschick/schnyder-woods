@@ -1,28 +1,44 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use itertools::Itertools;
+use array_tool::vec::Intersect;
+use std::cell::RefCell;
 use crate::graph::EdgeEnd::{Head, Tail};
 use crate::graph::Signum::{Forward, Backward};
-use array_tool::vec::Intersect;
+use crate::graph::guarded_map::{GuardedMap, Index, Ideable};
 
 pub mod schnyder;
+mod guarded_map;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct VertexI(pub usize);
 
+impl From<usize> for VertexI { fn from(n: usize) -> Self { VertexI(n) } }
+impl Into<usize> for VertexI { fn into(self) -> usize { self.0 } }
+impl Index for VertexI { }
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct EdgeI(pub usize);
 
+impl From<usize> for EdgeI { fn from(n: usize) -> Self { EdgeI(n) } }
+impl Into<usize> for EdgeI { fn into(self) -> usize { self.0 } }
+impl Index for EdgeI { }
+
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FaceI(pub usize);
+
+impl From<usize> for FaceI { fn from(n: usize) -> Self { FaceI(n) } }
+impl Into<usize> for FaceI { fn into(self) -> usize { self.0 } }
+impl Index for FaceI { }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum EdgeEnd {
     Tail, Head
 }
 
-#[derive(Copy, Clone)]
-enum Signum {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Signum {
     Forward, Backward
 }
 
@@ -97,16 +113,31 @@ impl<E> Hash for Edge<E> {
     }
 }
 
+impl<N> Ideable<EdgeI> for Edge<N> {
+    fn get_id(&self) -> EdgeI { self.id }
+    fn set_id(&mut self, id: EdgeI) { self.id = id }
+}
+
 struct Vertex<N> {
     id: VertexI,
     neighbors: Vec<NbVertex>,
     weight: N
 }
 
+impl<N> Ideable<VertexI> for Vertex<N> {
+    fn get_id(&self) -> VertexI { self.id }
+    fn set_id(&mut self, id: VertexI) { self.id = id }
+}
+
 struct Face<F> {
     id: FaceI,
     angles: Vec<VertexI>,
     weight: F
+}
+
+impl<N> Ideable<FaceI> for Face<N> {
+    fn get_id(&self) -> FaceI { self.id }
+    fn set_id(&mut self, id: FaceI) { self.id = id }
 }
 
 impl<N> Vertex<N> {
@@ -124,30 +155,22 @@ struct NbVertex {
     end: EdgeEnd
 }
 
-pub struct PlanarMap<N, E, F> {
-    free_vertex_index: usize,
-    free_edge_index: usize,
-    free_face_index: usize,
-    //
-    vertices: HashMap<VertexI, Vertex<N>>,
-    edges: HashMap<EdgeI, Edge<E>>,
-    faces: HashMap<FaceI, Face<F>>,
+pub struct PlanarMap<N, E, F: Clone> {
+    vertices: GuardedMap<VertexI, Vertex<N>>,
+    edges: GuardedMap<EdgeI, Edge<E>>,
+    faces: GuardedMap<FaceI, Face<F>>,
     //
     embedded: bool,
     enforce_simple: bool
 }
 
-impl<N, E, F> PlanarMap<N, E, F> {
+impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
-            free_vertex_index: 0,
-            free_edge_index: 0,
-            free_face_index: 0,
-            //
-            vertices: HashMap::new(),
-            edges: HashMap::new(),
-            faces: HashMap::new(),
+            vertices: GuardedMap::new(),
+            edges: GuardedMap::new(),
+            faces: GuardedMap::new(),
             //
             embedded: false,
             enforce_simple: true
@@ -155,18 +178,13 @@ impl<N, E, F> PlanarMap<N, E, F> {
     }
 
     pub fn add_vertex(&mut self, weight: N) -> VertexI {
-        let id = VertexI(self.free_vertex_index);
         let v = Vertex {
-            id, neighbors: Vec::new(), weight
+            id: VertexI(0), neighbors: Vec::new(), weight
         };
 
-        self.vertices.insert(v.id, v);
-
-        while self.vertices.contains_key(&VertexI(self.free_vertex_index)) {
-            self.free_vertex_index += 1;
-        }
-
-        return id;
+        let index = self.vertices.retrieve_index(v);
+        self.vertices.get_mut(&index).id = index;
+        return index;
     }
 
     pub fn add_embedded_edge(&mut self, v1: VertexI, v2: VertexI, weight: E, face: FaceI) -> EdgeI {
@@ -182,7 +200,7 @@ impl<N, E, F> PlanarMap<N, E, F> {
 
         if let Ok(e) = self.add_edge(v1, v2, weight) {
 
-            let old_face = self.faces.remove(&face).unwrap();
+            let old_face = self.faces.free_index(&face).unwrap();
 
             let mut cycle1 = Vec::new();
             let mut cycle2 = Vec::new();
@@ -201,7 +219,23 @@ impl<N, E, F> PlanarMap<N, E, F> {
             }
             cycle2.push(old_face.angles[pos1.unwrap()]);
 
-            // cycle1 and cycle2 new faces!
+            let f1 = Face {
+                id: FaceI(0),
+                weight: old_face.weight.clone(),
+                angles: cycle1
+            };
+
+            let f2 = Face {
+                id: FaceI(0),
+                weight: old_face.weight.clone(),
+                angles: cycle2
+            };
+
+            let id1 = self.faces.retrieve_index(f1);
+            let id2 = self.faces.retrieve_index(f2);
+
+            self.edges.get_mut(&e).right_face = Some(id1);
+            self.edges.get_mut(&e).left_face = Some(id2);
 
 
             return e;
@@ -215,22 +249,17 @@ impl<N, E, F> PlanarMap<N, E, F> {
             if v1 == v2 {
                 return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
-            if let Some(nb) = self.vertices.get(&v1).unwrap().get_nb(v2) {
+            if let Some(nb) = self.vertices.get(&v1).get_nb(v2) {
                 return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
         }
 
-        let id = EdgeI(self.free_edge_index);
-        let e = Edge { id, tail: v1, head: v2, weight, left_face: None, right_face: None };
-
-        self.edges.insert(e.id, e);
-        while self.edges.contains_key(&EdgeI(self.free_edge_index)) {
-            self.free_edge_index += 1;
-        }
+        let e = Edge { id : EdgeI(0), tail: v1, head: v2, weight, left_face: None, right_face: None };
+        let id = self.edges.retrieve_index(e);
 
         // v1 --> v2 (v1 = tail, v2 = head)
         let l = self.vertex(v1).neighbors.len();
-        self.vertices.get_mut(&v1).unwrap().neighbors.push(
+        self.vertices.get_mut(&v1).neighbors.push(
             NbVertex {
                 index: l,
                 other: v2,
@@ -240,7 +269,7 @@ impl<N, E, F> PlanarMap<N, E, F> {
         );
 
         let l = self.vertex(v2).neighbors.len();
-        self.vertices.get_mut(&v2).unwrap().neighbors.push(
+        self.vertices.get_mut(&v2).neighbors.push(
             NbVertex {
                 index: l,
                 other: v1,
@@ -253,29 +282,27 @@ impl<N, E, F> PlanarMap<N, E, F> {
     }
 
     pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
-        self.vertices.contains_key(&v)
+        self.vertices.is_valid_index(&v)
     }
 
     pub fn is_valid_edge(&self, e: &EdgeI) -> bool {
-        self.edges.contains_key(&e)
+        self.edges.is_valid_index(&e)
     }
 
     pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
-        match self.vertices.get(&v1) {
-            Some(v) =>  match v.neighbors.iter().find(|nb| nb.other == v2) {
-                Some(nb) => Some(nb.edge),
-                None => None
-            }
+        let v = self.vertices.get(&v1);
+        match v.neighbors.iter().find(|nb| nb.other == v2) {
+            Some(nb) => Some(nb.edge),
             None => None
         }
     }
 
-    pub fn is_empty(&self) -> bool { self.vertices.is_empty() }
-    pub fn is_singleton(&self) -> bool { self.vertices.len() == 1 }
+    pub fn is_empty(&self) -> bool { self.vertices.get_map().is_empty() }
+    pub fn is_singleton(&self) -> bool { self.vertices.get_map().len() == 1 }
 
     pub fn is_simple(&self) -> bool {
-        let loops = self.edges.values().any(|e| e.is_loop());
-        let double_edges = self.edges.values().unique().count() < self.edges.len();
+        let loops = self.edges.get_map().values().any(|e| e.is_loop());
+        let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
 
         !loops && !double_edges
     }
@@ -292,7 +319,7 @@ impl<N, E, F> PlanarMap<N, E, F> {
             let v = to_visit.remove(to_visit.len() - 1);
             visited.insert(v);
 
-            for nb in &self.vertices.get(v).unwrap().neighbors {
+            for nb in &self.vertices.get(v).neighbors {
                 let v = &nb.other;
                 if !visited.contains(&v) {
                     to_visit.push(v);
@@ -300,25 +327,25 @@ impl<N, E, F> PlanarMap<N, E, F> {
             }
         }
 
-        visited.len() == self.vertices.len()
+        visited.len() == self.vertices.get_map().len()
     }
 
     /// Unchecked retrieval of the edge struct for a given edge index
     fn edge(&self, e: EdgeI) -> &Edge<E> {
-        self.edges.get(&e).unwrap()
+        self.edges.get(&e)
     }
 
     fn edge_mut(&mut self, e: EdgeI) -> &mut Edge<E> {
-        self.edges.get_mut(&e).unwrap()
+        self.edges.get_mut(&e)
     }
 
     fn face(&self, f: FaceI) -> &Face<F> {
-        self.faces.get(&f).unwrap()
+        self.faces.get(&f)
     }
 
     /// Unchecked retrieval of the vertex struct for a given vertex index
     fn vertex(&self, v: VertexI) -> &Vertex<N> {
-        self.vertices.get(&v).unwrap()
+        self.vertices.get(&v)
     }
 
     /// Unchecked retrieval of signum
@@ -375,8 +402,8 @@ impl<N, E, F> PlanarMap<N, E, F> {
             return Err(String::from(format!("Invalid vertex index found, {} for instance.", v.0)));
         }
 
-        let n = self.vertices.len() as isize;
-        let m = self.edges.len() as isize;
+        let n = self.vertices.get_map().len() as isize;
+        let m = self.edges.get_map().len() as isize;
         let f = faces.len() as isize;
 
         if n - m + f != 2 {
@@ -412,15 +439,16 @@ impl<N, E, F> PlanarMap<N, E, F> {
         }
 
         // check if each edge occurs exactly twice, one time as (a,b), one time as (b,a)
-        if fwd_occurence.len() < self.edges.len() {
+        if fwd_occurence.len() < self.edges.get_map().len() {
             return Err(String::from("It is wrong forwardly"));
         }
-        if backwd_occurence.len() < self.edges.len() {
+        if backwd_occurence.len() < self.edges.get_map().len() {
             return Err(String::from("It is wrong backwardly"));
         }
 
         // check if all vertices have a well-defined total order on their neighbors now
-        for v in self.vertices.values_mut() {
+        for i in self.vertices.get_map().keys().copied().collect_vec() {
+            let mut v = self.vertices.get_mut(&i);
             let vertex_angles = angles.get(&v.id).unwrap();
 
             if vertex_angles.len() != v.neighbors.len() {
@@ -463,16 +491,8 @@ impl<N, E, F> PlanarMap<N, E, F> {
         // create face structs and set left_/right_face of edges
         for (face_cycle_vec, weight) in faces {
             let l = face_cycle_vec.len();
-            let id = FaceI(self.free_face_index);
-
-            let f = Face {
-                id, angles: face_cycle_vec.clone(), weight
-            };
-
-            self.faces.insert(id, f);
-            while self.faces.contains_key(&FaceI(self.free_face_index)) {
-                self.free_face_index += 1;
-            }
+            let f = Face { id: FaceI(0), angles: face_cycle_vec.clone(), weight };
+            let id = self.faces.retrieve_index(f);
 
             for i in 0..l {
                 let v1 = face_cycle_vec[i];

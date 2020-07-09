@@ -2,7 +2,7 @@ use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::Itertools;
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::schnyder::SchnyderEdgeDirection::{UnicoloredBackward, UnicoloredForward, Bicolored, Black};
+use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored, Black};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::graph::Signum::{Forward, Backward};
 use std::collections::HashSet;
@@ -41,9 +41,24 @@ pub enum SchnyderVertexType {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SchnyderEdgeDirection {
     Black,
-    UnicoloredForward(SchnyderColor),
-    UnicoloredBackward(SchnyderColor),
+    Unicolored(SchnyderColor, Signum),
     Bicolored(SchnyderColor, SchnyderColor)
+}
+
+impl SchnyderEdgeDirection {
+    pub fn is_unicolored(&self) -> bool {
+        match self {
+            Unicolored(_, _) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_bicolored(&self) -> bool {
+        match self {
+            Bicolored(_, _) => true,
+            _ => false
+        }
+    }
 }
 
 pub trait SchnyderVertex {
@@ -56,12 +71,11 @@ pub trait SchnyderEdge {
     fn set_direction(&mut self, d: SchnyderEdgeDirection);
 }
 
-impl<N: SchnyderVertex, E: SchnyderEdge, F> PlanarMap<N, E, F> {
+impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
 
     pub fn color(&self, e: &Edge<E>, sig: Signum) -> Option<SchnyderColor> {
         return match e.weight.get_direction() {
-            UnicoloredForward(c) => match sig { Forward => Some(c), Backward => None},
-            UnicoloredBackward(c) => match sig { Forward => None, Backward => Some(c)},
+            Unicolored(c, s) => if sig == s { Some(c) } else { None }
             Bicolored(fwd_c, bwd_c) => match sig { Forward => Some(fwd_c), Backward => Some(bwd_c)},
             Black => None
         }
@@ -82,20 +96,41 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F> PlanarMap<N, E, F> {
     }
 
     pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<SplitDirection> {
-        let source = self.edge(source);
-        let target = self.edge(target);
+        let knee = self.get_knee(source, target);
 
-        let vertex_intersection = vec![source.tail, source.head].intersect(vec![target.tail, target.head]);
-        match vertex_intersection.len() {
-            0 => return None,
-            1 => {},
-            _ => panic!("assertion failed")
-        };
+        if let Some((v, nb1, nb2)) = knee {
 
-        let source_signum = source.get_signum_by_tail(vertex_intersection[0]);
-        let target_signum = target.get_signum_by_tail(vertex_intersection[0]);
+            let source_edge = self.edge(source);
+            let target_edge = self.edge(target);
+            let (source_nb, target_nb) = if source == nb1.edge { (nb1, nb2) } else { (nb2, nb1) };
 
-        return None;
+            // both edges involved must be unicolored
+            if !source_edge.weight.get_direction().is_unicolored() || !target_edge.weight.get_direction().is_unicolored {
+                return None;
+            }
+
+            let source_color = self.outgoing_color(source_nb);
+            let target_color = self.incoming_color(target_nb);
+
+            // source edge must be outgoing, target edge must be incoming
+            if source_color == None || target_color == None {
+                return None;
+            }
+
+            //self.remove_embedded_edge(source); not implemented yet
+            let signum = target_edge.get_signum_by_tail(v.id);
+
+            match signum {
+                Forward => self.edge_mut(target).weight.set_direction(Bicolored(source_color, target_color)),
+                Backward => self.edge_mut(target).weight.set_direction(Bicolored(target_color, source_color))
+            }
+
+
+            return None;
+        } else {
+            return None;
+        }
+
     }
 
     pub fn merge(&mut self, source: EdgeI, target: EdgeI) {
@@ -116,7 +151,7 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F> PlanarMap<N, E, F> {
     pub fn check_wood(&self) -> bool {
 
         // check for 3 suspension vertices
-        let colors: Vec<_> = self.vertices.values().filter_map(|v| {
+        let colors: Vec<_> = self.vertices.get_map().values().filter_map(|v| {
             match v.weight.get_type() {
                 Suspension(c) => Some(c),
                 _ => None
@@ -128,17 +163,19 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F> PlanarMap<N, E, F> {
         }
 
         // check if every bicolored edge has two distinct colors
-        if self.edges.values().any(|nb| match nb.weight.get_direction() { Bicolored(a, b) if a == b => true, _ => false}) {
+        if self.edges.get_map().values()
+            .any(|nb| match nb.weight.get_direction()
+                { Bicolored(a, b) if a == b => true, _ => false}) {
             return false;
         }
 
         // check no black edges
-        if self.edges.values().any(|nb|match nb.weight.get_direction() { Black => true, _ => false}) {
+        if self.edges.get_map().values().any(|nb|match nb.weight.get_direction() { Black => true, _ => false}) {
             return false;
         }
 
         // check vertex rule
-        for v in self.vertices.values() {
+        for v in self.vertices.get_map().values() {
             let l = v.neighbors.len();
 
             let begin_sector = match v.weight.get_type() {
@@ -189,7 +226,7 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F> PlanarMap<N, E, F> {
         }
 
         // check face cycle rule
-        for f in self.faces.values() {
+        for f in self.faces.get_map().values() {
             let l = f.angles.len();
             let mut fwd_colors = HashSet::new();
             let mut bwd_colors = HashSet::new();
