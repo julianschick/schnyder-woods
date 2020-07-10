@@ -1,12 +1,14 @@
 use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
-use itertools::Itertools;
+use itertools::{Itertools, Merge};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored, Black};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::graph::Signum::{Forward, Backward};
 use std::collections::HashSet;
 use array_tool::vec::Intersect;
+use crate::graph::schnyder::SplitDirection::{CCW, CW};
+use std::io::Split;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
@@ -71,6 +73,15 @@ pub trait SchnyderEdge {
     fn set_direction(&mut self, d: SchnyderEdgeDirection);
 }
 
+struct MergeData<'a, N, E> {
+    v: &'a Vertex<N>,
+    source_edge: &'a Edge<E>,
+    target_edge: &'a Edge<E>,
+    source_nb: &'a NbVertex,
+    target_nb: &'a NbVertex,
+    split_direction: SplitDirection
+}
+
 impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
 
     pub fn color(&self, e: &Edge<E>, sig: Signum) -> Option<SchnyderColor> {
@@ -95,17 +106,21 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
         self.color(self.edge(nb.edge), match nb.end { Tail => Backward, Head => Forward})
     }
 
-    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<SplitDirection> {
+    fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> Option<MergeData<N, E>> {
         let knee = self.get_knee(source, target);
 
         if let Some((v, nb1, nb2)) = knee {
 
             let source_edge = self.edge(source);
             let target_edge = self.edge(target);
-            let (source_nb, target_nb) = if source == nb1.edge { (nb1, nb2) } else { (nb2, nb1) };
+            let split_direction = if source == nb1.edge { CW } else { CCW };
+            let (source_nb, target_nb) = match split_direction {
+                CW => (nb1, nb2),
+                CCW => (nb2, nb1)
+            };
 
             // both edges involved must be unicolored
-            if !source_edge.weight.get_direction().is_unicolored() || !target_edge.weight.get_direction().is_unicolored {
+            if !source_edge.weight.get_direction().is_unicolored() || !target_edge.weight.get_direction().is_unicolored() {
                 return None;
             }
 
@@ -117,24 +132,26 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
                 return None;
             }
 
-            //self.remove_embedded_edge(source); not implemented yet
-            let signum = target_edge.get_signum_by_tail(v.id);
-
-            match signum {
-                Forward => self.edge_mut(target).weight.set_direction(Bicolored(source_color, target_color)),
-                Backward => self.edge_mut(target).weight.set_direction(Bicolored(target_color, source_color))
-            }
-
-
-            return None;
+            return Some(MergeData {
+                v, source_edge, target_edge, source_nb, target_nb, split_direction
+            });
         } else {
             return None;
         }
-
     }
 
-    pub fn merge(&mut self, source: EdgeI, target: EdgeI) {
+    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<SplitDirection> {
+        self.assemble_merge_data(source, target).map(|d| d.split_direction)
+    }
 
+    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> bool {
+        let data = match self.assemble_merge_data(source, target) {
+            Some(d) => d,
+            None => return false
+        };
+
+
+        return true;
     }
 
     pub fn splittable(&self, e: EdgeI) -> bool {

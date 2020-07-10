@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use crate::graph::EdgeEnd::{Head, Tail};
 use crate::graph::Signum::{Forward, Backward};
 use crate::graph::guarded_map::{GuardedMap, Index, Ideable};
-
+use crate::util::cyclic_iterator::cyclic_iterator;
 pub mod schnyder;
 mod guarded_map;
 
@@ -177,6 +177,56 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
+    pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
+        self.vertices.is_valid_index(&v)
+    }
+
+    pub fn is_valid_edge(&self, e: &EdgeI) -> bool {
+        self.edges.is_valid_index(&e)
+    }
+
+    pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
+        let v = self.vertices.get(&v1);
+        match v.neighbors.iter().find(|nb| nb.other == v2) {
+            Some(nb) => Some(nb.edge),
+            None => None
+        }
+    }
+
+    pub fn is_empty(&self) -> bool { self.vertices.get_map().is_empty() }
+
+    pub fn is_singleton(&self) -> bool { self.vertices.get_map().len() == 1 }
+
+    pub fn is_simple(&self) -> bool {
+        let loops = self.edges.get_map().values().any(|e| e.is_loop());
+        let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
+
+        !loops && !double_edges
+    }
+
+    pub fn is_connected(&self) -> bool {
+        if self.is_empty() || self.is_singleton() {
+            return true;
+        }
+
+        let mut visited = HashSet::new();
+        let mut to_visit = vec![&VertexI(0)];
+
+        while !to_visit.is_empty() {
+            let v = to_visit.remove(to_visit.len() - 1);
+            visited.insert(v);
+
+            for nb in &self.vertices.get(v).neighbors {
+                let v = &nb.other;
+                if !visited.contains(&v) {
+                    to_visit.push(v);
+                }
+            }
+        }
+
+        visited.len() == self.vertices.get_map().len()
+    }
+
     pub fn add_vertex(&mut self, weight: N) -> VertexI {
         let v = Vertex {
             id: VertexI(0), neighbors: Vec::new(), weight
@@ -185,6 +235,43 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let index = self.vertices.retrieve_index(v);
         self.vertices.get_mut(&index).id = index;
         return index;
+    }
+
+    pub fn add_edge(&mut self, v1: VertexI, v2: VertexI, weight: E) -> Result<EdgeI, &str> {
+        if self.enforce_simple {
+            if v1 == v2 {
+                return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
+            }
+            if let Some(nb) = self.vertices.get(&v1).get_nb(v2) {
+                return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
+            }
+        }
+
+        let e = Edge { id : EdgeI(0), tail: v1, head: v2, weight, left_face: None, right_face: None };
+        let id = self.edges.retrieve_index(e);
+
+        // v1 --> v2 (v1 = tail, v2 = head)
+        let l = self.vertex(v1).neighbors.len();
+        self.vertices.get_mut(&v1).neighbors.push(
+            NbVertex {
+                index: l,
+                other: v2,
+                edge: id,
+                end: Tail
+            }
+        );
+
+        let l = self.vertex(v2).neighbors.len();
+        self.vertices.get_mut(&v2).neighbors.push(
+            NbVertex {
+                index: l,
+                other: v1,
+                edge: id,
+                end: Head
+            }
+        );
+
+        return Ok(id);
     }
 
     pub fn add_embedded_edge(&mut self, v1: VertexI, v2: VertexI, weight: E, face: FaceI) -> EdgeI {
@@ -244,155 +331,63 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn add_edge(&mut self, v1: VertexI, v2: VertexI, weight: E) -> Result<EdgeI, &str> {
-        if self.enforce_simple {
-            if v1 == v2 {
-                return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
-            }
-            if let Some(nb) = self.vertices.get(&v1).get_nb(v2) {
-                return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
-            }
-        }
-
-        let e = Edge { id : EdgeI(0), tail: v1, head: v2, weight, left_face: None, right_face: None };
-        let id = self.edges.retrieve_index(e);
-
-        // v1 --> v2 (v1 = tail, v2 = head)
-        let l = self.vertex(v1).neighbors.len();
-        self.vertices.get_mut(&v1).neighbors.push(
-            NbVertex {
-                index: l,
-                other: v2,
-                edge: id,
-                end: Tail
-            }
-        );
-
-        let l = self.vertex(v2).neighbors.len();
-        self.vertices.get_mut(&v2).neighbors.push(
-            NbVertex {
-                index: l,
-                other: v1,
-                edge: id,
-                end: Head
-            }
-        );
-
-        return Ok(id);
-    }
-
-    pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
-        self.vertices.is_valid_index(&v)
-    }
-
-    pub fn is_valid_edge(&self, e: &EdgeI) -> bool {
-        self.edges.is_valid_index(&e)
-    }
-
-    pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
-        let v = self.vertices.get(&v1);
-        match v.neighbors.iter().find(|nb| nb.other == v2) {
-            Some(nb) => Some(nb.edge),
-            None => None
-        }
-    }
-
-    pub fn is_empty(&self) -> bool { self.vertices.get_map().is_empty() }
-    pub fn is_singleton(&self) -> bool { self.vertices.get_map().len() == 1 }
-
-    pub fn is_simple(&self) -> bool {
-        let loops = self.edges.get_map().values().any(|e| e.is_loop());
-        let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
-
-        !loops && !double_edges
-    }
-
-    pub fn is_connected(&self) -> bool {
-        if self.is_empty() || self.is_singleton() {
-            return true;
-        }
-
-        let mut visited = HashSet::new();
-        let mut to_visit = vec![&VertexI(0)];
-
-        while !to_visit.is_empty() {
-            let v = to_visit.remove(to_visit.len() - 1);
-            visited.insert(v);
-
-            for nb in &self.vertices.get(v).neighbors {
-                let v = &nb.other;
-                if !visited.contains(&v) {
-                    to_visit.push(v);
-                }
-            }
-        }
-
-        visited.len() == self.vertices.get_map().len()
-    }
-
-    /// Unchecked retrieval of the edge struct for a given edge index
-    fn edge(&self, e: EdgeI) -> &Edge<E> {
-        self.edges.get(&e)
-    }
-
-    fn edge_mut(&mut self, e: EdgeI) -> &mut Edge<E> {
-        self.edges.get_mut(&e)
-    }
-
-    fn face(&self, f: FaceI) -> &Face<F> {
-        self.faces.get(&f)
-    }
-
-    /// Unchecked retrieval of the vertex struct for a given vertex index
-    fn vertex(&self, v: VertexI) -> &Vertex<N> {
-        self.vertices.get(&v)
-    }
-
-    /// Unchecked retrieval of signum
-    fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> Signum {
-        self.edge(e).get_signum(v1, v2)
-    }
-
-    fn get_knee(&self, e1: EdgeI, e2: EdgeI) -> Option<(&Vertex<N>, &NbVertex, &NbVertex)> {
-        if !self.embedded {
-            panic!("no embedding given");
-        }
-
-        let e1 = self.edge(e1);
-        let e2 = self.edge(e2);
-
-        let vertex_intersection = vec![e1.tail, e1.head].intersect(vec![e2.tail, e2.head]);
-        match vertex_intersection.len() {
-            0 => return None,
-            1 => {},
-            _ => panic!("assertion failed")
+    fn remove_edge_(&mut self, v1: VertexI, v2: VertexI) -> Option<Edge<E>> {
+        let eid = match self.get_edge(v1, v2) {
+            Some(eid) => eid,
+            None => return None
         };
 
-        let e1_signum = e1.get_signum_by_tail(vertex_intersection[0]);
-        let e2_signum = e2.get_signum_by_tail(vertex_intersection[0]);
+        let e = self.edges.free_index(&eid).unwrap();
 
-        let v = self.vertex(vertex_intersection[0]);
-
-        let nb1 = v.get_nb(e1.get_other(v.id)).unwrap();
-        let nb2 = v.get_nb(e2.get_other(v.id)).unwrap();
-        let l = v.neighbors.len();
-
-        if l < 3 { panic!("knee not uniquely determined"); }
-
-        if (nb1.index + 1) % l == nb2.index {
-            return Some((v, nb1, nb2));
+        {
+            let mut v1_vertex = self.vertex_mut(v1);
+            v1_vertex.neighbors.retain(|nb| nb.other != v2);
+        }
+        {
+            let mut v2_vertex = self.vertex_mut(v2);
+            v2_vertex.neighbors.retain(|nb|nb.other != v1);
         }
 
-        if (nb2.index + 1) % l == nb1.index {
-            return Some((v, nb2, nb1));
-        }
+        return Some(e);
+    }
 
-        return None;
+    pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
+        self.remove_edge_(v1, v2).map(|e|e.id)
+    }
+
+    pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &Fn(F, F) -> F) -> Option<EdgeI> {
+        let e = match self.remove_edge_(v1, v2) {
+            Some(e) => e,
+            None => return None,
+        };
+
+        // two faces must be merged
+        let left_face = self.faces.free_index(&e.left_face.unwrap()).unwrap();
+        let right_face = self.faces.free_index(&e.right_face.unwrap()).unwrap();
+
+        let weight = merge_weights(left_face.weight, right_face.weight);
+
+        let right_tail_pos = right_face.angles.iter().position(|vid|*vid == e.tail).unwrap();
+        let left_head_pos = left_face.angles.iter().position(|vid|*vid == e.head).unwrap();
+
+        let i = cyclic_iterator(&right_face.angles, right_tail_pos).unwrap();
+
+        let mut cycle = i.collect();
+
+
+        let f = Face {
+            id: FaceI(0),
+            angles: cycle,
+            weight
+        };
+
+
+        return Some(e.id);
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
-    /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
-    /// specifying the order of vertices around the face in counterclockwise direction.
+  /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
+  /// specifying the order of vertices around the face in counterclockwise direction.
     pub fn set_embedding(&mut self, faces: Vec<(Vec<VertexI>, F)>) -> Result<(), String> {
         if !(self.is_simple() && self.is_connected()) {
             return Err(String::from("Embeddings can only be set if the graph is simple and connected"));
@@ -509,6 +504,70 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         self.embedded = true;
         Ok(())
+    }
+
+    /// Unchecked retrieval of the edge struct for a given edge index
+    fn edge(&self, e: EdgeI) -> &Edge<E> {
+        self.edges.get(&e)
+    }
+
+    fn edge_mut(&mut self, e: EdgeI) -> &mut Edge<E> {
+        self.edges.get_mut(&e)
+    }
+
+    fn face(&self, f: FaceI) -> &Face<F> {
+        self.faces.get(&f)
+    }
+
+    /// Unchecked retrieval of the vertex struct for a given vertex index
+    fn vertex(&self, v: VertexI) -> &Vertex<N> {
+        self.vertices.get(&v)
+    }
+
+    fn vertex_mut(&mut self, v: VertexI) -> &mut Vertex<N> {
+        self.vertices.get_mut(&v)
+    }
+
+    /// Unchecked retrieval of signum
+    fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> Signum {
+        self.edge(e).get_signum(v1, v2)
+    }
+
+    fn get_knee(&self, e1: EdgeI, e2: EdgeI) -> Option<(&Vertex<N>, &NbVertex, &NbVertex)> {
+        if !self.embedded {
+            panic!("no embedding given");
+        }
+
+        let e1 = self.edge(e1);
+        let e2 = self.edge(e2);
+
+        let vertex_intersection = vec![e1.tail, e1.head].intersect(vec![e2.tail, e2.head]);
+        match vertex_intersection.len() {
+            0 => return None,
+            1 => {},
+            _ => panic!("assertion failed")
+        };
+
+        let e1_signum = e1.get_signum_by_tail(vertex_intersection[0]);
+        let e2_signum = e2.get_signum_by_tail(vertex_intersection[0]);
+
+        let v = self.vertex(vertex_intersection[0]);
+
+        let nb1 = v.get_nb(e1.get_other(v.id)).unwrap();
+        let nb2 = v.get_nb(e2.get_other(v.id)).unwrap();
+        let l = v.neighbors.len();
+
+        if l < 3 { panic!("knee not uniquely determined"); }
+
+        if (nb1.index + 1) % l == nb2.index {
+            return Some((v, nb1, nb2));
+        }
+
+        if (nb2.index + 1) % l == nb1.index {
+            return Some((v, nb2, nb1));
+        }
+
+        return None;
     }
 
 }

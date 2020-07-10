@@ -10,6 +10,7 @@ use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection};
 use crate::graph::Signum::Forward;
 
 mod graph;
+mod util;
 
 struct SchnyderVertex {
     pub kind: SchnyderVertexType
