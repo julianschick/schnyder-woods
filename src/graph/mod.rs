@@ -1,12 +1,16 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use itertools::Itertools;
+use itertools::{Itertools, any, merge};
 use array_tool::vec::Intersect;
 use std::cell::RefCell;
 use crate::graph::EdgeEnd::{Head, Tail};
 use crate::graph::Signum::{Forward, Backward};
 use crate::graph::guarded_map::{GuardedMap, Index, Ideable};
-use crate::util::cyclic_iterator::cyclic_iterator;
+use crate::util::iterators::cyclic::{CyclicIterable};
+use crate::graph::ClockDirection::{CW, CCW};
+use std::fmt::{Debug, Formatter};
+use core::fmt;
+
 pub mod schnyder;
 mod guarded_map;
 
@@ -42,6 +46,11 @@ pub enum Signum {
     Forward, Backward
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ClockDirection {
+    CW, CCW
+}
+
 impl Signum {
     pub fn reversed(&self) -> Self {
         match self {
@@ -72,6 +81,13 @@ impl<E> Edge<E> {
         self.tail == self.head
     }
 
+    pub fn get_vertex(&self, end: EdgeEnd) -> VertexI {
+        match end {
+            Head => self.head,
+            Tail => self.tail
+        }
+    }
+
     pub fn get_signum_by_tail(&self, v1: VertexI) -> Signum {
         if self.is_loop() {
             panic!("signum not defined")
@@ -95,8 +111,13 @@ impl<E> Edge<E> {
             panic!("Forward check assertion failed");
         }
     }
-
 }
+
+/*impl<E> Debug for Edge<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "v[{}] ==========> v[{}]", self.tail.0, self.head.0)
+    }
+}*/
 
 impl<E> PartialEq for Edge<E> {
     fn eq(&self, other: &Self) -> bool {
@@ -227,7 +248,25 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         visited.len() == self.vertices.get_map().len()
     }
 
+    pub fn is_embedded(&self) -> bool { self.embedded }
+
+    pub fn edge_count(&self) -> usize { self.edges.get_map().len() }
+
+    pub fn vertex_count(&self) -> usize { self.vertices.get_map().len() }
+
+    pub fn face_count(&self) -> usize {
+        if !self.embedded {
+            panic!("not embedded");
+        }
+
+        self.faces.get_map().len()
+    }
+
     pub fn add_vertex(&mut self, weight: N) -> VertexI {
+        if self.embedded {
+            panic!("superplanar operation on embedded graph.");
+        }
+
         let v = Vertex {
             id: VertexI(0), neighbors: Vec::new(), weight
         };
@@ -238,11 +277,20 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn add_edge(&mut self, v1: VertexI, v2: VertexI, weight: E) -> Result<EdgeI, &str> {
+        if self.embedded {
+            panic!("superplanar operation on embedded graph.")
+        }
+
+        return self.add_edge_(v1, v2, weight);
+    }
+
+    fn add_edge_(&mut self, v1: VertexI, v2: VertexI, weight: E) -> Result<EdgeI, &str> {
+
         if self.enforce_simple {
             if v1 == v2 {
                 return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
-            if let Some(nb) = self.vertices.get(&v1).get_nb(v2) {
+            if let Some(_) = self.vertices.get(&v1).get_nb(v2) {
                 return Err("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
         }
@@ -275,55 +323,71 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn add_embedded_edge(&mut self, v1: VertexI, v2: VertexI, weight: E, face: FaceI) -> EdgeI {
-        let f = self.face(face);
-
-        let pos1 = f.angles.iter().position(|v| v == &v1);
-        let pos2 = f.angles.iter().position(|v| v == &v2);
-        let l = f.angles.len();
-
-        if !(pos1.is_some() && pos2.is_some()) {
-            panic!("invalid face for insertion");
+        if !self.embedded {
+            panic!("no embedding given");
         }
 
-        if let Ok(e) = self.add_edge(v1, v2, weight) {
+        let f = self.face(face);
+
+        let (pos1, pos2, nb_index_1, nb_index_2) = {
+            let knee1 = match self.get_knee_by_face(face, v1) {
+                Some(k) => k,
+                None => panic!("invalid face for insertion")
+            };
+            let knee2 = match self.get_knee_by_face(face, v2) {
+                Some(k) => k,
+                None => panic!("invalid face for insertion")
+            };
+            (knee1.1, knee2.1, knee1.3.index, knee2.3.index)
+        };
+
+        if let Ok(e) = self.add_edge_(v1, v2, weight) {
+
+            // NbVertex structs were added at the end, which is not correct
+            {
+                let v1_mut = self.vertex_mut(v1);
+                let nb = v1_mut.neighbors.pop().unwrap();
+                v1_mut.neighbors.insert(nb_index_1, nb);
+                self.restore_nb_indices(v1);
+
+                let v2_mut = self.vertex_mut(v2);
+                let nb = v2_mut.neighbors.pop().unwrap();
+                v2_mut.neighbors.insert(nb_index_2, nb);
+                self.restore_nb_indices(v2);
+            }
 
             let old_face = self.faces.free_index(&face).unwrap();
 
-            let mut cycle1 = Vec::new();
-            let mut cycle2 = Vec::new();
-
-            let mut i = pos1.unwrap();
-            while i != pos2.unwrap() {
-                cycle1.push(old_face.angles[i]);
-                i = (i+1) % l;
-            }
-            cycle1.push(old_face.angles[pos2.unwrap()]);
-
-            i = pos2.unwrap();
-            while i != pos1.unwrap() {
-                cycle2.push(old_face.angles[i]);
-                i = (i+1) % l;
-            }
-            cycle2.push(old_face.angles[pos1.unwrap()]);
-
-            let f1 = Face {
+            let mut f1 = Face {
                 id: FaceI(0),
                 weight: old_face.weight.clone(),
-                angles: cycle1
+                angles: Vec::new()
             };
 
-            let f2 = Face {
+            let mut f2 = Face {
                 id: FaceI(0),
                 weight: old_face.weight.clone(),
-                angles: cycle2
+                angles: Vec::new()
             };
 
-            let id1 = self.faces.retrieve_index(f1);
-            let id2 = self.faces.retrieve_index(f2);
+            for &vid in old_face.angles.cycle(pos1, false) {
+                f1.angles.push(vid);
+                if vid == v2 { break }
+            }
 
-            self.edges.get_mut(&e).right_face = Some(id1);
-            self.edges.get_mut(&e).left_face = Some(id2);
+            for &vid in old_face.angles.cycle(pos2, false) {
+                f2.angles.push(vid);
+                if vid == v1 { break }
+            }
 
+            let fid1 = self.faces.retrieve_index(f1);
+            let fid2 = self.faces.retrieve_index(f2);
+
+            //self.edges.get_mut(&e).right_face = Some(id1);
+            //self.edges.get_mut(&e).left_face = Some(id2);
+
+            self.restore_face_refs(fid1);
+            self.restore_face_refs(fid2);
 
             return e;
         } else {
@@ -338,24 +402,33 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         };
 
         let e = self.edges.free_index(&eid).unwrap();
+        self.vertex_mut(v1).neighbors.retain(|nb| nb.other != v2);
+        self.vertex_mut(v2).neighbors.retain(|nb|nb.other != v1);
 
-        {
-            let mut v1_vertex = self.vertex_mut(v1);
-            v1_vertex.neighbors.retain(|nb| nb.other != v2);
-        }
-        {
-            let mut v2_vertex = self.vertex_mut(v2);
-            v2_vertex.neighbors.retain(|nb|nb.other != v1);
-        }
+        self.restore_nb_indices(v1);
+        self.restore_nb_indices(v2);
 
         return Some(e);
     }
 
     pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
+        if self.embedded {
+            panic!("superplanar operation on embedded graph.")
+        }
+
         self.remove_edge_(v1, v2).map(|e|e.id)
     }
 
-    pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &Fn(F, F) -> F) -> Option<EdgeI> {
+    pub fn remove_embedded_edge_by_id(&mut self, eid: EdgeI, merge_weights: &Fn(F, F) -> F) -> Option<(EdgeI, FaceI)> {
+        let e = self.edge(eid);
+        self.remove_embedded_edge(e.tail, e.head, merge_weights)
+    }
+
+    pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &Fn(F, F) -> F) -> Option<(EdgeI, FaceI)> {
+        if !self.embedded {
+            panic!("no embedding given");
+        }
+
         let e = match self.remove_edge_(v1, v2) {
             Some(e) => e,
             None => return None,
@@ -370,24 +443,130 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let right_tail_pos = right_face.angles.iter().position(|vid|*vid == e.tail).unwrap();
         let left_head_pos = left_face.angles.iter().position(|vid|*vid == e.head).unwrap();
 
-        let i = cyclic_iterator(&right_face.angles, right_tail_pos).unwrap();
-
-        let mut cycle = i.collect();
-
+        let mut cycle: Vec<_> = right_face.angles.cycle(right_tail_pos, false).skip(1).collect();
+        cycle.extend(left_face.angles.cycle(left_head_pos, false).skip(1));
 
         let f = Face {
             id: FaceI(0),
-            angles: cycle,
+            angles: cycle.into_iter().copied().collect(),
             weight
         };
 
+        let fid = self.faces.retrieve_index(f);
+        self.restore_face_refs(fid);
 
-        return Some(e.id);
+        return Some((e.id, fid));
+    }
+
+    pub fn next_edge(&self, vid: VertexI, eid: EdgeI, direction: ClockDirection) -> Option<EdgeI> {
+        let v = self.vertex(vid);
+        let pos = v.neighbors.iter().find(|nb|nb.edge == eid).unwrap().index;
+
+        match direction {
+            CW => v.neighbors.cycle(pos, false).nth(1).map(|nb|nb.edge),
+            CCW => v.neighbors.cycle(pos, false).rev().next().map(|nb|nb.edge)
+        }
+    }
+
+    /// The head vertex remains
+    unsafe fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
+        let s: *mut Self = self;
+
+        let dropped_edge = self.edges.free_index(&eid).unwrap();
+        let dropped_vertex = self.vertices.free_index(&dropped_edge.tail).unwrap();
+
+        let tail = dropped_edge.tail;
+        let head = dropped_edge.head;
+
+        let tail_cw = self.next_edge(dropped_edge.tail, eid, CW);
+        let tail_ccw = self.next_edge(dropped_edge.tail, eid, CCW);
+        let head_cw = self.next_edge(dropped_edge.head, eid, CW);
+        let head_ccw = self.next_edge(dropped_edge.head, eid, CCW);
+
+        if let None = tail_cw.and(tail_ccw).and(head_cw).and(head_ccw) {
+            panic!("No neighbour");
+        }
+
+        let tail_right = self.edge(tail_cw.unwrap());
+        let tail_left = self.edge(tail_ccw.unwrap());
+        let head_right = self.edge(head_ccw.unwrap());
+        let head_left = self.edge(head_cw.unwrap());
+
+        let right_face_collapse = tail_right.get_other(tail) == head_right.get_other(head);
+        let left_face_collapse = tail_left.get_other(tail) == head_left.get_other(head);
+
+        let head_single_edge = head_cw == head_ccw;
+        let tail_single_edge = tail_cw == tail_ccw;
+
+        let right_face_merge: Box<Fn(_,_ )-> _> = match tail_right.get_signum_by_tail(tail) {
+            Forward => Box::new(|a,b| a),
+            Backward => Box::new(|a,b| b)
+        };
+
+        let left_face_merge: Box<Fn(_,_ )-> _> = match tail_left.get_signum_by_tail(tail) {
+            Forward => Box::new(|a,b| b),
+            Backward => Box::new(|a,b| a)
+        };
+
+        if right_face_collapse {
+            let removed_edge = self.edge(self.get_edge(tail, tail_right.get_other(tail)).unwrap());
+            let weight = merge_weights(&removed_edge.weight, &head_right.weight);
+            (*s).edge_mut(head_right.id).weight = weight;
+            (*s).remove_embedded_edge_by_id(removed_edge.id,  &right_face_merge);
+        }
+
+        if left_face_collapse && !tail_single_edge {
+            (*s).remove_embedded_edge(tail, tail_left.get_other(tail),  &left_face_merge);
+        }
+
+        // patch edges at the tail of the contracted edge and their adjacent vertices
+        for nb in self.vertex(tail).neighbors.iter().filter(|nb| nb.other != head) {
+            let patch_e = (*s).edge_mut(nb.edge);
+            let patch_v = match nb.end {
+                Tail => {
+                    patch_e.tail = head;
+                    (*s).vertex_mut(patch_e.head)
+                },
+                Head => {
+                    patch_e.head = head;
+                    (*s).vertex_mut(patch_e.tail)
+                }
+            };
+
+            for patch_nb in patch_v.neighbors.iter_mut().filter(|nb|nb.other == tail) {
+                patch_nb.other = head;
+            }
+        }
+
+        // insert the fan of neighbors previously attached to e.tail now to e.head
+        {
+            let mut v = self.vertex_mut(dropped_edge.head);
+            let index = v.get_nb(dropped_edge.tail).unwrap().index;
+            v.neighbors.remove(index);
+            v.neighbors.splice(index..index, dropped_vertex.neighbors.into_iter().filter(|nb| nb.other != dropped_edge.head));
+
+            // restore indices
+            for i in 0..v.neighbors.len() {
+                v.neighbors[i].index = i;
+            }
+        }
+
+        // remove tail vertex from faces adjacent to the contracted edge
+        self.face_mut(dropped_edge.left_face.unwrap()).angles.retain(|v| v != &dropped_edge.tail);
+        self.face_mut(dropped_edge.right_face.unwrap()).angles.retain(|v| v != &dropped_edge.tail);
+
+        // patch angles in faces adjacent to the removed tail vertex
+        for eid in self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.edge).collect_vec() {
+            let f = self.face_mut(self.edge(eid).left_face.unwrap());
+            if let Some((i,_)) = f.angles.iter().find_position(|v| v == &&dropped_edge.tail) {
+                f.angles[i] = dropped_edge.head;
+            }
+        }
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
-  /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
-  /// specifying the order of vertices around the face in counterclockwise direction.
+    /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
+    /// specifying the order of vertices around the face in counterclockwise direction.
     pub fn set_embedding(&mut self, faces: Vec<(Vec<VertexI>, F)>) -> Result<(), String> {
         if !(self.is_simple() && self.is_connected()) {
             return Err(String::from("Embeddings can only be set if the graph is simple and connected"));
@@ -519,6 +698,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get(&f)
     }
 
+    fn face_mut(&mut self, f: FaceI) -> &mut Face<F> {
+        self.faces.get_mut(&f)
+    }
+
     /// Unchecked retrieval of the vertex struct for a given vertex index
     fn vertex(&self, v: VertexI) -> &Vertex<N> {
         self.vertices.get(&v)
@@ -528,9 +711,65 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.vertices.get_mut(&v)
     }
 
+    fn restore_nb_indices(&mut self, vid: VertexI) {
+        let v = self.vertex_mut(vid);
+        for i in 0..v.neighbors.len() {
+            v.neighbors[i].index = i;
+        }
+    }
+
+    fn restore_face_refs(&mut self, fid: FaceI) {
+        let face = self.face(fid);
+
+        let boundary_cycle = face.angles.cycle(0, true)
+            .tuple_windows()
+            .map(|(&v1, &v2)| self.get_edge_with_signum(v1, v2))
+            .collect_vec();
+
+        for (eid, signum) in boundary_cycle {
+            match signum {
+                Forward => self.edge_mut(eid).left_face = Some(fid),
+                Backward => self.edge_mut(eid).right_face = Some(fid)
+            }
+        }
+    }
+
+    fn get_edge_with_signum(&self, v1: VertexI, v2: VertexI) -> (EdgeI, Signum) {
+        let e = self.get_edge(v1, v2).unwrap();
+        let signum = self.get_signum(e, v1, v2);
+        (e, signum)
+    }
+
     /// Unchecked retrieval of signum
     fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> Signum {
         self.edge(e).get_signum(v1, v2)
+    }
+
+    /// The order of NbVertex is in face definition order (ccw), or seen from the vertex in cw order.
+    fn get_knee_by_face(&self, fid: FaceI, vid: VertexI) -> Option<(&Vertex<N>, usize, &NbVertex, &NbVertex)> {
+        if !self.embedded {
+            panic!("no embedding given");
+        };
+
+        if !self.face(fid).angles.contains(&vid) {
+            return None;
+        }
+
+        let idx = self.face(fid).angles.iter().position(|&v| v == vid).unwrap();
+        let v = self.vertex(vid);
+
+        let nbs = v.neighbors.iter()
+            .filter(|nb| { let e = self.edge(nb.edge);
+                e.right_face.unwrap() == fid || e.left_face.unwrap() == fid
+            }).collect_vec();
+
+        if nbs.len() == 1 {
+            return Some((v, idx, nbs[0], nbs[0]));
+        } else if nbs.len() == 2 {
+            return Some((v, idx, nbs[0], nbs[1]));
+        } else {
+            panic!("unexpected number of edges");
+        }
     }
 
     fn get_knee(&self, e1: EdgeI, e2: EdgeI) -> Option<(&Vertex<N>, &NbVertex, &NbVertex)> {

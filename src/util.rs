@@ -1,39 +1,66 @@
 
+pub mod iterators {
 
-pub mod cyclic_iterator {
-    pub struct CyclicIterator<'a, T> {
-        inner: &'a Vec<T>,
-        begin: bool,
-        start: usize,
-        pos: usize
-    }
+    pub mod cyclic {
 
-    impl<'a, T> Iterator for CyclicIterator<'a, T> {
-        type Item = &'a T;
+        pub trait CyclicIterable<T> {
+            fn cycle(&self, offset: usize, wrap: bool) -> CyclicIterator<T>;
+        }
 
-        fn next(&mut self) -> Option<Self::Item> {
-            return if self.pos == self.start && !self.begin {
-                None
-            } else {
-                let p = self.pos;
-                self.pos = (self.pos + 1) % self.inner.len();
-                self.begin = false;
+        pub struct CyclicIterator<'a, T> {
+            inner: &'a Vec<T>,
+            left_pos: isize,
+            right_pos: isize,
+            offset: isize
+        }
 
-                Some(&self.inner[p])
+        impl<'a, T> Iterator for CyclicIterator<'a, T> {
+            type Item = &'a T;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                return if self.left_pos > self.right_pos {
+                    None
+                } else {
+                    let p = self.left_pos;
+                    self.left_pos += 1;
+                    Some(&self.inner[((p + self.offset) % self.inner.len() as isize) as usize])
+                }
             }
         }
+
+        impl<'a, T> DoubleEndedIterator for CyclicIterator<'a, T> {
+            fn next_back(&mut self) -> Option<Self::Item> {
+                return if self.left_pos > self.right_pos {
+                    None
+                } else {
+                    let p = self.right_pos;
+                    self.right_pos -= 1;
+                    Some(&self.inner[((p + self.offset) % self.inner.len() as isize) as usize])
+                }
+            }
+        }
+
+        impl<T> CyclicIterable<T> for Vec<T> {
+            fn cycle(&self, start: usize, wrap: bool) -> CyclicIterator<T> {
+                if start < self.len() {
+                    CyclicIterator {
+                        inner: self,
+                        left_pos: 0,
+                        right_pos: if !wrap {
+                            (self.len() - 1) as isize
+                        } else {
+                            self.len() as isize
+                        },
+                        offset: start as isize,
+                    }
+                } else {
+                    panic!("invalid cycle start");
+                }
+            }
+        }
+
     }
 
-    pub fn cyclic_iterator<T>(vec: &Vec<T>, start: usize) -> Option<CyclicIterator<T>> {
-        if start < vec.len() {
-            Some(CyclicIterator {
-                inner: vec,
-                begin: true,
-                start,
-                pos: start
-            })
-        } else {
-            None
-        }
-    }
 }
+
+
