@@ -468,73 +468,80 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
+    pub fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
+        unsafe {
+            self.contract_embedded_edge_(eid, merge_weights);
+        }
+    }
+
     /// The head vertex remains
-    unsafe fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
+    unsafe fn contract_embedded_edge_(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
         let s: *mut Self = self;
+
+        {
+            let e = self.edge(eid);
+
+            let tail_cw = self.next_edge(e.tail, eid, CW);
+            let tail_ccw = self.next_edge(e.tail, eid, CCW);
+            let head_cw = self.next_edge(e.head, eid, CW);
+            let head_ccw = self.next_edge(e.head, eid, CCW);
+
+            if let None = tail_cw.and(tail_ccw).and(head_cw).and(head_ccw) {
+                panic!("No neighbour");
+            }
+
+            let tail_right = self.edge(tail_cw.unwrap());
+            let tail_left = self.edge(tail_ccw.unwrap());
+            let head_right = self.edge(head_ccw.unwrap());
+            let head_left = self.edge(head_cw.unwrap());
+
+            let right_face_collapse = tail_right.get_other(e.tail) == head_right.get_other(e.head);
+            let left_face_collapse = tail_left.get_other(e.tail) == head_left.get_other(e.head);
+
+            let head_single_edge = head_cw == head_ccw;
+            let tail_single_edge = tail_cw == tail_ccw;
+
+            let right_face_merge: Box<Fn(_, _) -> _> = match tail_right.get_signum_by_tail(e.tail) {
+                Forward => Box::new(|a, b| a),
+                Backward => Box::new(|a, b| b)
+            };
+
+            let left_face_merge: Box<Fn(_, _) -> _> = match tail_left.get_signum_by_tail(e.tail) {
+                Forward => Box::new(|a, b| b),
+                Backward => Box::new(|a, b| a)
+            };
+
+            if right_face_collapse {
+                let removed_edge = tail_right;
+                let weight = merge_weights(&removed_edge.weight, &head_right.weight);
+                (*s).edge_mut(head_right.id).weight = weight;
+                (*s).remove_embedded_edge_by_id(removed_edge.id, &right_face_merge);
+            }
+
+            if left_face_collapse && !tail_single_edge {
+                (*s).remove_embedded_edge(e.tail, tail_left.get_other(e.tail), &left_face_merge);
+            }
+        }
 
         let dropped_edge = self.edges.free_index(&eid).unwrap();
         let dropped_vertex = self.vertices.free_index(&dropped_edge.tail).unwrap();
 
-        let tail = dropped_edge.tail;
-        let head = dropped_edge.head;
-
-        let tail_cw = self.next_edge(dropped_edge.tail, eid, CW);
-        let tail_ccw = self.next_edge(dropped_edge.tail, eid, CCW);
-        let head_cw = self.next_edge(dropped_edge.head, eid, CW);
-        let head_ccw = self.next_edge(dropped_edge.head, eid, CCW);
-
-        if let None = tail_cw.and(tail_ccw).and(head_cw).and(head_ccw) {
-            panic!("No neighbour");
-        }
-
-        let tail_right = self.edge(tail_cw.unwrap());
-        let tail_left = self.edge(tail_ccw.unwrap());
-        let head_right = self.edge(head_ccw.unwrap());
-        let head_left = self.edge(head_cw.unwrap());
-
-        let right_face_collapse = tail_right.get_other(tail) == head_right.get_other(head);
-        let left_face_collapse = tail_left.get_other(tail) == head_left.get_other(head);
-
-        let head_single_edge = head_cw == head_ccw;
-        let tail_single_edge = tail_cw == tail_ccw;
-
-        let right_face_merge: Box<Fn(_,_ )-> _> = match tail_right.get_signum_by_tail(tail) {
-            Forward => Box::new(|a,b| a),
-            Backward => Box::new(|a,b| b)
-        };
-
-        let left_face_merge: Box<Fn(_,_ )-> _> = match tail_left.get_signum_by_tail(tail) {
-            Forward => Box::new(|a,b| b),
-            Backward => Box::new(|a,b| a)
-        };
-
-        if right_face_collapse {
-            let removed_edge = self.edge(self.get_edge(tail, tail_right.get_other(tail)).unwrap());
-            let weight = merge_weights(&removed_edge.weight, &head_right.weight);
-            (*s).edge_mut(head_right.id).weight = weight;
-            (*s).remove_embedded_edge_by_id(removed_edge.id,  &right_face_merge);
-        }
-
-        if left_face_collapse && !tail_single_edge {
-            (*s).remove_embedded_edge(tail, tail_left.get_other(tail),  &left_face_merge);
-        }
-
         // patch edges at the tail of the contracted edge and their adjacent vertices
-        for nb in self.vertex(tail).neighbors.iter().filter(|nb| nb.other != head) {
+        for nb in dropped_vertex.neighbors.iter().filter(|nb| nb.other != dropped_edge.head) {
             let patch_e = (*s).edge_mut(nb.edge);
             let patch_v = match nb.end {
                 Tail => {
-                    patch_e.tail = head;
+                    patch_e.tail = dropped_edge.head;
                     (*s).vertex_mut(patch_e.head)
                 },
                 Head => {
-                    patch_e.head = head;
+                    patch_e.head = dropped_edge.head;
                     (*s).vertex_mut(patch_e.tail)
                 }
             };
 
-            for patch_nb in patch_v.neighbors.iter_mut().filter(|nb|nb.other == tail) {
-                patch_nb.other = head;
+            for patch_nb in patch_v.neighbors.iter_mut().filter(|nb|nb.other == dropped_edge.tail) {
+                patch_nb.other = dropped_edge.head;
             }
         }
 
@@ -544,24 +551,94 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let index = v.get_nb(dropped_edge.tail).unwrap().index;
             v.neighbors.remove(index);
             v.neighbors.splice(index..index, dropped_vertex.neighbors.into_iter().filter(|nb| nb.other != dropped_edge.head));
-
-            // restore indices
-            for i in 0..v.neighbors.len() {
-                v.neighbors[i].index = i;
-            }
         }
+        self.restore_nb_indices(dropped_edge.head);
 
         // remove tail vertex from faces adjacent to the contracted edge
         self.face_mut(dropped_edge.left_face.unwrap()).angles.retain(|v| v != &dropped_edge.tail);
         self.face_mut(dropped_edge.right_face.unwrap()).angles.retain(|v| v != &dropped_edge.tail);
 
-        // patch angles in faces adjacent to the removed tail vertex
-        for eid in self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.edge).collect_vec() {
-            let f = self.face_mut(self.edge(eid).left_face.unwrap());
-            if let Some((i,_)) = f.angles.iter().find_position(|v| v == &&dropped_edge.tail) {
-                f.angles[i] = dropped_edge.head;
+        // special case: remaining degree of tail vertex is 1 (<=> left and right face of dropped edge are equal)
+        if dropped_edge.left_face.unwrap() == dropped_edge.right_face.unwrap() {
+            let fid = dropped_edge.left_face.unwrap();
+
+            let pos = self.face(fid).angles.iter().position(|&v| v == dropped_edge.head);
+            self.face_mut(fid).angles.remove(pos.unwrap());
+
+        // normal case
+        } else {
+
+            // patch angles in faces adjacent to the removed tail vertex
+            for eid in self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.edge).collect_vec() {
+                let dir = self.edge(eid).get_signum_by_tail(dropped_edge.head);
+
+                let f = match dir {
+                    Forward => self.face_mut(self.edge(eid).left_face.unwrap()),
+                    Backward => self.face_mut(self.edge(eid).right_face.unwrap())
+                };
+
+                if let Some((i, _)) = f.angles.iter().find_position(|v| v == &&dropped_edge.tail) {
+                    f.angles[i] = dropped_edge.head;
+                }
             }
         }
+    }
+
+    /// Dirty function, can also panic instead of returning false
+    pub fn check_referential_integrity(&self) -> bool {
+
+        let mut edge_count = 0;
+        let mut half_edge_count = 0;
+
+        for v in self.vertices.get_map().values() {
+            for nb in v.neighbors.iter() {
+                half_edge_count += 1;
+                let e = self.edge(nb.edge);
+
+                match nb.end {
+                    Tail => if e.tail != v.id { return false },
+                    Head => if e.head != v.id { return false },
+                };
+
+                self.vertex(e.get_other(v.id));
+            }
+        }
+
+        for e in self.edges.get_map().values() {
+            edge_count += 1;
+            self.vertex(e.tail);
+            self.vertex(e.head);
+        }
+
+        // handshake lemma
+        if half_edge_count != 2 * edge_count {
+            return false;
+        }
+
+        if self.embedded {
+
+            for e in self.edges.get_map().values() {
+                if let Some(f) = e.left_face {
+                    self.face(f);
+                } else {
+                    return false;
+                }
+                if let Some(f) = e.right_face {
+                    self.face(f);
+                } else {
+                    return false;
+                }
+            }
+
+            for f in self.faces.get_map().values() {
+                for &vid in f.angles.iter() {
+                    self.vertex(vid);
+                }
+            }
+
+        }
+
+        return true;
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
@@ -683,6 +760,52 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         self.embedded = true;
         Ok(())
+    }
+
+    pub fn get_dual(&self) -> PlanarMap<FaceI, EdgeI, VertexI> {
+
+        let mut dual_map = PlanarMap::new();
+
+        let mut face_to_vertex = HashMap::new();
+
+        for f in self.faces.get_map().values() {
+            let dual_vid = dual_map.add_vertex(f.id);
+            face_to_vertex.insert(f.id, dual_vid);
+        }
+
+        for (vid, fid) in dual_map.vertices.get_map().values().map(|v| (v.id, v.weight)).collect_vec() {
+            let f = self.face(fid);
+            for (&v1, &v2) in f.angles.cycle(0, true).tuple_windows() {
+                let e = self.edge(self.get_edge(v1, v2).unwrap());
+                let other_face = if f.id == e.left_face.unwrap() {
+                    e.right_face
+                } else {
+                    e.left_face
+                }.unwrap();
+
+                let other_vertex = face_to_vertex.get(&other_face).unwrap();
+
+                dual_map.add_edge(vid, *other_vertex, e.id);
+            }
+        }
+
+        let mut face_cycles = vec![];
+
+        for v in self.vertices.get_map().values() {
+            let cycle = v.neighbors.iter().map(|nb| {
+                let f = match nb.end {
+                    Tail => self.edge(nb.edge).left_face.unwrap(),
+                    Head => self.edge(nb.edge).right_face.unwrap()
+                };
+                *face_to_vertex.get(&f).unwrap()
+            }).collect_vec();
+
+            face_cycles.push((cycle, v.id));
+        }
+
+        dual_map.set_embedding(face_cycles);
+
+        return dual_map;
     }
 
     /// Unchecked retrieval of the edge struct for a given edge index

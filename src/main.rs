@@ -19,6 +19,7 @@ struct SchnyderVertex {
     pub kind: SchnyderVertexType
 }
 
+#[derive(Copy, Clone)]
 struct SchnyderEdge {
     pub direction: SchnyderEdgeDirection
 }
@@ -68,7 +69,6 @@ fn main() {
     map.add_edge(c2, g, SchnyderEdge::new(Unicolored(Green, Forward))).expect("edge");
     let src = map.add_edge(c2, b, SchnyderEdge::new(Unicolored(Blue, Forward))).expect("edge");
 
-
     println!("is_simple() = {}", map.is_simple());
     println!("is_connected() = {}", map.is_connected());
 
@@ -80,23 +80,38 @@ fn main() {
         (vec![c1,b,c2], 5),
         (vec![r,c2,g], 5)
     ]).expect("not");
-
     //map.set_embedding(vec![(vec![r,g,b], 1), (vec![r,b,g], 2)]).expect("not");
-    println!("Embedding set.");
 
-    println!("{}, {}", map.check_wood(), map.edge_count());
-    map.debug();
+    println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );
+    println!("{:?}", map.calculate_face_counts(c1));
+    println!("{:?}", map.calculate_face_counts(c2));
+
+    map.calculate_face_counts(c2);
+    //map.debug();
+
+    //map.contract_embedded_edge(trg, &(|e1, e2| *e1));
+
+    println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );
 
 
-    map.merge(src, trg);
-    println!("-------");
-    map.debug();
-    println!("{}, {}", map.check_wood(), map.edge_count());
+    //map.merge(src, trg);
+    //println!("-------");
+    //map.debug();
+    //println!("{}, {}", map.check_wood(), map.edge_count());
 
-    map.split(trg, CCW, b, SchnyderEdge::new(Black));
-    println!("-------");
-    map.debug();
-    println!("{}, {}", map.check_wood(), map.edge_count());
+    //map.split(trg, CCW, b, SchnyderEdge::new(Black));
+    //println!("-------");
+    //map.debug();
+    //println!("{}, {}", map.check_wood(), map.edge_count());
+
+    let dual = map.get_dual();
+    println!("ref_integrity = {}, check_wood = {}, edge_count = {}", dual.check_referential_integrity(), false, dual.edge_count(), );
+
+    let v:Vec<usize> = vec![1,2,3];
+
+    let v2:Vec<(_,_)> = v.cycle(0, true).tuple_windows().collect_vec();
+
+    println!("{:?}", v2);
 
 
 

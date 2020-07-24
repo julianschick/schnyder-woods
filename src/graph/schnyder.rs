@@ -1,4 +1,4 @@
-use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI, ClockDirection};
+use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI, ClockDirection, FaceI};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::{Itertools, Merge};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
@@ -9,9 +9,11 @@ use std::collections::HashSet;
 use array_tool::vec::Intersect;
 use crate::graph::ClockDirection::{CCW, CW};
 use std::io::{Split, empty};
-use std::ops::Deref;
+use std::ops::{Deref, BitAnd};
 use std::fmt::{Debug, Formatter};
+use std::iter::FromIterator;
 use core::fmt;
+use crate::util::is_in_cyclic_order;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
@@ -127,6 +129,13 @@ struct MergeData<'a, N, E> {
     direction: ClockDirection
 }
 
+struct SplitData {
+    hinge_vid: VertexI,
+    target_vid: VertexI,
+    split_color: SchnyderColor,
+    target_face: FaceI
+}
+
 impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
 
     pub fn debug(&self) {
@@ -182,8 +191,7 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
 
     fn find_outgoing(&self, v: &Vertex<N>, c: SchnyderColor) -> Option<usize> {
         v.neighbors.iter()
-            .find_position(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
-            .map(|(pos, _)| pos)
+            .position(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
     }
 
     pub fn outgoing_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
@@ -249,15 +257,7 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
         return true;
     }
 
-    pub fn splittable(&self, e: EdgeI) -> bool {
-        return match self.edge(e).weight.get_direction() {
-            Bicolored(_, _) => true,
-            _ => false
-        }
-    }
-
-    pub fn split(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI, mut empty_weight: E) {
-
+    fn assemble_split_data(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> Option<SplitData> {
         if let Bicolored(tail_color, head_color) = self.edge(eid).weight.get_direction() {
             let tail_split_dir = if tail_color.next() == head_color {
                 CW
@@ -265,6 +265,7 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
                 CCW
             } else {
                 panic!("invalid bicolored edge");
+                return None;
             };
 
             let fid = match tail_split_dir {
@@ -294,27 +295,131 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
 
                 if (cond_r1 || cond_r2) && (cond_l1 || cond_l2) {
 
-                    empty_weight.set_direction(Unicolored(split_color, Forward));
-                    self.add_embedded_edge(hinge_vid, target_vid, empty_weight, fid.unwrap());
+                    return Some(SplitData {
+                        hinge_vid,
+                        target_vid,
+                        split_color,
+                        target_face: fid.unwrap()
+                    });
 
                 } else {
                     panic!("vertex is not a good parking lot");
+                    return None;
                 }
             }
+        } else {
+            panic!("not bicolored");
+        }
+        return None;
+    }
+
+    pub fn splittable(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> bool {
+        return match self.assemble_split_data(eid, direction, target_vid) {
+            Some(_) => true, None => false
+        }
+    }
+
+    pub fn split(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI, mut empty_weight: E) {
+        if let Some(data) = self.assemble_split_data(eid, direction, target_vid) {
+            empty_weight.set_direction(Unicolored(data.split_color, Forward));
+            self.add_embedded_edge(data.hinge_vid, data.target_vid, empty_weight, data.target_face);
+        } else {
+            panic!("not splittable!");
+        }
+    }
+
+    pub fn calculate_face_counts(&self, vid: VertexI) -> (usize, usize, usize) {
+
+        let paths = (
+            self.color_path(vid, Red),
+            self.color_path(vid, Green),
+            self.color_path(vid, Blue)
+        );
+
+        let mut no_cross_edges = HashSet::new();
+        no_cross_edges.extend(paths.0.iter().tuple_windows().map(|(&a, &b)| self.get_edge(a, b)));
+        no_cross_edges.extend(paths.1.iter().tuple_windows().map(|(&a, &b)| self.get_edge(a, b)));
+        no_cross_edges.extend(paths.2.iter().tuple_windows().map(|(&a, &b)| self.get_edge(a, b)));
+
+        let dual = self.get_dual();
+
+        
+
+
+        return (0, 0, 0);
+    }
+
+    fn color_path(&self, vid: VertexI, color: SchnyderColor) -> Vec<VertexI> {
+        let mut path = Vec::new();
+        let mut current_vertex = vid;
+
+        while let Normal(_) = self.vertex(current_vertex).weight.get_type() {
+            if path.contains(&current_vertex) {
+                panic!("cycle dected!");
+            }
+
+            path.push(current_vertex);
+
+            let out_index = self.find_outgoing(self.vertex(current_vertex), color).unwrap();
+            current_vertex = self.vertex(current_vertex).neighbors[out_index].other;
+        }
+
+        if let Suspension(c) = self.vertex(current_vertex).weight.get_type() {
+            if c == color {
+                return path;
+            } else {
+                panic!("wrong suspension vertex reached");
+            }
+        } else {
+            panic!("internal disagree")
         }
     }
 
     pub fn check_wood(&self) -> bool {
 
-        // check for 3 suspension vertices
-        let colors: Vec<_> = self.vertices.get_map().values().filter_map(|v| {
+        let suspension_vertices = self.vertices.get_map().values().filter(|v|
+            match v.weight.get_type() {
+                Suspension(c) => true,
+                _ => false
+            }
+        ).collect_vec();
+
+        /*let colors: HashSet<_> = suspension_vertices.iter().filter_map(|v| {
             match v.weight.get_type() {
                 Suspension(c) => Some(c),
                 _ => None
             }
-        }).collect();
+        }).collect();*/
 
-        if !(colors.len() == 3 && colors.iter().dedup().count() == 3) {
+        if suspension_vertices.len() != 3 {
+            return false;
+        }
+
+        let rgb = (
+            suspension_vertices.iter().find(|&v| match v.weight.get_type() { Suspension(Red) => true, _ => false}),
+            suspension_vertices.iter().find(|&v| match v.weight.get_type() { Suspension(Green) => true, _ => false}),
+            suspension_vertices.iter().find(|&v| match v.weight.get_type() { Suspension(Blue) => true, _ => false})
+        );
+
+        let (r,g,b) = match rgb {
+            (Some(r_), Some(g_), Some(b_)) => (r_.id, g_.id, b_.id),
+            _ => return false
+        };
+
+        // check if all suspension vertices are next to one face (the outer face)
+        let outer_face_candidates = self.faces.get_map().values().filter(|&f|
+            f.angles.contains(&r) &&
+            f.angles.contains(&g) &&
+            f.angles.contains(&b)
+        ).collect_vec();
+
+        if outer_face_candidates.len() < 1 || outer_face_candidates.len() > 2 {
+            return false;
+        }
+
+        if outer_face_candidates.iter().filter(|&&f|
+            is_in_cyclic_order(&f.angles, &vec![r, g, b])
+        ).count() != 1 {
             return false;
         }
 
@@ -389,6 +494,10 @@ impl<N: SchnyderVertex, E: SchnyderEdge, F: Clone> PlanarMap<N, E, F> {
             for i in 0..l {
                 let v1 = f.angles[i];
                 let v2 = f.angles[(i+1)%l];
+
+                if let None = self.get_edge(v1, v2) {
+                    panic!("{} - {} invalid in face {}", v1.0, v2.0, f.id.0);
+                }
 
                 let e = self.edge(self.get_edge(v1, v2).unwrap());
                 let signum = e.get_signum(v1, v2);
