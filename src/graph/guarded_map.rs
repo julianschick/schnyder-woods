@@ -61,6 +61,13 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         self.map.get(index).unwrap()
     }
 
+    pub fn any_index(&self) -> Option<N> {
+        if self.map.is_empty() {
+            return None;
+        }
+        return Some(N::from(self.least_free_index - 1));
+    }
+
     pub fn get_mut(&mut self, index: &N) -> &mut V {
         self.map.get_mut(index).unwrap()
     }
