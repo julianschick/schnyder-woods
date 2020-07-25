@@ -11,6 +11,9 @@ use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, Schnyder
 use crate::graph::Signum::Forward;
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::ClockDirection::{CCW, CW};
+use std::fs::File;
+use std::io::Write;
+use std::process::Command;
 
 mod graph;
 mod util;
@@ -83,22 +86,25 @@ fn main() {
 
 
 
-    map.contract_embedded_edge(trg, &(|e1, e2| *e1));
+    //map.contract_embedded_edge(trg, &(|e1, e2| *e1));
 
     let (dual, ..) = map.get_dual(true);
 
     let mut schnyder_map = SchnyderMap::from(map);
     schnyder_map.debug();
+    schnyder_map.merge(src, trg);
+    //schnyder_map.split(trg, CW, g);
 
     println!("-----");
     println!("{:?}", dual);
     println!("-----");
-    println!("{:?}", schnyder_map.calculate_face_counts(r));
-    println!("{:?}", schnyder_map.calculate_face_counts(g));
-    println!("{:?}", schnyder_map.calculate_face_counts(b));
-    //println!("{:?}", schnyder_map.calculate_face_counts(c1));
-    println!("{:?}", schnyder_map.calculate_face_counts(c2));
+    println!("{}", schnyder_map.generate_tikz());
 
+    let data = schnyder_map.generate_tikz();
+    let mut f = File::create("/tmp/foo.tex").expect("Unable to create file");
+    f.write_all(data.as_bytes()).expect("Unable to write data");
+
+    Command::new("xelatex").current_dir("/tmp").arg("/tmp/foo.tex").output();
 
 
     // println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );

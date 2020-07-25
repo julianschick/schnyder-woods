@@ -21,6 +21,14 @@ pub enum SchnyderColor {
     Red, Green, Blue
 }
 
+impl SchnyderColor {
+    pub fn to_tikz(&self) -> &str {
+        match self {
+            Red => "red", Green => "green", Blue => "blue"
+        }
+    }
+}
+
 impl IndexedEnum<SchnyderColor> for SchnyderColor {
 
     fn index(&self) -> usize {
@@ -375,57 +383,102 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn calculate_face_counts(&self, vid: VertexI) -> (usize, usize, usize) {
+    pub fn generate_tikz(&self) -> String {
+        let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
+        let tail = "\\end{tikzpicture}\\end{document}";
+        let mut mid = String::new();
+
+        let face_counts = self.calculate_face_counts();
+
+        for (vid, (r, g, b)) in face_counts.iter() {
+            mid.extend(format!("\\coordinate ({}) at ({},{});", vid.0, g, r).chars());
+        }
+
+        for edge in self.map.edges.get_map().values() {
+            mid.extend(match edge.weight {
+                Black => format!("\\draw ({}) -- ({});", edge.head.0, edge.tail.0),
+                Unicolored(color, signum) => match signum {
+                    Forward => format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0),
+                    Backward => format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
+                }
+                Bicolored(fwd_c, bwd_c) => {
+                    let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
+                    format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
+                            mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
+                }
+            }.chars());
+        }
+
+        for (vid, (r, g, b)) in face_counts {
+            mid.extend(format!("\\fill ({}) circle (2pt);", vid.0).chars());
+        }
+
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Red.to_tikz(),  Red.to_tikz(), self.red_vertex.0).chars());
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Green.to_tikz(),  Green.to_tikz(), self.green_vertex.0).chars());
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Blue.to_tikz(),  Blue.to_tikz(), self.blue_vertex.0).chars());
+
+        return format!("{}{}{}", preamble, mid, tail);
+    }
+
+    fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
 
         let number_of_faces = self.map.face_count() - 1;
-        let mut result = [0; 3];
+        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(true);
 
-        if let Suspension(color) = self.map.vertex(vid).weight {
-            return match color {
-                Red => (number_of_faces, 0, 0),
-                Green => (0, number_of_faces, 0),
-                Blue => (0, 0, number_of_faces)
-            }
-        }
+        let mut result = HashMap::new();
 
-        let mut primal_no_cross_edges = HashSet::new();
-        let mut out_edge = [EdgeI(0); 3];
+        for &vid in self.map.vertices.get_map().keys() {
 
-        for color in &[Red, Green, Blue] {
-            let path: Vec<_> = self.color_path(vid, *color)
-                .iter().tuple_windows()
-                .map(|(&a, &b)| self.map.get_edge(a, b).unwrap())
-                .collect();
-
-            out_edge[color.next().index()] = path[0];
-            primal_no_cross_edges.extend(path);
-        }
-
-        let (dual, vertex_to_face, edge_to_edge, face_to_vertex) = self.map.get_dual(true);
-
-        let mut dual_no_cross_edges : HashSet<_> = primal_no_cross_edges.iter().map(|eid|
-            *edge_to_edge.get(eid).unwrap()
-        ).collect();
-
-        for nb in &dual.vertex(*face_to_vertex.get(&self.outer_face).unwrap()).neighbors {
-            dual_no_cross_edges.insert(nb.edge);
-        }
-
-        for color in SchnyderColor::all() {
-            let e = self.map.edge(out_edge[color.index()]);
-            let f = match e.get_signum_by_tail(vid) {
-                Forward => e.left_face, Backward => e.right_face
-            }.unwrap();
-
-            if f != self.outer_face {
-                let start_vertex = face_to_vertex.get(&f).unwrap();
-                result[color.index()] = dual.connected_component(start_vertex, &dual_no_cross_edges).len();
+            if let Suspension(color) = self.map.vertex(vid).weight {
+                result.insert(vid, match color {
+                    Red => (number_of_faces, 0, 0),
+                    Green => (0, number_of_faces, 0),
+                    Blue => (0, 0, number_of_faces)
+                });
             } else {
-                result[color.index()] = 0;
+                let mut primal_no_cross_edges = HashSet::new();
+                let mut out_edge = [EdgeI(0); 3];
+                let mut counts = [0; 3];
+
+                for color in &[Red, Green, Blue] {
+                    let path: Vec<_> = self.color_path(vid, *color)
+                        .iter().tuple_windows()
+                        .map(|(&a, &b)| self.map.get_edge(a, b).unwrap())
+                        .collect();
+
+                    out_edge[color.next().index()] = path[0];
+                    primal_no_cross_edges.extend(path);
+                }
+
+
+                let mut dual_no_cross_edges: HashSet<_> = primal_no_cross_edges.iter().map(|eid|
+                    *edge_to_edge.get(eid).unwrap()
+                ).collect();
+
+                for nb in &dual.vertex(*face_to_vertex.get(&self.outer_face).unwrap()).neighbors {
+                    dual_no_cross_edges.insert(nb.edge);
+                }
+
+                for color in SchnyderColor::all() {
+                    let e = self.map.edge(out_edge[color.index()]);
+                    let f = match e.get_signum_by_tail(vid) {
+                        Forward => e.left_face,
+                        Backward => e.right_face
+                    }.unwrap();
+
+                    if f != self.outer_face {
+                        let start_vertex = face_to_vertex.get(&f).unwrap();
+                        counts[color.index()] = dual.connected_component(start_vertex, &dual_no_cross_edges).len();
+                    } else {
+                        counts[color.index()] = 0;
+                    }
+                }
+
+                result.insert(vid, (counts[0], counts[1], counts[2]));
             }
         }
 
-        return (result[0], result[1], result[2]);
+        return result;
     }
 
     fn color_path(&self, vid: VertexI, color: SchnyderColor) -> Vec<VertexI> {
