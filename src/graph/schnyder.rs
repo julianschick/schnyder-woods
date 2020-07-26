@@ -105,19 +105,19 @@ pub trait SchnyderEdge {
     fn set_direction(&mut self, d: SchnyderEdgeDirection);
 }
 
-impl Debug for Vertex<SchnyderVertexType> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "v[{}]: ", self.id.0)?;
+impl Vertex<SchnyderVertexType> {
+    fn debug(&self) {
+        print!("v[{}]: ", self.id.0);
         for nb in self.neighbors.iter() {
-            write!(f, "v[{}] . ", nb.other.0)?;
+            print!("v[{}] . ", nb.other.0);
         }
-        Ok(())
+        println!();
     }
 }
 
-impl Debug for Edge<SchnyderEdgeDirection> {
+impl Edge<SchnyderEdgeDirection> {
 
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn debug(&self) {
         let tail_color = match self.weight {
             Black => None,
             Unicolored(c, Forward) => Some(c),
@@ -131,7 +131,7 @@ impl Debug for Edge<SchnyderEdgeDirection> {
             _ => None
         };
 
-        write!(f, "e[{}]: v[{}] ={:=<5}======={:=>5}=> v[{}] (L = f[{}], R = f[{}])",
+        println!("e[{}]: v[{}] ={:=<5}======={:=>5}=> v[{}] (L = f[{}], R = f[{}])",
            self.id.0,
            self.tail.0,
            match tail_color {
@@ -196,11 +196,11 @@ impl<F: Clone> SchnyderMap<F> {
 
     pub fn debug(&self) {
         for v in self.map.vertices.get_map().values().sorted_by_key(|v| v.id.0) {
-            println!("{:?}", v);
+            v.debug();
         }
 
         for e in self.map.edges.get_map().values().sorted_by_key(|e| e.id.0) {
-            println!("{:?}", e);
+            e.debug();
         }
 
         /*for f in self.vertices.get_map().values() {

@@ -22,6 +22,10 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         }
     }
 
+    pub fn peek_index(&self) -> N {
+        N::from(self.least_free_index)
+    }
+
     pub fn retrieve_index(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);

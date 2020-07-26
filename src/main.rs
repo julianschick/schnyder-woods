@@ -13,6 +13,7 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::ClockDirection::{CCW, CW};
 use std::fs::File;
 use std::io::Write;
+use std::io::Read;
 use std::process::Command;
 
 mod graph;
@@ -51,6 +52,21 @@ impl crate::graph::schnyder::SchnyderEdge for SchnyderEdge {
 
 
 fn main() {
+
+    let mut file = File::open("/tmp/test.tri").unwrap();
+
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    println!("{:?}", data);
+
+    let s = std::str::from_utf8(&data[0..15]).unwrap();
+    let truncated_data: Vec<u8> = data[15..].iter().copied().collect();
+
+    let m2 = PlanarMap::from_plantri_planar_code(&truncated_data, |i| i.0, |i| i.0, |i| i.0);
+
+    println!("{:?}", m2);
+
 
     let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
 

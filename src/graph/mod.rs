@@ -129,7 +129,7 @@ impl<E> Hash for Edge<E> {
     }
 }
 
-impl Debug for Edge<EdgeI> {
+impl<E> Debug for Edge<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "e[{}]: v[{}] ==> v[{}] (L = f[{}], R = f[{}])",
                self.id.0,
@@ -152,7 +152,7 @@ struct Vertex<N> {
     weight: N
 }
 
-impl Debug for Vertex<FaceI> {
+impl<N> Debug for Vertex<N> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "v[{}]: ", self.id.0)?;
         for nb in self.neighbors.iter() {
@@ -182,6 +182,15 @@ impl<N> Vertex<N> {
 
     fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
         self.neighbors.iter().find(|nb| nb.other == other)
+    }
+
+    fn next(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
+        let nb = self.get_nb(other).unwrap();
+        let index = match direction {
+            CW => (nb.index + 1) % self.neighbors.len(),
+            CCW => (nb.index + (self.neighbors.len() -1)) % self.neighbors.len()
+        };
+        return &self.neighbors[index];
     }
 }
 
@@ -213,6 +222,82 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             embedded: false,
             enforce_simple: true
         }
+    }
+
+    pub fn from_plantri_planar_code(data: &Vec<u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
+        if data.is_empty() {
+            panic!("empty input data");
+        }
+
+        let n = data[0];
+
+        let mut result = PlanarMap::new();
+        let mut neighbors = Vec::new();
+        let mut data_iterator = data.iter().skip(1);
+        let mut index_list = Vec::new();
+
+        for i in 1..n+1 {
+            let weight = v_weights(result.vertices.peek_index());
+            index_list.push(result.add_vertex(weight));
+
+            let mut nb = Vec::new();
+            let mut other = if let Some(&byte) = data_iterator.next() {
+                byte
+            } else {
+                panic!("invalid input data");
+            };
+
+            while other > 0 {
+                nb.push(other);
+                if let Some(&byte) = data_iterator.next() {
+                    other = byte;
+                } else {
+                    panic!("invalid input data");
+                }
+
+            }
+
+            let set: HashSet<_> = nb.iter().collect();
+            if set.len() != nb.len() {
+                panic!("double edges are not allowed");
+            }
+            if set.contains(&i) {
+                panic!("loops are not allowed");
+            }
+
+            neighbors.push(nb);
+        }
+
+        for i in 1..(n as usize)+1 {
+            for &j in neighbors[i-1].iter().filter(|&&j| j as usize > i) {
+                let (v1, v2) = (index_list[i-1], index_list[j as usize-1]);
+
+                let pos1 = neighbors[i-1].iter().position(|&k| k == j);
+                let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
+
+                let weight = e_weights(result.edges.peek_index());
+
+                if let None = pos1.and(pos2) {
+                    panic!("invalid data");
+                }
+
+                result.add_edge_(v1, v2, pos1, pos2, weight);
+            }
+        }
+
+        for vid in result.vertices.get_map().keys().cloned().collect_vec() {
+            let v = result.vertex_mut(vid);
+            v.neighbors.sort_by_key(|nb| nb.index);
+
+            for i in 0..v.neighbors.len() {
+                if v.neighbors[i].index != i {
+                    panic!("error 252");
+                }
+            }
+        }
+
+        result.construct_faces(f_weights);
+        return result;
     }
 
     pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
@@ -309,10 +394,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("superplanar operation on embedded graph.")
         }
 
-        return self.add_edge_(v1, v2, weight);
+        return self.add_edge_(v1, v2, None, None, weight);
     }
 
-    fn add_edge_(&mut self, v1: VertexI, v2: VertexI, weight: E) -> EdgeI {
+    fn add_edge_(&mut self, v1: VertexI, v2: VertexI, v1_nb_index: Option<usize>, v2_nb_index: Option<usize>, weight: E) -> EdgeI {
 
         if self.enforce_simple {
             if v1 == v2 {
@@ -327,7 +412,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let id = self.edges.retrieve_index(e);
 
         // v1 --> v2 (v1 = tail, v2 = head)
-        let l = self.vertex(v1).neighbors.len();
+        let l = match v1_nb_index {
+            None => self.vertex(v1).neighbors.len(),
+            Some(i) => i
+        };
         self.vertices.get_mut(&v1).neighbors.push(
             NbVertex {
                 index: l,
@@ -337,7 +425,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         );
 
-        let l = self.vertex(v2).neighbors.len();
+        let l = match v2_nb_index {
+            None => self.vertex(v2).neighbors.len(),
+            Some(i) => i
+        };
         self.vertices.get_mut(&v2).neighbors.push(
             NbVertex {
                 index: l,
@@ -369,7 +460,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             (knee1.1, knee2.1, knee1.3.index, knee2.3.index)
         };
 
-        let e = self.add_edge_(v1, v2, weight);
+        let e = self.add_edge_(v1, v2, None, None, weight);
 
         // NbVertex structs were added at the end, which is not correct
         {
@@ -664,6 +755,73 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         return true;
+    }
+
+    /// From edge orders to faces
+    fn construct_faces(&mut self, f_weights: fn(FaceI) -> F) {
+        if self.embedded {
+            panic!("embedding already done");
+        }
+
+        for eid in self.edges.get_map().keys().cloned().collect_vec() {
+            if self.edge(eid).left_face.is_none() {
+                self.build_face_cycle(eid, Forward, f_weights);
+            }
+
+            if self.edge(eid).right_face.is_none() {
+                self.build_face_cycle(eid, Backward, f_weights);
+            }
+        }
+
+        self.embedded = true;
+        let (n, m, f) = (self.vertex_count() as isize, self.edge_count() as isize, self.face_count() as isize);
+
+        /*if n - m + f != 2 {
+            self.embedded = false;
+            panic!("Euler is unhappy");
+        }*/
+    }
+
+    /// signum -> right face
+    fn build_face_cycle(&mut self, eid: EdgeI, signum: Signum, f_weights: fn(FaceI) -> F) {
+        let mut cycle = Vec::new();
+        let fid = self.faces.peek_index();
+
+        let mut next = {
+            let e = self.edge_mut(eid);
+            match signum {
+                Forward => {
+                    cycle.push(e.tail);
+                    e.left_face = Some(fid);
+                    e.head
+                },
+                Backward => {
+                    cycle.push(e.head);
+                    e.right_face = Some(fid);
+                    e.tail
+                }
+            }
+        };
+
+        while next != cycle[0] && cycle.len() <= self.vertex_count() + 1 {
+            cycle.push(next);
+            let l = cycle.len();
+            next = self.vertex(cycle[l-1]).next(cycle[l-2], CW).other;
+
+            let (intermediate_eid, s) = self.get_edge_with_signum(cycle[l-1], next);
+            let e = self.edge_mut(intermediate_eid);
+            match s {
+                Forward => e.left_face = Some(fid),
+                Backward => e.right_face = Some(fid)
+            }
+        }
+
+        if cycle.len() > self.vertex_count() {
+            panic!("cycle too long");
+        }
+
+        let face = Face { id: FaceI(0), weight: f_weights(fid), angles: cycle };
+        self.faces.retrieve_index(face);
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
@@ -965,7 +1123,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
 }
 
-impl<F: Clone> Debug for PlanarMap<FaceI, EdgeI, F> {
+impl<N, E, F: Clone> Debug for PlanarMap<N, E, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for v in self.vertices.get_map().values().sorted_by_key(|v| v.id.0) {
             writeln!(f, "{:?}", v);
