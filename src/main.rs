@@ -1,4 +1,3 @@
-use std::rc::Rc;
 use std::collections::HashSet;
 use std::cmp::Ordering;
 use itertools::Itertools;
@@ -15,6 +14,8 @@ use std::fs::File;
 use std::io::Write;
 use std::io::Read;
 use std::process::Command;
+use crate::graph::schnyder::SchnyderBuildMode::LeftMost;
+use crate::graph::io::read_plantri_planar_code;
 
 mod graph;
 mod util;
@@ -54,18 +55,22 @@ impl crate::graph::schnyder::SchnyderEdge for SchnyderEdge {
 fn main() {
 
     let mut file = File::open("/tmp/test.tri").unwrap();
-
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    println!("{:?}", data);
+    let maps = read_plantri_planar_code(&data, |i| i.0, |i| i.0, |i| i.0);
 
-    let s = std::str::from_utf8(&data[0..15]).unwrap();
-    let truncated_data: Vec<u8> = data[15..].iter().copied().collect();
-
-    let m2 = PlanarMap::from_plantri_planar_code(&truncated_data, |i| i.0, |i| i.0, |i| i.0);
-
+    let m2 = &maps[0];
     println!("{:?}", m2);
+    println!("{:?}", m2.check_referential_integrity());
+
+    let sm2 = SchnyderMap::build_on_triangulation(m2, m2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+
+    let data = sm2.generate_tikz();
+    let mut f = File::create("/tmp/foo.tex").expect("Unable to create file");
+    f.write_all(data.as_bytes()).expect("Unable to write data");
+
+    Command::new("xelatex").current_dir("/tmp").arg("/tmp/foo.tex").output();
 
 
     let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
@@ -113,14 +118,7 @@ fn main() {
 
     println!("-----");
     println!("{:?}", dual);
-    println!("-----");
-    println!("{}", schnyder_map.generate_tikz());
 
-    let data = schnyder_map.generate_tikz();
-    let mut f = File::create("/tmp/foo.tex").expect("Unable to create file");
-    f.write_all(data.as_bytes()).expect("Unable to write data");
-
-    Command::new("xelatex").current_dir("/tmp").arg("/tmp/foo.tex").output();
 
 
     // println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );

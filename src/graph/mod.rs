@@ -13,6 +13,8 @@ use std::iter::FromIterator;
 use core::fmt;
 
 pub mod schnyder;
+pub mod io;
+
 mod guarded_map;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -167,10 +169,20 @@ impl<N> Ideable<VertexI> for Vertex<N> {
     fn set_id(&mut self, id: VertexI) { self.id = id }
 }
 
+#[derive(Clone)]
 struct Face<F> {
     id: FaceI,
     angles: Vec<VertexI>,
     weight: F
+}
+
+fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
+    if do_swap {
+        let (a, b) = pair;
+        (b, a)
+    } else {
+        pair
+    }
 }
 
 impl<N> Ideable<FaceI> for Face<N> {
@@ -191,6 +203,37 @@ impl<N> Vertex<N> {
             CCW => (nb.index + (self.neighbors.len() -1)) % self.neighbors.len()
         };
         return &self.neighbors[index];
+    }
+
+    fn between(&self, v1_: VertexI, v2_: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+
+        let (v1, v2) = swap((v1_, v2_), direction == CCW);
+
+        if let Some(nb1) = self.neighbors.iter().find(|nb| nb.other == v1) {
+            if let Some(nb2) = self.neighbors.iter().find(|nb| nb.other == v2) {
+
+                let tmp_vector = if nb1.index < nb2.index {
+                    self.neighbors[nb1.index+1..nb2.index].iter().collect_vec()
+                } else {
+                    self.neighbors.cycle(nb1.index, false)
+                        .skip(1)
+                        .take_while(|nb| nb.index != nb2.index)
+                        .collect_vec()
+                };
+
+                return match direction {
+                    CCW => tmp_vector.into_iter().rev().collect_vec(),
+                    CW => tmp_vector
+                };
+
+            } else {
+                panic!("v2 invalid");
+            }
+        } else {
+            panic!("v1 invalid");
+        }
+
+        return vec![];
     }
 }
 
@@ -224,80 +267,120 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn from_plantri_planar_code(data: &Vec<u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
-        if data.is_empty() {
-            panic!("empty input data");
+    pub fn clone_with_maps<Nn, Ee, Ff: Clone>(&self, vertex_map: fn(&N) -> Nn, edge_map: fn(&E) -> Ee, face_map: Option<fn(&F) -> Ff>) -> PlanarMap<Nn, Ee, Ff> {
+        let mut cloned = PlanarMap::new();
+
+        cloned.vertices = self.vertices.clone_with_map(&|v: &Vertex<N>|
+               Vertex {
+                   id: v.id,
+                   neighbors: v.neighbors.clone(),
+                   weight: vertex_map(&v.weight)
+               }
+        );
+
+        cloned.edges = self.edges.clone_with_map(&|e: &Edge<E>|
+            Edge {
+                id: e.id,
+                weight: edge_map(&e.weight),
+                tail: e.tail,
+                head: e.head,
+                left_face: e.left_face,
+                right_face: e.right_face
+            }
+        );
+
+        if self.is_embedded() {
+            if let Some(fmap) = face_map {
+                cloned.faces = self.faces.clone_with_map(&|f: &Face<F>|
+                    Face {
+                        id: f.id,
+                        weight: fmap(&f.weight),
+                        angles: f.angles.clone()
+                    }
+                )
+            } else {
+                panic!("cloning an embedded map needs a face mapping")
+            }
         }
 
-        let n = data[0];
+        cloned.embedded = self.embedded;
+        cloned.enforce_simple = self.enforce_simple;
 
-        let mut result = PlanarMap::new();
-        let mut neighbors = Vec::new();
-        let mut data_iterator = data.iter().skip(1);
-        let mut index_list = Vec::new();
+        return cloned;
+    }
 
-        for i in 1..n+1 {
-            let weight = v_weights(result.vertices.peek_index());
-            index_list.push(result.add_vertex(weight));
+    pub fn from_plantri_planar_code(data: &mut Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
 
-            let mut nb = Vec::new();
-            let mut other = if let Some(&byte) = data_iterator.next() {
-                byte
-            } else {
-                panic!("invalid input data");
-            };
+        if let Some(n) = data.next() {
+            let mut result = PlanarMap::new();
+            let mut neighbors = Vec::new();
+            let mut index_list = Vec::new();
 
-            while other > 0 {
-                nb.push(other);
-                if let Some(&byte) = data_iterator.next() {
-                    other = byte;
+            for i in 1..n+1 {
+                let weight = v_weights(result.vertices.peek_index());
+                index_list.push(result.add_vertex(weight));
+
+                let mut nb = Vec::new();
+                let mut other = if let Some(&byte) = data.next() {
+                    byte
                 } else {
                     panic!("invalid input data");
+                };
+
+                while other > 0 {
+                    nb.push(other);
+                    if let Some(&byte) = data.next() {
+                        other = byte;
+                    } else {
+                        panic!("invalid input data");
+                    }
+
                 }
 
-            }
-
-            let set: HashSet<_> = nb.iter().collect();
-            if set.len() != nb.len() {
-                panic!("double edges are not allowed");
-            }
-            if set.contains(&i) {
-                panic!("loops are not allowed");
-            }
-
-            neighbors.push(nb);
-        }
-
-        for i in 1..(n as usize)+1 {
-            for &j in neighbors[i-1].iter().filter(|&&j| j as usize > i) {
-                let (v1, v2) = (index_list[i-1], index_list[j as usize-1]);
-
-                let pos1 = neighbors[i-1].iter().position(|&k| k == j);
-                let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
-
-                let weight = e_weights(result.edges.peek_index());
-
-                if let None = pos1.and(pos2) {
-                    panic!("invalid data");
+                let set: HashSet<_> = nb.iter().collect();
+                if set.len() != nb.len() {
+                    panic!("double edges are not allowed");
+                }
+                if set.contains(&i) {
+                    panic!("loops are not allowed");
                 }
 
-                result.add_edge_(v1, v2, pos1, pos2, weight);
+                neighbors.push(nb);
             }
-        }
 
-        for vid in result.vertices.get_map().keys().cloned().collect_vec() {
-            let v = result.vertex_mut(vid);
-            v.neighbors.sort_by_key(|nb| nb.index);
+            for i in 1..(*n as usize)+1 {
+                for &j in neighbors[i-1].iter().filter(|&&j| j as usize > i) {
+                    let (v1, v2) = (index_list[i-1], index_list[j as usize-1]);
 
-            for i in 0..v.neighbors.len() {
-                if v.neighbors[i].index != i {
-                    panic!("error 252");
+                    let pos1 = neighbors[i-1].iter().position(|&k| k == j);
+                    let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
+
+                    let weight = e_weights(result.edges.peek_index());
+
+                    if let None = pos1.and(pos2) {
+                        panic!("invalid data");
+                    }
+
+                    result.add_edge_(v1, v2, pos1, pos2, weight);
                 }
             }
-        }
 
-        result.construct_faces(f_weights);
-        return result;
+            for vid in result.vertices.get_map().keys().cloned().collect_vec() {
+                let v = result.vertex_mut(vid);
+                v.neighbors.sort_by_key(|nb| nb.index);
+
+                for i in 0..v.neighbors.len() {
+                    if v.neighbors[i].index != i {
+                        panic!("error 252");
+                    }
+                }
+            }
+
+            result.construct_faces(f_weights);
+            return result;
+        } else {
+            panic!("empty input data");
+        }
     }
 
     pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
@@ -313,6 +396,18 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         match v.neighbors.iter().find(|nb| nb.other == v2) {
             Some(nb) => Some(nb.edge),
             None => None
+        }
+    }
+
+    pub fn get_left_face(&self, v1: VertexI, v2: VertexI) -> FaceI {
+        if !self.is_embedded() {
+            panic!("operation allowed only on imbedded graphs");
+        }
+
+        let (eid, signum) = self.get_edge_with_signum(v1, v2);
+        match signum {
+            Forward => self.edge(eid).left_face.unwrap(),
+            Backward => self.edge(eid).right_face.unwrap()
         }
     }
 
@@ -947,7 +1042,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn get_dual(&self, enforce_simple: bool) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {
 
         let mut dual_map = PlanarMap::new();
-        dual_map.enforce_simple = enforce_simple;
+        dual_map.enforce_simple = self.enforce_simple;
 
         let mut primal_vertex_to_dual_face = HashMap::new();
         let mut primal_face_to_dual_vertex = HashMap::new();

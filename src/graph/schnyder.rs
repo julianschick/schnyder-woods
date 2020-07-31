@@ -15,6 +15,7 @@ use std::iter::FromIterator;
 use core::fmt;
 use crate::util::is_in_cyclic_order;
 use std::slice::Iter;
+use crate::util::iterators::cyclic::CyclicIterable;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
@@ -176,6 +177,10 @@ pub struct SchnyderMap<F: Clone> {
     blue_vertex: VertexI
 }
 
+pub enum SchnyderBuildMode {
+    LeftMost, Random, RightMost
+}
+
 impl<F: Clone> SchnyderMap<F> {
 
     pub fn from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>) -> SchnyderMap<F> {
@@ -192,6 +197,134 @@ impl<F: Clone> SchnyderMap<F> {
             panic!("wood initialization failed");
         }
         return result;
+    }
+
+    pub fn build_on_triangulation<E, N>(
+        map: &PlanarMap<N, E, F>,
+        outer_face: FaceI,
+        mode: SchnyderBuildMode
+    ) -> SchnyderMap<F> {
+
+        if !map.is_embedded() {
+            panic!("map has to have an embedding");
+        }
+
+        if let Some(_) = map.faces.get_map().values().find(|f| f.angles.len() != 3) {
+            panic!("needs to be a triangulation");
+        }
+
+        let mut smap = map.clone_with_maps(
+            |vertex_weight| Normal(0),
+            |edge_weight| Black,
+            Some(|face_weight| face_weight.clone())
+        );
+
+        let mut suspension_vertices = smap.face(outer_face).angles.iter();
+        let r = *suspension_vertices.next().unwrap();
+        let g = *suspension_vertices.next().unwrap();
+        let b = *suspension_vertices.next().unwrap();
+
+        // Color the suspension vertices
+        smap.vertex_mut(r).weight = Suspension(Red);
+        smap.vertex_mut(g).weight = Suspension(Green);
+        smap.vertex_mut(b).weight = Suspension(Blue);
+
+        // Color the outer face cycle
+        for (&a, &b) in vec![r,g,b].cycle(0, true).tuple_windows() {
+            let (e, signum) = smap.get_edge_with_signum(a, b);
+
+            if let Suspension(color_a) = smap.vertex(a).weight {
+                if let Suspension(color_b) = smap.vertex(b).weight {
+                    match signum {
+                        Backward => smap.edge_mut(e).weight = Bicolored(color_a, color_b),
+                        Forward => smap.edge_mut(e).weight = Bicolored(color_b, color_a),
+                    }
+                }
+            }
+        }
+
+        // Color incoming red edges of red suspension vertex
+        for (eid, signum) in smap.vertex(r).between(b, g, CCW).iter().map(|nb|
+            (nb.edge, match nb.end { Head => Forward, Tail => Backward})
+        ).collect_vec() {
+            smap.edge_mut(eid).weight = Unicolored(Red, signum);
+        }
+
+        let mut frontier = smap.vertex(r).between(b, g, CCW).iter()
+            .map(|nb| nb.other)
+            .collect_vec();
+
+        for (&a,&b,&c) in  [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
+            if smap.get_edge(a, b).is_none() {
+                println!("{:?}-{:?} ab not existent", a, b);
+            }
+            if smap.get_edge(b, c).is_none() {
+                println!("{:?}-{:?} bc not existent", a, b);
+            }
+        }
+
+        println!("r = {:?}", r);
+        println!("g = {:?}", g);
+        println!("b = {:?}", b);
+
+        while frontier.len() > 0 {
+            for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
+                if smap.get_edge(a, b).is_none() {
+                    println!("{:?}-{:?} ab in loop not existent", a, b);
+                }
+                if smap.get_edge(b, c).is_none() {
+                    println!("{:?}-{:?} bc in loop  not existent", a, b);
+                }
+            }
+
+            let (pos, (&left_neighbour, &pivot, &right_neighbour)) = [b].iter().chain(frontier.iter()).chain([g].iter())
+                .tuple_windows()
+                .find_position(|(&left_neighbour, &pivot, &right_neighbour)| {
+                    !smap.vertex(pivot).between(right_neighbour, left_neighbour, CW)
+                        .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
+                }
+            ).unwrap();
+
+            let (eid_left, signum_left) = smap.get_edge_with_signum(pivot, left_neighbour);
+            let (eid_right, signum_right) = smap.get_edge_with_signum(pivot, right_neighbour);
+
+            smap.edge_mut(eid_left).weight = Unicolored(Blue, signum_left);
+            smap.edge_mut(eid_right).weight = Unicolored(Green, signum_right);
+
+            for (eid, signum) in smap.vertex(pivot).between(right_neighbour, left_neighbour, CW).iter().map(|nb|
+                (nb.edge, match nb.end { Head => Forward, Tail => Backward})
+            ).collect_vec() {
+                smap.edge_mut(eid).weight = Unicolored(Red, signum);
+            }
+
+            let check_v = smap.vertex(pivot)
+                .between(left_neighbour, right_neighbour, CCW)
+                .iter().map(|nb| nb.other).collect_vec();
+
+            if check_v.len()>0 {
+                if smap.get_edge(left_neighbour, check_v[0]).is_none() {
+                    println!("first problem");
+                }
+                if smap.get_edge(check_v[check_v.len() -1 ], right_neighbour).is_none() {
+                    println!("last problem");
+                }
+
+                for (&a, &b) in check_v.iter().tuple_windows() {
+                    if smap.get_edge(a,b).is_none() {
+                        println!("mid problem");
+                    }
+                }
+            }
+
+
+            frontier.remove(pos);
+            frontier.splice(pos..pos, smap.vertex(pivot)
+                .between(left_neighbour, right_neighbour, CCW)
+                .iter().map(|nb| nb.other).collect_vec());
+        }
+
+        println!("OK SO FAR");
+        return SchnyderMap::from(smap);
     }
 
     pub fn debug(&self) {
@@ -508,7 +641,7 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn init_wood(&mut self) -> bool {
+    fn init_wood(&mut self) -> bool {
 
         let suspension_vertices = self.map.vertices.get_map().values().filter(|v|
             match v.weight {
@@ -543,23 +676,8 @@ impl<F: Clone> SchnyderMap<F> {
         self.green_vertex = g;
         self.blue_vertex = b;
 
-        // check if all suspension vertices are next to one face (the outer face)
-        let outer_face_candidates = self.map.faces.get_map().values().filter(|&f|
-            f.angles.contains(&r) &&
-            f.angles.contains(&g) &&
-            f.angles.contains(&b)
-        ).collect_vec();
-
-        if outer_face_candidates.len() < 1 || outer_face_candidates.len() > 2 {
-            return false;
-        }
-
-        let outer_face = outer_face_candidates.iter().filter(|&&f|
-            is_in_cyclic_order(&f.angles, &vec![r, g, b])
-        ).collect_vec();
-
-        if outer_face.len() == 1 {
-            self.outer_face = outer_face[0].id;
+        if let Some(outer_face) = self.map.find_outer_face(r, g, b) {
+            self.outer_face = outer_face;
         } else {
             return false;
         }
@@ -654,4 +772,28 @@ impl<F: Clone> SchnyderMap<F> {
 
         return true;
     }
+}
+
+impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
+    fn find_outer_face(&self, r: VertexI, g: VertexI, b: VertexI) -> Option<FaceI> {
+        let outer_face_candidates = self.faces.get_map().values().filter(|&f|
+            f.angles.contains(&r) &&
+                f.angles.contains(&g) &&
+                f.angles.contains(&b)
+        ).collect_vec();
+
+        if outer_face_candidates.len() < 1 || outer_face_candidates.len() > 2 {
+            return None;
+        }
+
+        let outer_face = outer_face_candidates.iter().filter(|&&f|
+            is_in_cyclic_order(&f.angles, &vec![r, g, b])
+        ).collect_vec();
+
+        return match outer_face.len() {
+            1 => Some(outer_face[0].id),
+            _ => None
+        }
+    }
+
 }
