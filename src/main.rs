@@ -60,65 +60,76 @@ fn main() {
 
     let maps = read_plantri_planar_code(&data, |i| i.0, |i| i.0, |i| i.0);
 
-    let m2 = &maps[0];
-    println!("{:?}", m2);
-    println!("{:?}", m2.check_referential_integrity());
+    let mut i = 0;
+    for m in maps {
 
-    let sm2 = SchnyderMap::build_on_triangulation(m2, m2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+        let m2 = &m;
 
-    let data = sm2.generate_tikz();
-    let mut f = File::create("/tmp/foo.tex").expect("Unable to create file");
-    f.write_all(data.as_bytes()).expect("Unable to write data");
+        println!("{:?}", m2);
+        println!("{:?}", m2.check_referential_integrity());
 
-    Command::new("xelatex").current_dir("/tmp").arg("/tmp/foo.tex").output();
+        let sm2 = SchnyderMap::build_on_triangulation(m2, m2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
 
+        let data = sm2.generate_tikz();
+        let mut f = File::create(format!("/tmp/foo{}.tex", i)).expect("Unable to create file");
+        f.write_all(data.as_bytes()).expect("Unable to write data");
 
-    let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
-
-    let r = map.add_vertex(Suspension(Red));
-    let g = map.add_vertex(Suspension(Green));
-    let b = map.add_vertex(Suspension(Blue));
-    let c1 = map.add_vertex(Normal(0));
-    let c2 = map.add_vertex(Normal(1));
-
-    map.add_edge(r, g, Bicolored(Green, Red));
-    map.add_edge(r, b, Bicolored(Blue, Red));
-    map.add_edge(b, g, Bicolored(Green, Blue));
-
-    map.add_edge(c1, r, Unicolored(Red, Forward));
-    map.add_edge(c1, b, Unicolored(Blue, Forward));
-    let trg = map.add_edge(c1, c2, Unicolored(Green, Forward));
-
-    map.add_edge(c2, r, Unicolored(Red, Forward));
-    map.add_edge(c2, g, Unicolored(Green, Forward));
-    let src = map.add_edge(c2, b, Unicolored(Blue, Forward));
-
-    println!("is_simple() = {}", map.is_simple());
-    println!("is_connected() = {}", map.is_connected());
-
-    map.set_embedding(vec![
-        (vec![r,g,b], 1),
-        (vec![r,b,c1], 2),
-        (vec![b,g,c2], 3),
-        (vec![r,c1,c2], 4),
-        (vec![c1,b,c2], 5),
-        (vec![r,c2,g], 5)
-    ]);
+        Command::new("rm").current_dir("/tmp").arg("foo*.*").output();
+        Command::new("xelatex").current_dir("/tmp").arg(format!("/tmp/foo{}.tex", i)).output();
+        Command::new("pdftoppm").current_dir("/tmp")
+            .arg(format!("foo{}.pdf", i))
+            .arg(format!("foo{}", i))
+            .arg("-png").arg("-singlefile").output();
 
 
+        let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
 
-    //map.contract_embedded_edge(trg, &(|e1, e2| *e1));
+        let r = map.add_vertex(Suspension(Red));
+        let g = map.add_vertex(Suspension(Green));
+        let b = map.add_vertex(Suspension(Blue));
+        let c1 = map.add_vertex(Normal(0));
+        let c2 = map.add_vertex(Normal(1));
 
-    let (dual, ..) = map.get_dual(true);
+        map.add_edge(r, g, Bicolored(Green, Red));
+        map.add_edge(r, b, Bicolored(Blue, Red));
+        map.add_edge(b, g, Bicolored(Green, Blue));
 
-    let mut schnyder_map = SchnyderMap::from(map);
-    schnyder_map.debug();
-    schnyder_map.merge(src, trg);
-    //schnyder_map.split(trg, CW, g);
+        map.add_edge(c1, r, Unicolored(Red, Forward));
+        map.add_edge(c1, b, Unicolored(Blue, Forward));
+        let trg = map.add_edge(c1, c2, Unicolored(Green, Forward));
 
-    println!("-----");
-    println!("{:?}", dual);
+        map.add_edge(c2, r, Unicolored(Red, Forward));
+        map.add_edge(c2, g, Unicolored(Green, Forward));
+        let src = map.add_edge(c2, b, Unicolored(Blue, Forward));
 
+        println!("is_simple() = {}", map.is_simple());
+        println!("is_connected() = {}", map.is_connected());
+
+        map.set_embedding(vec![
+            (vec![r,g,b], 1),
+            (vec![r,b,c1], 2),
+            (vec![b,g,c2], 3),
+            (vec![r,c1,c2], 4),
+            (vec![c1,b,c2], 5),
+            (vec![r,c2,g], 5)
+        ]);
+
+
+
+        //map.contract_embedded_edge(trg, &(|e1, e2| *e1));
+
+        let (dual, ..) = map.get_dual(true);
+
+        let mut schnyder_map = SchnyderMap::from(map);
+        schnyder_map.debug();
+        schnyder_map.merge(src, trg);
+        //schnyder_map.split(trg, CW, g);
+
+        println!("-----");
+        println!("{:?}", dual);
+
+        i += 1;
+    }
 
 
     // println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );

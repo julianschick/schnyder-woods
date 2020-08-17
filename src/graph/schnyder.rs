@@ -525,6 +525,7 @@ impl<F: Clone> SchnyderMap<F> {
 
         for (vid, (r, g, b)) in face_counts.iter() {
             mid.extend(format!("\\coordinate ({}) at ({},{});", vid.0, g, r).chars());
+            mid.extend(format!("\\node at ({}) [above] {{${}$}};", vid.0, vid.0).chars());
         }
 
         for edge in self.map.edges.get_map().values() {
@@ -650,13 +651,6 @@ impl<F: Clone> SchnyderMap<F> {
             }
         ).collect_vec();
 
-        /*let colors: HashSet<_> = suspension_vertices.iter().filter_map(|v| {
-            match v.weight.get_type() {
-                Suspension(c) => Some(c),
-                _ => None
-            }
-        }).collect();*/
-
         if suspension_vertices.len() != 3 {
             return false;
         }
@@ -750,9 +744,7 @@ impl<F: Clone> SchnyderMap<F> {
             let mut fwd_colors = HashSet::new();
             let mut bwd_colors = HashSet::new();
 
-            for i in 0..l {
-                let v1 = f.angles[i];
-                let v2 = f.angles[(i+1)%l];
+            for (&v1, &v2) in f.angles.cycle(0, true).tuple_windows() {
 
                 if let None = self.map.get_edge(v1, v2) {
                     panic!("{} - {} invalid in face {}", v1.0, v2.0, f.id.0);
@@ -765,7 +757,7 @@ impl<F: Clone> SchnyderMap<F> {
                 bwd_colors.insert(self.color(e, signum.reversed()));
             }
 
-            if fwd_colors.len() == 1 || bwd_colors.len() == 1 {
+            if (fwd_colors.len() == 1 && !fwd_colors.iter().next().unwrap().is_none()) || (bwd_colors.len() == 1 && !bwd_colors.iter().next().unwrap().is_none()) {
                 return false;
             }
         }
