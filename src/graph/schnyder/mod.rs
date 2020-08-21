@@ -16,6 +16,9 @@ use core::fmt;
 use crate::util::is_in_cyclic_order;
 use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
+use rand::{thread_rng, Rng};
+
+pub mod algorithm;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
@@ -163,13 +166,13 @@ struct MergeData<'a> {
 
 struct SplitData {
     hinge_vid: VertexI,
-    target_vid: VertexI,
+    target_vids: Vec<VertexI>,
     split_color: SchnyderColor,
     target_face: FaceI
 }
 
 pub struct SchnyderMap<F: Clone> {
-    map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>,
+    pub map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>,
     //
     outer_face: FaceI,
     red_vertex: VertexI,
@@ -199,6 +202,8 @@ impl<F: Clone> SchnyderMap<F> {
         return result;
     }
 
+    /// the suspension vertex with the lowest index gets red, the next one green, and the vertex
+    /// with the hightest index gets blue.
     pub fn build_on_triangulation<E, N>(
         map: &PlanarMap<N, E, F>,
         outer_face: FaceI,
@@ -209,7 +214,7 @@ impl<F: Clone> SchnyderMap<F> {
             panic!("map has to have an embedding");
         }
 
-        if let Some(_) = map.faces.get_map().values().find(|f| f.angles.len() != 3) {
+        if !map.is_triangulation() {
             panic!("needs to be a triangulation");
         }
 
@@ -219,7 +224,9 @@ impl<F: Clone> SchnyderMap<F> {
             Some(|face_weight| face_weight.clone())
         );
 
-        let mut suspension_vertices = smap.face(outer_face).angles.iter();
+        // by convention
+        let mut suspension_vertices = smap.face(outer_face).angles.iter()
+            .sorted_by_key(|vid| vid.0);
         let r = *suspension_vertices.next().unwrap();
         let g = *suspension_vertices.next().unwrap();
         let b = *suspension_vertices.next().unwrap();
@@ -266,6 +273,8 @@ impl<F: Clone> SchnyderMap<F> {
         println!("r = {:?}", r);
         println!("g = {:?}", g);
         println!("b = {:?}", b);
+        let b_singleton = [b];
+        let g_singleton = [g];
 
         while frontier.len() > 0 {
             for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
@@ -277,13 +286,22 @@ impl<F: Clone> SchnyderMap<F> {
                 }
             }
 
-            let (pos, (&left_neighbour, &pivot, &right_neighbour)) = [b].iter().chain(frontier.iter()).chain([g].iter())
-                .tuple_windows()
-                .find_position(|(&left_neighbour, &pivot, &right_neighbour)| {
-                    !smap.vertex(pivot).between(right_neighbour, left_neighbour, CW)
-                        .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
+            let (pos, (&left_neighbour, &pivot, &right_neighbour)) = {
+                let candidates: Vec<_> = b_singleton.iter().chain(frontier.iter()).chain(g_singleton.iter())
+                    .tuple_windows()
+                    .enumerate()
+                    .filter(|(pos, (&left_neighbour, &pivot, &right_neighbour))| {
+                        !smap.vertex(pivot).between(right_neighbour, left_neighbour, CW)
+                            .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
+                    }
+                    ).collect();
+
+                match mode {
+                    SchnyderBuildMode::LeftMost => candidates.first().unwrap().clone(),
+                    SchnyderBuildMode::RightMost => candidates.last().unwrap().clone(),
+                    SchnyderBuildMode::Random => candidates[thread_rng().gen_range(0, candidates.len())].clone()
                 }
-            ).unwrap();
+            };
 
             let (eid_left, signum_left) = smap.get_edge_with_signum(pivot, left_neighbour);
             let (eid_right, signum_right) = smap.get_edge_with_signum(pivot, right_neighbour);
@@ -315,7 +333,6 @@ impl<F: Clone> SchnyderMap<F> {
                     }
                 }
             }
-
 
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
@@ -391,6 +408,20 @@ impl<F: Clone> SchnyderMap<F> {
         self.color(self.map.edge(nb.edge), match nb.end { Tail => Backward, Head => Forward})
     }
 
+    pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> SchnyderColor {
+        if let Some((v, idx, nb1, nb2)) = self.map.get_knee_by_face(fid, vid) {
+            if let Some(out_before) = self.outgoing_color(nb1) {
+                return out_before.prev();
+            } else if let Some(in_before) = self.incoming_color(nb1) {
+                return in_before;
+            } else {
+                panic!("black edge!");
+            }
+        } else {
+            panic!("no valid knee!");
+        }
+    }
+
     fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> Option<MergeData> {
         let knee = self.map.get_knee(source, target);
 
@@ -430,11 +461,11 @@ impl<F: Clone> SchnyderMap<F> {
         self.assemble_merge_data(source, target).map(|d| d.direction)
     }
 
-    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> bool {
+    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> ClockDirection {
         let s: *mut Self = self;
         let data = match self.assemble_merge_data(source, target) {
             Some(d) => d,
-            None => return false
+            None => panic!("not mergeable")
         };
 
         let dir = self.replace_color_nb(data.target_nb, data.source_color, Forward);
@@ -443,10 +474,10 @@ impl<F: Clone> SchnyderMap<F> {
             (*s).map.edge_mut(data.target_edge.id).weight = dir;
             (*s).map.remove_embedded_edge_by_id(data.source_edge.id, &(|a, b| a));
         }
-        return true;
+        return data.direction;
     }
 
-    fn assemble_split_data(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> Option<SplitData> {
+    fn assemble_split_data(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: Option<VertexI>) -> Option<SplitData> {
         if let Bicolored(tail_color, head_color) = self.map.edge(eid).weight {
             let tail_split_dir = if tail_color.next() == head_color {
                 CW
@@ -474,28 +505,40 @@ impl<F: Clone> SchnyderMap<F> {
             });
 
             let hinge_vid = self.map.edge(eid).get_vertex(split_side);
-            if let Some((_, _, nb1, nb2)) = self.map.get_knee_by_face(fid.unwrap(), target_vid) {
-                assert!(nb1.index <= nb2.index);
 
-                let cond_r1 = if let Some(c) = self.incoming_color(nb1) { c == split_color } else {false};
-                let cond_r2 = if let Some(c) = self.outgoing_color(nb1) { c == split_color.next() } else {false};
-                let cond_l1 = if let Some(c) = self.incoming_color(nb2) { c == split_color } else {false};
-                let cond_l2 = if let Some(c) = self.outgoing_color(nb2)  { c == split_color.prev() } else {false};
+            return if let Some(tvid) = target_vid {
+                let angle_color = self.get_angle_color(fid.unwrap(), tvid);
 
-                if (cond_r1 || cond_r2) && (cond_l1 || cond_l2) {
-
-                    return Some(SplitData {
+                if angle_color == split_color && tvid != hinge_vid && self.map.face(fid.unwrap()).angles.contains(&tvid) {
+                    Some(SplitData {
                         hinge_vid,
-                        target_vid,
+                        target_vids: vec![tvid],
                         split_color,
                         target_face: fid.unwrap()
-                    });
-
+                    })
                 } else {
                     panic!("vertex is not a good parking lot");
-                    return None;
+                    None
+                }
+            } else {
+                let target_vids = self.map.face(fid.unwrap()).angles.iter()
+                    .filter(|&&vid| self.get_angle_color(fid.unwrap(), vid) == split_color)
+                    .filter(|&&vid| vid != hinge_vid)
+                    .cloned().collect_vec();
+
+                if target_vids.is_empty() {
+                    panic!("no good parking lot!");
+                    None
+                } else {
+                    Some(SplitData {
+                        hinge_vid,
+                        target_vids,
+                        split_color,
+                        target_face: fid.unwrap()
+                    })
                 }
             }
+
         } else {
             panic!("not bicolored");
         }
@@ -503,25 +546,38 @@ impl<F: Clone> SchnyderMap<F> {
     }
 
     pub fn splittable(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> bool {
-        return match self.assemble_split_data(eid, direction, target_vid) {
+        return match self.assemble_split_data(eid, direction, Some(target_vid)) {
             Some(_) => true, None => false
         }
     }
 
+    pub fn splittable_to(&mut self, eid: EdgeI, direction: ClockDirection) -> Vec<VertexI> {
+        return match self.assemble_split_data(eid, direction, None) {
+            Some(data) => data.target_vids,
+            None => Vec::new()
+        }
+    }
+
     pub fn split(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) {
-        if let Some(data) = self.assemble_split_data(eid, direction, target_vid) {
-            self.map.add_embedded_edge(data.hinge_vid, data.target_vid, Unicolored(data.split_color, Forward), data.target_face);
+        if let Some(data) = self.assemble_split_data(eid, direction, Some(target_vid)) {
+            self.map.add_embedded_edge(data.hinge_vid, target_vid, Unicolored(data.split_color, Forward), data.target_face);
         } else {
             panic!("not splittable!");
         }
     }
 
-    pub fn generate_tikz(&self) -> String {
+    pub fn split_to_any(&mut self, eid: EdgeI, direction: ClockDirection) {
+        if let Some(data) = self.assemble_split_data(eid, direction, None) {
+            self.map.add_embedded_edge(data.hinge_vid, data.target_vids[0], Unicolored(data.split_color, Forward), data.target_face);
+        } else {
+            panic!("not splittable!");
+        }
+    }
+
+    pub fn generate_tikz(&self, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
         let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
         let tail = "\\end{tikzpicture}\\end{document}";
         let mut mid = String::new();
-
-        let face_counts = self.calculate_face_counts();
 
         for (vid, (r, g, b)) in face_counts.iter() {
             mid.extend(format!("\\coordinate ({}) at ({},{});", vid.0, g, r).chars());
@@ -551,7 +607,20 @@ impl<F: Clone> SchnyderMap<F> {
         mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Green.to_tikz(),  Green.to_tikz(), self.green_vertex.0).chars());
         mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Blue.to_tikz(),  Blue.to_tikz(), self.blue_vertex.0).chars());
 
+        if let Some(title) = title {
+            mid.extend(format!("\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};", title).chars());
+        }
+
         return format!("{}{}{}", preamble, mid, tail);
+    }
+
+    fn random_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
+        let mut result = HashMap::new();
+        let mut rand = thread_rng();
+        for &vid in self.map.vertices.get_map().keys() {
+            result.insert(vid, (rand.gen_range(0, 10), rand.gen_range(0, 10), rand.gen_range(0, 10)));
+        }
+        return result;
     }
 
     fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {

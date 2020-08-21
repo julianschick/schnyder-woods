@@ -14,43 +14,12 @@ use std::fs::File;
 use std::io::Write;
 use std::io::Read;
 use std::process::Command;
-use crate::graph::schnyder::SchnyderBuildMode::LeftMost;
-use crate::graph::io::read_plantri_planar_code;
+use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
+use crate::graph::io::{read_plantri_planar_code, debug_output};
+use crate::graph::schnyder::algorithm::make_contractable;
 
 mod graph;
 mod util;
-
-struct SchnyderVertex {
-    pub kind: SchnyderVertexType
-}
-
-#[derive(Copy, Clone)]
-struct SchnyderEdge {
-    pub direction: SchnyderEdgeDirection
-}
-
-impl SchnyderVertex {
-    fn new(kind: SchnyderVertexType) -> SchnyderVertex {
-        SchnyderVertex { kind }
-    }
-}
-
-impl SchnyderEdge {
-    fn new(direction: SchnyderEdgeDirection) -> SchnyderEdge {
-        SchnyderEdge { direction }
-    }
-}
-
-impl crate::graph::schnyder::SchnyderVertex for SchnyderVertex {
-    fn get_type(&self) -> SchnyderVertexType { self.kind }
-    fn set_type(&mut self, t: SchnyderVertexType) { self.kind = t; }
-}
-
-impl crate::graph::schnyder::SchnyderEdge for SchnyderEdge {
-    fn get_direction(&self) -> SchnyderEdgeDirection { self.direction }
-    fn set_direction(&mut self, d: SchnyderEdgeDirection) { self.direction = d }
-}
-
 
 fn main() {
 
@@ -60,29 +29,22 @@ fn main() {
 
     let maps = read_plantri_planar_code(&data, |i| i.0, |i| i.0, |i| i.0);
 
-    let mut i = 0;
-    for m in maps {
+    //let mut i = 0;
+    //for m in maps {
 
-        let m2 = &m;
+        let mut map = &maps[0];
 
-        println!("{:?}", m2);
-        println!("{:?}", m2.check_referential_integrity());
+        //println!("{:?}", map);
+        println!("initial refint = {}", map.check_referential_integrity());
 
-        let sm2 = SchnyderMap::build_on_triangulation(m2, m2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+        let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
 
-        let data = sm2.generate_tikz();
-        let mut f = File::create(format!("/tmp/foo{}.tex", i)).expect("Unable to create file");
-        f.write_all(data.as_bytes()).expect("Unable to write data");
+        let edge = wood.map.get_edge(VertexI(5), VertexI(2)).unwrap();
+        make_contractable(&mut wood, edge);
 
-        Command::new("rm").current_dir("/tmp").arg("foo*.*").output();
-        Command::new("xelatex").current_dir("/tmp").arg(format!("/tmp/foo{}.tex", i)).output();
-        Command::new("pdftoppm").current_dir("/tmp")
-            .arg(format!("foo{}.pdf", i))
-            .arg(format!("foo{}", i))
-            .arg("-png").arg("-singlefile").output();
+        //debug_output(wood, &format!("foo{}", i), Some(&format!("Number {}", i)));
 
-
-        let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
+        /*let mut map = PlanarMap::<SchnyderVertexType, SchnyderEdgeDirection, _>::new();
 
         let r = map.add_vertex(Suspension(Red));
         let g = map.add_vertex(Suspension(Green));
@@ -112,13 +74,10 @@ fn main() {
             (vec![r,c1,c2], 4),
             (vec![c1,b,c2], 5),
             (vec![r,c2,g], 5)
-        ]);
-
-
-
+        ]);*/
         //map.contract_embedded_edge(trg, &(|e1, e2| *e1));
 
-        let (dual, ..) = map.get_dual(true);
+        /*let (dual, ..) = wood.map.get_dual(true);
 
         let mut schnyder_map = SchnyderMap::from(map);
         schnyder_map.debug();
@@ -126,10 +85,10 @@ fn main() {
         //schnyder_map.split(trg, CW, g);
 
         println!("-----");
-        println!("{:?}", dual);
+        println!("{:?}", dual);*/
 
-        i += 1;
-    }
+      //  i += 1;
+    //}
 
 
     // println!("ref_integrity = {}, check_wood = {}, edge_count = {}", map.check_referential_integrity(), map.check_wood(), map.edge_count(), );

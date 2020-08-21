@@ -49,16 +49,25 @@ pub enum Signum {
     Forward, Backward
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ClockDirection {
-    CW, CCW
-}
-
 impl Signum {
     pub fn reversed(&self) -> Self {
         match self {
             Forward => Backward,
             Backward => Forward
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ClockDirection {
+    CW, CCW
+}
+
+impl ClockDirection {
+    pub fn reversed(&self) -> Self {
+        match self {
+            CW => CCW,
+            CCW => CW
         }
     }
 }
@@ -113,6 +122,10 @@ impl<E> Edge<E> {
         } else {
             panic!("Forward check assertion failed");
         }
+    }
+
+    pub fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
+        return swap((self.tail, self.head), signum == Backward)
     }
 }
 
@@ -309,80 +322,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return cloned;
     }
 
-    pub fn from_plantri_planar_code(data: &mut Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
-
-        if let Some(n) = data.next() {
-            let mut result = PlanarMap::new();
-            let mut neighbors = Vec::new();
-            let mut index_list = Vec::new();
-
-            for i in 1..n+1 {
-                let weight = v_weights(result.vertices.peek_index());
-                index_list.push(result.add_vertex(weight));
-
-                let mut nb = Vec::new();
-                let mut other = if let Some(&byte) = data.next() {
-                    byte
-                } else {
-                    panic!("invalid input data");
-                };
-
-                while other > 0 {
-                    nb.push(other);
-                    if let Some(&byte) = data.next() {
-                        other = byte;
-                    } else {
-                        panic!("invalid input data");
-                    }
-
-                }
-
-                let set: HashSet<_> = nb.iter().collect();
-                if set.len() != nb.len() {
-                    panic!("double edges are not allowed");
-                }
-                if set.contains(&i) {
-                    panic!("loops are not allowed");
-                }
-
-                neighbors.push(nb);
-            }
-
-            for i in 1..(*n as usize)+1 {
-                for &j in neighbors[i-1].iter().filter(|&&j| j as usize > i) {
-                    let (v1, v2) = (index_list[i-1], index_list[j as usize-1]);
-
-                    let pos1 = neighbors[i-1].iter().position(|&k| k == j);
-                    let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
-
-                    let weight = e_weights(result.edges.peek_index());
-
-                    if let None = pos1.and(pos2) {
-                        panic!("invalid data");
-                    }
-
-                    result.add_edge_(v1, v2, pos1, pos2, weight);
-                }
-            }
-
-            for vid in result.vertices.get_map().keys().cloned().collect_vec() {
-                let v = result.vertex_mut(vid);
-                v.neighbors.sort_by_key(|nb| nb.index);
-
-                for i in 0..v.neighbors.len() {
-                    if v.neighbors[i].index != i {
-                        panic!("error 252");
-                    }
-                }
-            }
-
-            result.construct_faces(f_weights);
-            return result;
-        } else {
-            panic!("empty input data");
-        }
-    }
-
     pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
         self.vertices.is_valid_index(&v)
     }
@@ -443,6 +382,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         let connected_component = self.connected_component(&self.vertices.any_index().unwrap(), &HashSet::new());
         return connected_component.len() == self.vertex_count();
+    }
+
+    pub fn is_triangulation(&self) -> bool {
+        self.faces.get_map().values().all(|f| f.angles.len() == 3)
     }
 
     pub fn connected_component(&self, vertex: &VertexI, forbidden_edges: &HashSet<EdgeI>) -> Vec<VertexI> {
@@ -507,26 +450,26 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let id = self.edges.retrieve_index(e);
 
         // v1 --> v2 (v1 = tail, v2 = head)
-        let l = match v1_nb_index {
+        let index = match v1_nb_index {
             None => self.vertex(v1).neighbors.len(),
             Some(i) => i
         };
         self.vertices.get_mut(&v1).neighbors.push(
             NbVertex {
-                index: l,
+                index,
                 other: v2,
                 edge: id,
                 end: Tail
             }
         );
 
-        let l = match v2_nb_index {
+        let index = match v2_nb_index {
             None => self.vertex(v2).neighbors.len(),
             Some(i) => i
         };
         self.vertices.get_mut(&v2).neighbors.push(
             NbVertex {
-                index: l,
+                index,
                 other: v1,
                 edge: id,
                 end: Head
@@ -541,7 +484,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("no embedding given");
         }
 
-        let f = self.face(face);
+        println!("{} nb = {:?}", v1.0, self.vertex(v1).neighbors.iter().map(|nb| nb.other).collect_vec());
+        println!("{} nb = {:?}", v2.0, self.vertex(v2).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         let (pos1, pos2, nb_index_1, nb_index_2) = {
             let knee1 = match self.get_knee_by_face(face, v1) {
@@ -552,7 +496,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 Some(k) => k,
                 None => panic!("invalid face for insertion")
             };
-            (knee1.1, knee2.1, knee1.3.index, knee2.3.index)
+            (knee1.1, knee2.1, knee1.2.index, knee2.2.index)
         };
 
         let e = self.add_edge_(v1, v2, None, None, weight);
@@ -561,14 +505,17 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         {
             let v1_mut = self.vertex_mut(v1);
             let nb = v1_mut.neighbors.pop().unwrap();
-            v1_mut.neighbors.insert(nb_index_1, nb);
+            v1_mut.neighbors.insert(nb_index_1 + 1, nb);
             self.restore_nb_indices(v1);
 
             let v2_mut = self.vertex_mut(v2);
             let nb = v2_mut.neighbors.pop().unwrap();
-            v2_mut.neighbors.insert(nb_index_2, nb);
+            v2_mut.neighbors.insert(nb_index_2 + 1, nb);
             self.restore_nb_indices(v2);
         }
+
+        println!("{} nb = {:?}", v1.0, self.vertex(v1).neighbors.iter().map(|nb| nb.other).collect_vec());
+        println!("{} nb = {:?}", v2.0, self.vertex(v2).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         let old_face = self.faces.free_index(&face).unwrap();
 
@@ -844,6 +791,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             for f in self.faces.get_map().values() {
                 for &vid in f.angles.iter() {
                     self.vertex(vid);
+
+                    if let Some((v, idx, nb1, nb2)) = self.get_knee_by_face(f.id, vid) {
+                        let l = v.neighbors.len();
+
+                        if !((nb1.index + 1) % l == nb2.index || (nb2.index + 1) % l == nb1.index) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
                 }
             }
 
@@ -871,10 +828,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.embedded = true;
         let (n, m, f) = (self.vertex_count() as isize, self.edge_count() as isize, self.face_count() as isize);
 
-        /*if n - m + f != 2 {
+        if n - m + f != 2 {
             self.embedded = false;
             panic!("Euler is unhappy");
-        }*/
+        }
     }
 
     /// signum -> right face
@@ -1101,6 +1058,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.edges.get_mut(&e)
     }
 
+    /// (tail vertex, tail neighbor, edge, head neighbor, head vertex)
+    fn edge_with_nb(&self, e: EdgeI) -> (&Vertex<N>, &NbVertex, &Edge<E>, &NbVertex, &Vertex<N>) {
+        let e = self.edge(e);
+        let tail = self.vertex(e.tail);
+        let head = self.vertex(e.head);
+        let nb_tail = tail.get_nb(e.head).unwrap();
+        let nb_head = head.get_nb(e.tail).unwrap();
+        (tail, nb_tail, e, nb_head, head)
+    }
+
     fn face(&self, f: FaceI) -> &Face<F> {
         self.faces.get(&f)
     }
@@ -1165,17 +1132,28 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let idx = self.face(fid).angles.iter().position(|&v| v == vid).unwrap();
         let v = self.vertex(vid);
 
-        let nbs = v.neighbors.iter()
-            .filter(|nb| { let e = self.edge(nb.edge);
-                e.right_face.unwrap() == fid || e.left_face.unwrap() == fid
-            }).collect_vec();
+        let first = v.neighbors.iter()
+            .find(|nb| {
+                let e = self.edge(nb.edge);
+                match nb.end {
+                    Head => e.left_face.unwrap() == fid,
+                    Tail => e.right_face.unwrap() == fid
+                }
+            }).unwrap();
 
-        if nbs.len() == 1 {
-            return Some((v, idx, nbs[0], nbs[0]));
-        } else if nbs.len() == 2 {
-            return Some((v, idx, nbs[0], nbs[1]));
+        let second = v.neighbors.iter()
+            .find(|nb| {
+                let e = self.edge(nb.edge);
+                match nb.end {
+                    Head => e.right_face.unwrap() == fid,
+                    Tail => e.left_face.unwrap() == fid
+                }
+            }).unwrap();
+
+        if first.other == second.other {
+            return Some((v, idx, first, first));
         } else {
-            panic!("unexpected number of edges");
+            return Some((v, idx, first, second));
         }
     }
 
