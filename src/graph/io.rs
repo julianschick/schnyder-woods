@@ -1,13 +1,13 @@
 use super::{VertexI, EdgeI, FaceI, PlanarMap};
 use std::collections::{HashSet, HashMap};
 use itertools::Itertools;
-use std::fs::{create_dir, File};
+use std::fs::{create_dir, File, read_dir, remove_file};
 use std::process::Command;
 use crate::graph::schnyder::SchnyderMap;
 use std::io::Write;
 use std::path::Path;
 
-pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> Vec<PlanarMap<N, E, F>> {
+pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Option<usize>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> Vec<PlanarMap<N, E, F>> {
     if data.len() < 15 {
         panic!("not a valid planar code file");
     }
@@ -22,17 +22,49 @@ pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, v_weights: fn(Ve
     let mut result = Vec::new();
     let mut iter = data.iter().skip(15).peekable();
 
+    let mut count = 0;
     while let Some(_) = iter.peek() {
         let map = PlanarMap::from_plantri_planar_code(&mut iter, v_weights, e_weights, f_weights);
         result.push(map);
+        count += 1;
+        if let Some(max) = max_count {
+            if max <= count {
+                return result;
+            }
+        }
     }
 
     return result;
 
 }
 
+pub fn clean_output() {
+    let basedir = "/tmp/schnyder";
+    if !Path::new(&basedir).is_dir() {
+        create_dir(basedir).expect("Unable to create temporary output dir");
+    }
+    let outputdir = format!("{}/output", basedir);
+    if !Path::new(&outputdir).is_dir() {
+        create_dir(&outputdir).expect("Unable to create output dir");
+    }
+
+    for entry in read_dir(basedir).unwrap() {
+        let p = entry.unwrap().path();
+        if p.is_file() {
+            remove_file(p);
+        }
+    }
+
+    for entry in read_dir(outputdir).unwrap() {
+        let p = entry.unwrap().path();
+        if p.is_file() {
+            remove_file(p);
+        }
+    }
+}
+
 pub fn debug_output<F: Clone>(wood: &SchnyderMap<F>, name: &str, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
-    let tikz_string = wood.generate_tikz(title, face_counts);
+    let tikz_string = wood.generate_tikz(title, false, face_counts);
 
     let basedir = "/tmp/schnyder";
     if !Path::new(&basedir).is_dir() {

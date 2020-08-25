@@ -484,9 +484,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("no embedding given");
         }
 
-        println!("{} nb = {:?}", v1.0, self.vertex(v1).neighbors.iter().map(|nb| nb.other).collect_vec());
-        println!("{} nb = {:?}", v2.0, self.vertex(v2).neighbors.iter().map(|nb| nb.other).collect_vec());
-
         let (pos1, pos2, nb_index_1, nb_index_2) = {
             let knee1 = match self.get_knee_by_face(face, v1) {
                 Some(k) => k,
@@ -513,9 +510,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             v2_mut.neighbors.insert(nb_index_2 + 1, nb);
             self.restore_nb_indices(v2);
         }
-
-        println!("{} nb = {:?}", v1.0, self.vertex(v1).neighbors.iter().map(|nb| nb.other).collect_vec());
-        println!("{} nb = {:?}", v2.0, self.vertex(v2).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         let old_face = self.faces.free_index(&face).unwrap();
 
@@ -698,19 +692,23 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 }
             };
 
-            for patch_nb in patch_v.neighbors.iter_mut().filter(|nb|nb.other == dropped_edge.tail) {
+            for patch_nb in patch_v.neighbors.iter_mut().filter(|nb| nb.other == dropped_edge.tail) {
                 patch_nb.other = dropped_edge.head;
             }
         }
 
+        //println!("{} nb = {:?}", dropped_edge.head.0, self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.other).collect_vec());
+        //println!("{} nb = {:?}", dropped_edge.tail.0, dropped_vertex.neighbors.iter().map(|nb| nb.other).collect_vec());
         // insert the fan of neighbors previously attached to e.tail now to e.head
         {
             let mut v = self.vertex_mut(dropped_edge.head);
-            let index = v.get_nb(dropped_edge.tail).unwrap().index;
-            v.neighbors.remove(index);
-            v.neighbors.splice(index..index, dropped_vertex.neighbors.into_iter().filter(|nb| nb.other != dropped_edge.head));
+            let head_index = v.get_nb(dropped_edge.tail).unwrap().index;
+            let tail_index = dropped_vertex.get_nb(dropped_edge.head).unwrap().index;
+            v.neighbors.remove(head_index);
+            v.neighbors.splice(head_index..head_index, dropped_vertex.neighbors.cycle(tail_index, false).filter(|nb| nb.other != dropped_edge.head).map(|nb| *nb));
         }
         self.restore_nb_indices(dropped_edge.head);
+        //println!("{} nb = {:?}", dropped_edge.head.0, self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         // remove tail vertex from faces adjacent to the contracted edge
         self.face_mut(dropped_edge.left_face.unwrap()).angles.retain(|v| v != &dropped_edge.tail);
@@ -723,7 +721,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let pos = self.face(fid).angles.iter().position(|&v| v == dropped_edge.head);
             self.face_mut(fid).angles.remove(pos.unwrap());
 
-        // normal case
+            // normal case
         } else {
 
             // patch angles in faces adjacent to the removed tail vertex
@@ -1168,7 +1166,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let vertex_intersection = vec![e1.tail, e1.head].intersect(vec![e2.tail, e2.head]);
         match vertex_intersection.len() {
             0 => return None,
-            1 => {},
+            1 => (),
             _ => panic!("assertion failed")
         };
 

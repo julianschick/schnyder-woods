@@ -15,32 +15,48 @@ use std::io::Write;
 use std::io::Read;
 use std::process::Command;
 use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
-use crate::graph::io::{read_plantri_planar_code, debug_output};
+use crate::graph::io::{read_plantri_planar_code, debug_output, clean_output};
 use crate::graph::schnyder::algorithm::make_contractable;
+use chrono::Utc;
 
 mod graph;
 mod util;
 
 fn main() {
 
+    clean_output();
+
     let mut file = File::open("/tmp/test.tri").unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(200), |i| i.0, |i| i.0, |i| i.0);
 
     //let mut i = 0;
     //for m in maps {
 
-        let mut map = &maps[0];
+        let mut map = &maps[199];
 
         //println!("{:?}", map);
-        println!("initial refint = {}", map.check_referential_integrity());
+
+        let a = VertexI(9);
+        let b = VertexI(6);
 
         let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("The wood"), &wood.calculate_face_counts());
 
-        let edge = wood.map.get_edge(VertexI(5), VertexI(2)).unwrap();
-        make_contractable(&mut wood, edge);
+        let edge = wood.map.get_edge(a, b).unwrap();
+        let seq = make_contractable(&mut wood, edge, true);
+
+        println!("pre-contracted refint = {}", wood.map.check_referential_integrity());
+        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Uncontracted"), &wood.calculate_face_counts());
+        let fc = wood.calculate_face_counts();
+        wood.map.contract_embedded_edge(wood.map.get_edge(a, b).unwrap(), &|a,b| *a);
+
+        println!("contracted refint = {}", wood.map.check_referential_integrity());
+        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Contracted"), &fc);
+
+        println!("{:?}", seq);
 
         //debug_output(wood, &format!("foo{}", i), Some(&format!("Number {}", i)));
 

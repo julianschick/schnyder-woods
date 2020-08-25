@@ -566,41 +566,58 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn split_to_any(&mut self, eid: EdgeI, direction: ClockDirection) {
+    pub fn split_to_any(&mut self, eid: EdgeI, direction: ClockDirection) -> VertexI {
         if let Some(data) = self.assemble_split_data(eid, direction, None) {
             self.map.add_embedded_edge(data.hinge_vid, data.target_vids[0], Unicolored(data.split_color, Forward), data.target_face);
+            return data.target_vids[0];
         } else {
             panic!("not splittable!");
         }
     }
 
-    pub fn generate_tikz(&self, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
+    pub fn generate_tikz(&self, title: Option<&str>, face_labels: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
         let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
         let tail = "\\end{tikzpicture}\\end{document}";
         let mut mid = String::new();
 
-        for (vid, (r, g, b)) in face_counts.iter() {
-            mid.extend(format!("\\coordinate ({}) at ({},{});", vid.0, g, r).chars());
-            mid.extend(format!("\\node at ({}) [above] {{${}$}};", vid.0, vid.0).chars());
+        for v in self.map.vertices.get_map().values() {
+            let (r, g, b) = face_counts.get(&v.id).unwrap();
+            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, g, r).chars());
+            mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
         }
 
         for edge in self.map.edges.get_map().values() {
             mid.extend(match edge.weight {
                 Black => format!("\\draw ({}) -- ({});", edge.head.0, edge.tail.0),
                 Unicolored(color, signum) => match signum {
-                    Forward => format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0),
-                    Backward => format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
+                    Forward => if face_labels {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
+                    } else {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
+                    },
+                    Backward => if face_labels {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
+                    } else {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
+                    }
                 }
                 Bicolored(fwd_c, bwd_c) => {
                     let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
-                    format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
+
+                    if face_labels {
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[->, {}, thick] ({}) -- ({});",
+                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
+                    } else {
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
                             mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
+                    }
                 }
             }.chars());
         }
 
-        for (vid, (r, g, b)) in face_counts {
-            mid.extend(format!("\\fill ({}) circle (2pt);", vid.0).chars());
+        for v in self.map.vertices.get_map().values() {
+            let (r, g, b) = face_counts.get(&v.id).unwrap();
+            mid.extend(format!("\\fill ({}) circle (2pt);", v.id.0).chars());
         }
 
         mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Red.to_tikz(),  Red.to_tikz(), self.red_vertex.0).chars());
@@ -623,7 +640,7 @@ impl<F: Clone> SchnyderMap<F> {
         return result;
     }
 
-    fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
+    pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
 
         let number_of_faces = self.map.face_count() - 1;
         let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(true);
