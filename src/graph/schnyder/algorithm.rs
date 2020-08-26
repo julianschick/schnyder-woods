@@ -1,3 +1,9 @@
+use itertools::Itertools;
+use chrono::{NaiveDateTime, Utc};
+use std::time::Instant;
+use std::collections::HashMap;
+use array_tool::vec::Intersect;
+
 use crate::graph::{ClockDirection, VertexI, EdgeI, Signum, swap, Vertex, NbVertex};
 use crate::graph::schnyder::{SchnyderMap, SchnyderVertexType, SchnyderColor};
 use crate::graph::schnyder::SchnyderVertexType::Suspension;
@@ -5,14 +11,9 @@ use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
 use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::schnyder::IndexedEnum;
-use itertools::Itertools;
-use crate::graph::io::debug_output;
-use chrono::{NaiveDateTime, Utc};
-use std::time::Instant;
-use std::collections::HashMap;
 use crate::graph::ClockDirection::{CW, CCW};
-use array_tool::vec::Intersect;
 use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
+use crate::DEBUG;
 
 #[derive(Debug)]
 pub enum OpType {
@@ -73,17 +74,18 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
 
         result.push(Operation::merge(wood.map.edge(source).to_vertex_pair(Forward), wood.map.edge(target).to_vertex_pair(Forward)));
         let dir = wood.merge(source, target);
-        if debug { debug_output(wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("merge"), face_counts); }
+
+        DEBUG.write().unwrap().output(wood, Some("merge"), face_counts);
 
         let vid = wood.split_to_any(target, dir);
         //result.push(Operation::split(wood.map.edge(target).to_vertex_pair(Forward), dir,vid));
-        if debug { debug_output(wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("split"), face_counts); }
+        DEBUG.write().unwrap().output(wood, Some("split"), face_counts);
         flip_edges.pop();
     }
     return result;
 }
 
-fn nb_cycle_(v: &Vertex<SchnyderVertexType>, start_index: usize, condition: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<EdgeI> {
+fn nb_cycle_(v: &Vertex<SchnyderVertexType>, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<EdgeI> {
     let mut iter = v.neighbors.cycle(start_index, false);
 
     let b: Box<dyn Iterator<Item = &NbVertex>> = match direction {
@@ -91,7 +93,7 @@ fn nb_cycle_(v: &Vertex<SchnyderVertexType>, start_index: usize, condition: &Fn(
         CCW => Box::new(iter.rev())
     };
 
-    b.take_while(condition)
+    b.take_while(condition_while)
         .map(|nb| nb.edge)
         .collect_vec()
 }
@@ -100,7 +102,7 @@ fn nb_cycle<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap<F>, star
     nb_cycle_(v, start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction)
 }
 
-pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI, debug: bool) -> Vec<Operation> {
+pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec<Operation> {
 
     let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
 
@@ -115,7 +117,7 @@ pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI, debug:
     }
 
     let yummi = &wood.calculate_face_counts();
-    if debug { debug_output(wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Start"), yummi); }
+    DEBUG.write().unwrap().output(wood, Some("Start"), yummi);
     let mut result = Vec::new();
 
     if let Unicolored(color, signum) = e.weight {
@@ -140,10 +142,8 @@ pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI, debug:
         panic!("assertion failed - triangulation should only consist of unicolored inner edges.");
     }
 
-    if debug {
-        debug_output(wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Finish"), yummi);
-        debug_output(wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Finish - with new positions"), &wood.calculate_face_counts());
-    }
+    DEBUG.write().unwrap().output(wood, Some("Finish"), yummi);
+    DEBUG.write().unwrap().output(wood, Some("Finish - with new positions"), &wood.calculate_face_counts());
 
     return result;
 }

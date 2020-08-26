@@ -97,6 +97,14 @@ impl SchnyderEdgeDirection {
             _ => false
         }
     }
+
+    pub fn reversed(&self) -> Self {
+        match self {
+            Black => Black,
+            Unicolored(c, signum) => Unicolored(*c, signum.reversed()),
+            Bicolored(a, b) => Bicolored(*b, *a)
+        }
+    }
 }
 
 pub trait SchnyderVertex {
@@ -120,6 +128,14 @@ impl Vertex<SchnyderVertexType> {
 }
 
 impl Edge<SchnyderEdgeDirection> {
+
+    fn color(&self, sig: Signum) -> Option<SchnyderColor> {
+        return match self.weight {
+            Unicolored(c, s) => if sig == s { Some(c) } else { None }
+            Bicolored(fwd_c, bwd_c) => match sig { Forward => Some(fwd_c), Backward => Some(bwd_c)},
+            Black => None
+        }
+    }
 
     fn debug(&self) {
         let tail_color = match self.weight {
@@ -358,14 +374,6 @@ impl<F: Clone> SchnyderMap<F> {
         }*/
     }
 
-    fn color(&self, e: &Edge<SchnyderEdgeDirection>, sig: Signum) -> Option<SchnyderColor> {
-        return match e.weight {
-            Unicolored(c, s) => if sig == s { Some(c) } else { None }
-            Bicolored(fwd_c, bwd_c) => match sig { Forward => Some(fwd_c), Backward => Some(bwd_c)},
-            Black => None
-        }
-    }
-
     fn replace_color_nb(&self, nb: &NbVertex, color: SchnyderColor, sig: Signum) -> SchnyderEdgeDirection {
         let effective_signum = match nb.end {
             Tail => sig,
@@ -401,11 +409,11 @@ impl<F: Clone> SchnyderMap<F> {
     }
 
     pub fn outgoing_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
-        self.color(self.map.edge(nb.edge), match nb.end { Tail => Forward, Head => Backward})
+        self.map.edge(nb.edge).color(match nb.end { Tail => Forward, Head => Backward})
     }
 
     pub fn incoming_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
-        self.color(self.map.edge(nb.edge), match nb.end { Tail => Backward, Head => Forward})
+        self.map.edge(nb.edge).color(match nb.end { Tail => Backward, Head => Forward})
     }
 
     pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> SchnyderColor {
@@ -542,7 +550,6 @@ impl<F: Clone> SchnyderMap<F> {
         } else {
             panic!("not bicolored");
         }
-        return None;
     }
 
     pub fn splittable(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> bool {
@@ -631,13 +638,16 @@ impl<F: Clone> SchnyderMap<F> {
         return format!("{}{}{}", preamble, mid, tail);
     }
 
-    fn random_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
-        let mut result = HashMap::new();
-        let mut rand = thread_rng();
-        for &vid in self.map.vertices.get_map().keys() {
-            result.insert(vid, (rand.gen_range(0, 10), rand.gen_range(0, 10), rand.gen_range(0, 10)));
-        }
-        return result;
+    pub fn schnyder_contract(&mut self, eid: EdgeI) {
+        let merge_weights = |a : &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
+            if a.head == b.head || a.tail == b.tail {
+                a.weight
+            } else {
+                a.weight.reversed()
+            }
+        };
+
+        self.map.contract_embedded_edge(eid, &merge_weights);
     }
 
     pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
@@ -839,8 +849,8 @@ impl<F: Clone> SchnyderMap<F> {
                 let e = self.map.edge(self.map.get_edge(v1, v2).unwrap());
                 let signum = e.get_signum(v1, v2);
 
-                fwd_colors.insert(self.color(e, signum));
-                bwd_colors.insert(self.color(e, signum.reversed()));
+                fwd_colors.insert(e.color(signum));
+                bwd_colors.insert(e.color(signum.reversed()));
             }
 
             if (fwd_colors.len() == 1 && !fwd_colors.iter().next().unwrap().is_none()) || (bwd_colors.len() == 1 && !bwd_colors.iter().next().unwrap().is_none()) {

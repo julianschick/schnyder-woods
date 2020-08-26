@@ -38,53 +38,6 @@ pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Optio
 
 }
 
-pub fn clean_output() {
-    let basedir = "/tmp/schnyder";
-    if !Path::new(&basedir).is_dir() {
-        create_dir(basedir).expect("Unable to create temporary output dir");
-    }
-    let outputdir = format!("{}/output", basedir);
-    if !Path::new(&outputdir).is_dir() {
-        create_dir(&outputdir).expect("Unable to create output dir");
-    }
-
-    for entry in read_dir(basedir).unwrap() {
-        let p = entry.unwrap().path();
-        if p.is_file() {
-            remove_file(p);
-        }
-    }
-
-    for entry in read_dir(outputdir).unwrap() {
-        let p = entry.unwrap().path();
-        if p.is_file() {
-            remove_file(p);
-        }
-    }
-}
-
-pub fn debug_output<F: Clone>(wood: &SchnyderMap<F>, name: &str, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
-    let tikz_string = wood.generate_tikz(title, false, face_counts);
-
-    let basedir = "/tmp/schnyder";
-    if !Path::new(&basedir).is_dir() {
-        create_dir(basedir).expect("Unable to create temporary output dir");
-    }
-    let outputdir = format!("{}/output", basedir);
-    if !Path::new(&outputdir).is_dir() {
-        create_dir(&outputdir).expect("Unable to create output dir");
-    }
-
-    let mut f = File::create(format!("{}/{}.tex", basedir, name)).expect("Unable to create file");
-    f.write_all(tikz_string.as_bytes()).expect("Unable to write data");
-
-    Command::new("xelatex").current_dir(basedir).arg(format!("{}.tex", name)).output();
-    Command::new("pdftoppm").current_dir(basedir)
-        .arg(format!("{}.pdf", name))
-        .arg(format!("{}/{}", outputdir, name))
-        .arg("-png").arg("-singlefile").output();
-}
-
 impl<N,E,F: Clone> PlanarMap<N,E,F> {
     pub fn from_plantri_planar_code(data: &mut Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
 

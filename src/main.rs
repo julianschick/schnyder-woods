@@ -6,55 +6,66 @@ use crate::graph::{PlanarMap, VertexI};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored, Black};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap};
+use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap, SchnyderEdge};
 use crate::graph::Signum::Forward;
 use crate::util::iterators::cyclic::CyclicIterable;
+use crate::util::debug::Debug;
 use crate::graph::ClockDirection::{CCW, CW};
 use std::fs::File;
+use std::sync::RwLock;
 use std::io::Write;
 use std::io::Read;
 use std::process::Command;
 use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
-use crate::graph::io::{read_plantri_planar_code, debug_output, clean_output};
+use crate::graph::io::{read_plantri_planar_code};
 use crate::graph::schnyder::algorithm::make_contractable;
 use chrono::Utc;
+use petgraph::graph::Edge;
+
+
+#[macro_use]
+extern crate lazy_static;
 
 mod graph;
 mod util;
 
-fn main() {
+lazy_static! {
+    static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
+}
 
-    clean_output();
+fn main() {
 
     let mut file = File::open("/tmp/test.tri").unwrap();
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(200), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
     //let mut i = 0;
     //for m in maps {
 
-        let mut map = &maps[199];
+        let mut map = &maps[142];
 
         //println!("{:?}", map);
 
-        let a = VertexI(9);
-        let b = VertexI(6);
+        let a = VertexI(3);
+        let b = VertexI(9);
 
         let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
-        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("The wood"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output(&wood, Some("The wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();
-        let seq = make_contractable(&mut wood, edge, true);
+        let seq = make_contractable(&mut wood, edge);
 
         println!("pre-contracted refint = {}", wood.map.check_referential_integrity());
-        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Uncontracted"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output(&wood, Some("Uncontracted"), &wood.calculate_face_counts());
         let fc = wood.calculate_face_counts();
-        wood.map.contract_embedded_edge(wood.map.get_edge(a, b).unwrap(), &|a,b| *a);
+
+        wood.schnyder_contract(wood.map.get_edge(a, b).unwrap());
 
         println!("contracted refint = {}", wood.map.check_referential_integrity());
-        debug_output(&wood, &format!("{}", Utc::now().naive_utc().timestamp_millis()), Some("Contracted"), &fc);
+        DEBUG.write().unwrap().output(&wood, Some("Contracted"), &fc);
+        DEBUG.write().unwrap().output(&wood, Some("Contracted"), &wood.calculate_face_counts());
 
         println!("{:?}", seq);
 

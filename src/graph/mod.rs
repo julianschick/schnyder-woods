@@ -211,11 +211,12 @@ impl<N> Vertex<N> {
 
     fn next(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
         let nb = self.get_nb(other).unwrap();
-        let index = match direction {
-            CW => (nb.index + 1) % self.neighbors.len(),
-            CCW => (nb.index + (self.neighbors.len() -1)) % self.neighbors.len()
-        };
-        return &self.neighbors[index];
+        let mut iter = self.neighbors.cycle(nb.index, true);
+
+        return match direction {
+            CW => iter.skip(1).next(),
+            CCW => iter.rev().skip(1).next()
+        }.unwrap();
     }
 
     fn between(&self, v1_: VertexI, v2_: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
@@ -620,14 +621,14 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
+    pub fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) {
         unsafe {
             self.contract_embedded_edge_(eid, merge_weights);
         }
     }
 
     /// The head vertex remains
-    unsafe fn contract_embedded_edge_(&mut self, eid: EdgeI, merge_weights: &Fn(&E, &E) -> E) {
+    unsafe fn contract_embedded_edge_(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) {
         let s: *mut Self = self;
 
         {
@@ -665,8 +666,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
             if right_face_collapse {
                 let removed_edge = tail_right;
-                let weight = merge_weights(&removed_edge.weight, &head_right.weight);
-                (*s).edge_mut(head_right.id).weight = weight;
+                (*s).edge_mut(head_right.id).weight = merge_weights(&removed_edge, &head_right);
                 (*s).remove_embedded_edge_by_id(removed_edge.id, &right_face_merge);
             }
 
@@ -1203,5 +1203,66 @@ impl<N, E, F: Clone> Debug for PlanarMap<N, E, F> {
             writeln!(f, "{:?}", e);
         }
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_nbvertex_next() {
+        let mut g = PlanarMap::new();
+        let v1 = g.add_vertex(1);
+        let v2 = g.add_vertex(2);
+        let e = g.add_edge(v1, v2, 1);
+
+        assert_eq!(g.vertex(v1).next(v2, CW).other, v2);
+        assert_eq!(g.vertex(v1).next(v2, CCW).other, v2);
+
+        let v3 = g.add_vertex(3);
+        g.add_edge(v1, v3, 2);
+        g.add_edge(v2, v3, 2);
+
+        g.set_embedding(vec![
+            (vec![v1, v2, v3], 1),
+            (vec![v3, v2, v1], 1),
+        ]);
+
+        assert_eq!(g.vertex(v1).next(v2, CW).other, v3);
+        assert_eq!(g.vertex(v1).next(v2, CCW).other, v3);
+
+        assert_eq!(g.vertex(v3).next(v1, CW).other, v2);
+        assert_eq!(g.vertex(v3).next(v1, CCW).other, v2);
+    }
+
+    #[test]
+    fn test_nbvertex_between() {
+        let mut g = PlanarMap::new();
+
+        let ctr = g.add_vertex(1000);
+
+        let mut outer_rim = Vec::new();
+        for i in 0..10 {
+            let v = g.add_vertex(i);
+            outer_rim.push(v);
+            g.add_edge(ctr, v,i);
+        }
+
+        let mut the_face = Vec::new();
+        for vid in &outer_rim {
+            the_face.push(*vid);
+            the_face.push(*&ctr);
+        }
+
+        g.set_embedding(vec![
+            (the_face, 0)
+        ]);
+
+        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
+        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
+        assert_eq!(g.vertex(ctr).between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
     }
 }
