@@ -85,21 +85,9 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
     return result;
 }
 
-fn nb_cycle_(v: &Vertex<SchnyderVertexType>, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<EdgeI> {
-    let mut iter = v.neighbors.cycle(start_index, false);
-
-    let b: Box<dyn Iterator<Item = &NbVertex>> = match direction {
-        CW => Box::new(iter.skip(1)),
-        CCW => Box::new(iter.rev())
-    };
-
-    b.take_while(condition_while)
-        .map(|nb| nb.edge)
-        .collect_vec()
-}
-
 fn nb_cycle<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap<F>, start_index: usize, in_color: SchnyderColor, out_color: SchnyderColor, direction: ClockDirection) -> Vec<EdgeI> {
-    nb_cycle_(v, start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction)
+    v.cycle_while(start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction)
+        .iter().map(|nb| nb.edge).collect()
 }
 
 pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec<Operation> {

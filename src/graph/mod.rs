@@ -11,6 +11,7 @@ use crate::graph::ClockDirection::{CW, CCW};
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use core::fmt;
+use std::iter;
 
 pub mod schnyder;
 pub mod io;
@@ -209,45 +210,29 @@ impl<N> Vertex<N> {
         self.neighbors.iter().find(|nb| nb.other == other)
     }
 
-    fn next(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
-        let nb = self.get_nb(other).unwrap();
-        let mut iter = self.neighbors.cycle(nb.index, true);
-
-        return match direction {
-            CW => iter.skip(1).next(),
-            CCW => iter.rev().skip(1).next()
-        }.unwrap();
+    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
+        let mut iter = self.neighbors.cycle(start_index, true);
+        match direction {
+            CW => Box::new(iter.skip(1)),
+            CCW => Box::new(iter.rev().skip(1))
+        }
     }
 
-    fn between(&self, v1_: VertexI, v2_: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+    fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
+        let nb = self.get_nb(other).unwrap();
+        self.get_iterator(nb.index, direction).next().unwrap()
+    }
 
-        let (v1, v2) = swap((v1_, v2_), direction == CCW);
+    fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<&NbVertex> {
+        self.get_iterator(start_index, direction).take_while(condition_while).collect_vec()
+    }
 
-        if let Some(nb1) = self.neighbors.iter().find(|nb| nb.other == v1) {
-            if let Some(nb2) = self.neighbors.iter().find(|nb| nb.other == v2) {
-
-                let tmp_vector = if nb1.index < nb2.index {
-                    self.neighbors[nb1.index+1..nb2.index].iter().collect_vec()
-                } else {
-                    self.neighbors.cycle(nb1.index, false)
-                        .skip(1)
-                        .take_while(|nb| nb.index != nb2.index)
-                        .collect_vec()
-                };
-
-                return match direction {
-                    CCW => tmp_vector.into_iter().rev().collect_vec(),
-                    CW => tmp_vector
-                };
-
-            } else {
-                panic!("v2 invalid");
-            }
+    fn nb_sector(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1),self.get_nb(v2)) {
+            return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction);
         } else {
-            panic!("v1 invalid");
+            panic!("v1/v2 invalid");
         }
-
-        return vec![];
     }
 }
 
@@ -856,7 +841,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         while next != cycle[0] && cycle.len() <= self.vertex_count() + 1 {
             cycle.push(next);
             let l = cycle.len();
-            next = self.vertex(cycle[l-1]).next(cycle[l-2], CW).other;
+            next = self.vertex(cycle[l-1]).next_nb(cycle[l-2], CW).other;
 
             let (intermediate_eid, s) = self.get_edge_with_signum(cycle[l-1], next);
             let e = self.edge_mut(intermediate_eid);
@@ -912,7 +897,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 // covered edges
                 let e = self.get_edge(a, b);
                 if e.is_none() {
-                    return panic!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0)
+                    panic!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0);
                 }
 
                 match self.get_signum(e.unwrap(), a, b) {
@@ -1218,8 +1203,8 @@ mod tests {
         let v2 = g.add_vertex(2);
         let e = g.add_edge(v1, v2, 1);
 
-        assert_eq!(g.vertex(v1).next(v2, CW).other, v2);
-        assert_eq!(g.vertex(v1).next(v2, CCW).other, v2);
+        assert_eq!(g.vertex(v1).next_nb(v2, CW).other, v2);
+        assert_eq!(g.vertex(v1).next_nb(v2, CCW).other, v2);
 
         let v3 = g.add_vertex(3);
         g.add_edge(v1, v3, 2);
@@ -1230,15 +1215,15 @@ mod tests {
             (vec![v3, v2, v1], 1),
         ]);
 
-        assert_eq!(g.vertex(v1).next(v2, CW).other, v3);
-        assert_eq!(g.vertex(v1).next(v2, CCW).other, v3);
+        assert_eq!(g.vertex(v1).next_nb(v2, CW).other, v3);
+        assert_eq!(g.vertex(v1).next_nb(v2, CCW).other, v3);
 
-        assert_eq!(g.vertex(v3).next(v1, CW).other, v2);
-        assert_eq!(g.vertex(v3).next(v1, CCW).other, v2);
+        assert_eq!(g.vertex(v3).next_nb(v1, CW).other, v2);
+        assert_eq!(g.vertex(v3).next_nb(v1, CCW).other, v2);
     }
 
     #[test]
-    fn test_nbvertex_between() {
+    fn test_nbvertex_sector() {
         let mut g = PlanarMap::new();
 
         let ctr = g.add_vertex(1000);
@@ -1260,9 +1245,9 @@ mod tests {
             (the_face, 0)
         ]);
 
-        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
-        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
-        assert_eq!(g.vertex(ctr).between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
-        assert_eq!(g.vertex(ctr).between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
+        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
+        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
     }
 }

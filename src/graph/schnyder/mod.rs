@@ -267,13 +267,13 @@ impl<F: Clone> SchnyderMap<F> {
         }
 
         // Color incoming red edges of red suspension vertex
-        for (eid, signum) in smap.vertex(r).between(b, g, CCW).iter().map(|nb|
+        for (eid, signum) in smap.vertex(r).nb_sector(b, g, CCW).iter().map(|nb|
             (nb.edge, match nb.end { Head => Forward, Tail => Backward})
         ).collect_vec() {
             smap.edge_mut(eid).weight = Unicolored(Red, signum);
         }
 
-        let mut frontier = smap.vertex(r).between(b, g, CCW).iter()
+        let mut frontier = smap.vertex(r).nb_sector(b, g, CCW).iter()
             .map(|nb| nb.other)
             .collect_vec();
 
@@ -307,7 +307,7 @@ impl<F: Clone> SchnyderMap<F> {
                     .tuple_windows()
                     .enumerate()
                     .filter(|(pos, (&left_neighbour, &pivot, &right_neighbour))| {
-                        !smap.vertex(pivot).between(right_neighbour, left_neighbour, CW)
+                        !smap.vertex(pivot).nb_sector(right_neighbour, left_neighbour, CW)
                             .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
                     }
                     ).collect();
@@ -325,14 +325,14 @@ impl<F: Clone> SchnyderMap<F> {
             smap.edge_mut(eid_left).weight = Unicolored(Blue, signum_left);
             smap.edge_mut(eid_right).weight = Unicolored(Green, signum_right);
 
-            for (eid, signum) in smap.vertex(pivot).between(right_neighbour, left_neighbour, CW).iter().map(|nb|
+            for (eid, signum) in smap.vertex(pivot).nb_sector(right_neighbour, left_neighbour, CW).iter().map(|nb|
                 (nb.edge, match nb.end { Head => Forward, Tail => Backward})
             ).collect_vec() {
                 smap.edge_mut(eid).weight = Unicolored(Red, signum);
             }
 
             let check_v = smap.vertex(pivot)
-                .between(left_neighbour, right_neighbour, CCW)
+                .nb_sector(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec();
 
             if check_v.len()>0 {
@@ -352,7 +352,7 @@ impl<F: Clone> SchnyderMap<F> {
 
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
-                .between(left_neighbour, right_neighbour, CCW)
+                .nb_sector(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec());
         }
 
