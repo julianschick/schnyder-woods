@@ -141,7 +141,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, false, face_counts);
+            let tikz_string = wood.generate_tikz(title, true, face_counts);
             let name = format!("{}", self.counter);
             self.counter += 1;
 

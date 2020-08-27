@@ -52,7 +52,7 @@ fn main() {
         let b = VertexI(9);
 
         let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
-        DEBUG.write().unwrap().output(&wood, Some("The wood"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();
         let seq = make_contractable(&mut wood, edge);
@@ -61,11 +61,18 @@ fn main() {
         DEBUG.write().unwrap().output(&wood, Some("Uncontracted"), &wood.calculate_face_counts());
         let fc = wood.calculate_face_counts();
 
-        wood.schnyder_contract(wood.map.get_edge(a, b).unwrap());
+        let (contracted_color, dropped_vertex, dropped_edge) = wood.schnyder_contract(wood.map.get_edge(a, b).unwrap());
+        let retained_vertex = if dropped_vertex == a { b } else { a };
 
         println!("contracted refint = {}", wood.map.check_referential_integrity());
         DEBUG.write().unwrap().output(&wood, Some("Contracted"), &fc);
-        DEBUG.write().unwrap().output(&wood, Some("Contracted"), &wood.calculate_face_counts());
+        //DEBUG.write().unwrap().output(&wood, Some("Contracted w/ Updated Vertex Positions"), &wood.calculate_face_counts());
+
+        let edge_to_discontract = wood.find_outgoing_edge(retained_vertex, contracted_color).unwrap();
+        wood.schnyder_discontract(edge_to_discontract, retained_vertex, Some(dropped_vertex), Some(dropped_edge));
+
+        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &fc);
+        println!("discontracted refint = {}", wood.map.check_referential_integrity());
 
         println!("{:?}", seq);
 

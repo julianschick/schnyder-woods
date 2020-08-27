@@ -170,20 +170,19 @@ impl Edge<SchnyderEdgeDirection> {
 }
 
 struct MergeData<'a> {
-    v: &'a Vertex<SchnyderVertexType>,
+    hinge_vertex: &'a Vertex<SchnyderVertexType>,
     source_edge: &'a Edge<SchnyderEdgeDirection>,
     source_nb: &'a NbVertex,
     source_color: SchnyderColor,
     target_edge: &'a Edge<SchnyderEdgeDirection>,
     target_nb: &'a NbVertex,
     target_color: SchnyderColor,
-    direction: ClockDirection
 }
 
 struct SplitData {
-    hinge_vid: VertexI,
     target_vids: Vec<VertexI>,
     split_color: SchnyderColor,
+    remaining_color: SchnyderEdgeDirection,
     target_face: FaceI
 }
 
@@ -403,6 +402,12 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
+    pub fn find_outgoing_edge(&self, vid: VertexI, c: SchnyderColor) -> Option<EdgeI> {
+        self.map.vertex(vid).neighbors.iter()
+            .find(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
+            .map(|nb| nb.edge)
+    }
+
     fn find_outgoing(&self, v: &Vertex<SchnyderVertexType>, c: SchnyderColor) -> Option<usize> {
         v.neighbors.iter()
             .position(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
@@ -433,15 +438,11 @@ impl<F: Clone> SchnyderMap<F> {
     fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> Option<MergeData> {
         let knee = self.map.get_knee(source, target);
 
-        if let Some((v, nb1, nb2)) = knee {
+        if let Some((hinge_vertex, nb1, nb2)) = knee {
 
             let source_edge = self.map.edge(source);
             let target_edge = self.map.edge(target);
-            let direction = if source == nb1.edge { CW } else { CCW };
-            let (source_nb, target_nb) = match direction {
-                CW => (nb1, nb2),
-                CCW => (nb2, nb1)
-            };
+            let (source_nb, target_nb) = if source == nb1.edge { (nb1, nb2) } else { (nb2, nb1) };
 
             // both edges involved must be unicolored
             if !source_edge.weight.is_unicolored() || !target_edge.weight.is_unicolored() {
@@ -458,18 +459,18 @@ impl<F: Clone> SchnyderMap<F> {
             };
 
             return Some(MergeData {
-                v, source_edge, source_nb, source_color, target_edge, target_nb, target_color, direction
+                hinge_vertex, source_edge, source_nb, source_color, target_edge, target_nb, target_color
             });
         } else {
             return None;
         }
     }
 
-    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<ClockDirection> {
-        self.assemble_merge_data(source, target).map(|d| d.direction)
+    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<VertexI> {
+        self.assemble_merge_data(source, target).map(|d| d.hinge_vertex.id)
     }
 
-    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> ClockDirection {
+    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> VertexI {
         let s: *mut Self = self;
         let data = match self.assemble_merge_data(source, target) {
             Some(d) => d,
@@ -482,100 +483,85 @@ impl<F: Clone> SchnyderMap<F> {
             (*s).map.edge_mut(data.target_edge.id).weight = dir;
             (*s).map.remove_embedded_edge_by_id(data.source_edge.id, &(|a, b| a));
         }
-        return data.direction;
+        return data.hinge_vertex.id;
     }
 
-    fn assemble_split_data(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: Option<VertexI>) -> Option<SplitData> {
-        if let Bicolored(tail_color, head_color) = self.map.edge(eid).weight {
-            let tail_split_dir = if tail_color.next() == head_color {
-                CW
+    fn assemble_split_data(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> Option<SplitData> {
+        let e = self.map.edge(eid);
+
+        if e.tail != hinge_vid && e.head != hinge_vid {
+            panic!("hinge vertex invalid!")
+        }
+
+        if let Bicolored(tail_color, head_color) = e.weight {
+
+            let hinge_end = if e.tail == hinge_vid { Tail } else { Head };
+            let target_face = if tail_color.next() == head_color {
+                self.map.edge(eid).right_face
             } else if tail_color.prev() == head_color {
-                CCW
+                self.map.edge(eid).left_face
             } else {
-                panic!("invalid bicolored edge");
-                return None;
-            };
+                panic!("not really bicolored edge");
+            }.unwrap();
 
-            let fid = match tail_split_dir {
-                CW => self.map.edge(eid).right_face,
-                CCW => self.map.edge(eid).left_face
-            };
-
-            let split_side = if tail_split_dir == direction { Tail } else { Head };
-            let (split_color, constant_color) = match split_side {
+            let (split_color, constant_color) = match hinge_end {
                 Tail => (tail_color, head_color),
                 Head => (head_color, tail_color)
             };
 
-            self.map.edge_mut(eid).weight = Unicolored(constant_color, match split_side {
-                Tail => Backward,
-                Head => Forward
-            });
+            let target_vids = self.map.face(target_face).angles.iter()
+                .filter(|&&vid| self.get_angle_color(target_face, vid) == split_color)
+                .filter(|&&vid| vid != hinge_vid)
+                .cloned().collect_vec();
 
-            let hinge_vid = self.map.edge(eid).get_vertex(split_side);
-
-            return if let Some(tvid) = target_vid {
-                let angle_color = self.get_angle_color(fid.unwrap(), tvid);
-
-                if angle_color == split_color && tvid != hinge_vid && self.map.face(fid.unwrap()).angles.contains(&tvid) {
-                    Some(SplitData {
-                        hinge_vid,
-                        target_vids: vec![tvid],
-                        split_color,
-                        target_face: fid.unwrap()
-                    })
-                } else {
-                    panic!("vertex is not a good parking lot");
-                    None
-                }
-            } else {
-                let target_vids = self.map.face(fid.unwrap()).angles.iter()
-                    .filter(|&&vid| self.get_angle_color(fid.unwrap(), vid) == split_color)
-                    .filter(|&&vid| vid != hinge_vid)
-                    .cloned().collect_vec();
-
-                if target_vids.is_empty() {
-                    panic!("no good parking lot!");
-                    None
-                } else {
-                    Some(SplitData {
-                        hinge_vid,
-                        target_vids,
-                        split_color,
-                        target_face: fid.unwrap()
-                    })
+            if let Some(tvid) = target_vid {
+                if !target_vids.contains(&tvid) {
+                    panic!("vertex is not a good parking lot!")
                 }
             }
+
+            if target_vids.is_empty() {
+                panic!("no good parking lot!");
+            }
+
+            Some(SplitData {
+                target_vids,
+                split_color,
+                remaining_color: match hinge_end { Tail => Unicolored(constant_color, Backward), Head => Unicolored(constant_color, Forward)},
+                target_face
+            })
 
         } else {
             panic!("not bicolored");
         }
     }
 
-    pub fn splittable(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) -> bool {
-        return match self.assemble_split_data(eid, direction, Some(target_vid)) {
+    pub fn splittable(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> bool {
+        return match self.assemble_split_data(eid, hinge_vid, Some(target_vid)) {
             Some(_) => true, None => false
         }
     }
 
-    pub fn splittable_to(&mut self, eid: EdgeI, direction: ClockDirection) -> Vec<VertexI> {
-        return match self.assemble_split_data(eid, direction, None) {
+    pub fn find_split_target(&mut self, eid: EdgeI, hinge_vid: VertexI) -> Vec<VertexI> {
+        return match self.assemble_split_data(eid, hinge_vid, None) {
             Some(data) => data.target_vids,
             None => Vec::new()
         }
     }
 
-    pub fn split(&mut self, eid: EdgeI, direction: ClockDirection, target_vid: VertexI) {
-        if let Some(data) = self.assemble_split_data(eid, direction, Some(target_vid)) {
-            self.map.add_embedded_edge(data.hinge_vid, target_vid, Unicolored(data.split_color, Forward), data.target_face);
+    pub fn split(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) {
+        if let Some(data) = self.assemble_split_data(eid, hinge_vid, Some(target_vid)) {
+            self.map.add_embedded_edge(hinge_vid, target_vid, Unicolored(data.split_color, Forward), data.target_face);
+            self.map.edge_mut(eid).weight = data.remaining_color;
         } else {
             panic!("not splittable!");
         }
     }
 
-    pub fn split_to_any(&mut self, eid: EdgeI, direction: ClockDirection) -> VertexI {
-        if let Some(data) = self.assemble_split_data(eid, direction, None) {
-            self.map.add_embedded_edge(data.hinge_vid, data.target_vids[0], Unicolored(data.split_color, Forward), data.target_face);
+    pub fn split_to_any(&mut self, eid: EdgeI, hinge_vid: VertexI) -> VertexI {
+        if let Some(data) = self.assemble_split_data(eid, hinge_vid, None) {
+            self.map.add_embedded_edge(hinge_vid, data.target_vids[0], Unicolored(data.split_color, Forward), data.target_face);
+            self.map.edge_mut(eid).weight = data.remaining_color;
             return data.target_vids[0];
         } else {
             panic!("not splittable!");
@@ -638,16 +624,66 @@ impl<F: Clone> SchnyderMap<F> {
         return format!("{}{}{}", preamble, mid, tail);
     }
 
-    pub fn schnyder_contract(&mut self, eid: EdgeI) {
-        let merge_weights = |a : &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
-            if a.head == b.head || a.tail == b.tail {
-                a.weight
-            } else {
-                a.weight.reversed()
+    pub fn schnyder_contract(&mut self, eid: EdgeI) -> (SchnyderColor, VertexI, EdgeI) {
+        //TODO: check preconditions
+
+        if let Unicolored(color, _) = self.map.edge(eid).weight {
+            let merge_weights = |a: &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
+                if a.head == b.head || a.tail == b.tail {
+                    a.weight
+                } else {
+                    a.weight.reversed()
+                }
+            };
+
+            let (removed_vertex, removed_edge) = self.map.contract_embedded_edge(eid, &merge_weights);
+            return (color, removed_vertex, removed_edge);
+        } else {
+            panic!("only unicolored edges can be schnyder-contracted");
+        }
+    }
+
+    pub fn schnyder_discontract(&mut self, eid: EdgeI, pivot_vid: VertexI, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> (VertexI, EdgeI) {
+        let (new_end, old_weight) = {
+            let e = self.map.edge(eid);
+            if e.head != pivot_vid && e.tail != pivot_vid {
+                panic!("invalid arguments");
             }
+            (if e.head == pivot_vid { Head } else { Tail }, e.weight)
         };
 
-        self.map.contract_embedded_edge(eid, &merge_weights);
+        if self.map.vertex(pivot_vid).neighbors.len() < 3 {
+            panic!("not enough neighbors for blowup!");
+        }
+
+        let (new_vid, new_eid) = self.map.split_embedded_edge(
+            eid, new_end,
+            new_vertex_index,
+            new_edge_index,
+            Normal(0),
+            old_weight
+        );
+
+        let cw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CW).other;
+        let ccw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CCW).other;
+        let (cw_face, ccw_face) = {
+            let new_e = self.map.edge(new_eid);
+            (
+                match new_end { Head => new_e.left_face, Tail => new_e.right_face }.unwrap(),
+                match new_end { Head => new_e.right_face, Tail => new_e.left_face }.unwrap(),
+            )
+        };
+
+        println!("cw_face = {}", cw_face.0);
+        println!("ccw_face = {}", ccw_face.0);
+        println!("pivot = {}", pivot_vid.0);
+        eprintln!("cw_nb = {:?}", cw_nb);
+        eprintln!("ccw_nb = {:?}", ccw_nb);
+
+        self.map.add_embedded_edge(new_vid, cw_nb, Black, cw_face);
+        //self.map.add_embedded_edge(new_vid, ccw_nb, Black, ccw_face);
+
+        return (pivot_vid, eid);
     }
 
     pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {

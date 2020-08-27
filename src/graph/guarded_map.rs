@@ -45,6 +45,40 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         return result;
     }
 
+    pub fn insert_with_index(&mut self, mut item: V, index: &N) {
+        if !self.is_available(index) {
+            panic!("index not available");
+        }
+
+        self.map.insert(*index, item);
+
+        while self.map.contains_key(&N::from(self.least_free_index)) {
+            self.least_free_index += 1;
+        }
+    }
+
+    pub fn reindex(&mut self, old_index: &N, new_index: &N) -> bool {
+        if !self.is_available(new_index) {
+            return false;
+        }
+
+        if let Some(thing) = self.map.remove(old_index) {
+            self.map.insert(*new_index, thing);
+
+            if self.least_free_index > (*old_index).into()  {
+                self.least_free_index = (*old_index).into();
+            } else {
+                while self.map.contains_key(&N::from(self.least_free_index)) {
+                    self.least_free_index += 1;
+                }
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn free_index(&mut self, index: &N) -> Option<V> {
         if self.least_free_index > (*index).into()  {
             self.least_free_index = (*index).into();
@@ -55,6 +89,8 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
     pub fn is_valid_index(&self, index: &N) -> bool {
         self.map.contains_key(index)
     }
+
+    pub fn is_available(&self, index: &N) -> bool { !self.map.contains_key(index) }
 
     pub fn get_map(&self) -> &HashMap<N, V> {
         &self.map

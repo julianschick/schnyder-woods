@@ -12,6 +12,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use core::fmt;
 use std::iter;
+use petgraph::algo::has_path_connecting;
 
 pub mod schnyder;
 pub mod io;
@@ -43,6 +44,12 @@ impl Index for FaceI { }
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum EdgeEnd {
     Tail, Head
+}
+
+impl EdgeEnd {
+    pub fn inverted(&self) -> Self {
+        match self { Tail => Head, Head => Tail }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -208,6 +215,10 @@ impl<N> Vertex<N> {
 
     fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
         self.neighbors.iter().find(|nb| nb.other == other)
+    }
+
+    fn get_nb_mut(&mut self, other: VertexI) -> Option<&mut NbVertex> {
+        self.neighbors.iter_mut().find(|nb| nb.other == other)
     }
 
     fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
@@ -606,14 +617,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) {
+    /// returns deleted vertex and edge index
+    pub fn contract_embedded_edge(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) -> (VertexI, EdgeI) {
         unsafe {
-            self.contract_embedded_edge_(eid, merge_weights);
+            self.contract_embedded_edge_(eid, merge_weights)
         }
     }
 
     /// The head vertex remains
-    unsafe fn contract_embedded_edge_(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) {
+    /// Returns deleted vertex index and edge index
+    unsafe fn contract_embedded_edge_(&mut self, eid: EdgeI, merge_weights: &Fn(&Edge<E>, &Edge<E>) -> E) -> (VertexI, EdgeI) {
         let s: *mut Self = self;
 
         {
@@ -636,7 +649,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let right_face_collapse = tail_right.get_other(e.tail) == head_right.get_other(e.head);
             let left_face_collapse = tail_left.get_other(e.tail) == head_left.get_other(e.head);
 
-            let head_single_edge = head_cw == head_ccw;
+            //let head_single_edge = head_cw == head_ccw;
             let tail_single_edge = tail_cw == tail_ccw;
 
             let right_face_merge: Box<Fn(_, _) -> _> = match tail_right.get_signum_by_tail(e.tail) {
@@ -723,6 +736,108 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 }
             }
         }
+
+        return (dropped_vertex.id, dropped_edge.id);
+    }
+
+    fn split_edge_(&mut self, eid: EdgeI, new_end: EdgeEnd, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>, new_vertex_weight: N, new_edge_weight: E) -> (VertexI, EdgeI) {
+        let pivot_vertex = self.edge(eid).get_vertex(new_end);
+        let other_vertex = self.edge(eid).get_vertex(new_end.inverted());
+
+        let new_vertex = Vertex {
+            id: VertexI(0),
+            weight: new_vertex_weight,
+            neighbors: vec![
+                NbVertex {
+                    index: 0,
+                    end: new_end,
+                    other: other_vertex,
+                    edge: eid
+                },
+                NbVertex {
+                    index: 1,
+                    end: new_end.inverted(),
+                    other: pivot_vertex,
+                    edge: EdgeI(0) //to be replaced by new edge id
+                }
+            ]
+        };
+
+        let new_vertex_index = if let Some(idx) = new_vertex_index {
+            if !self.vertices.is_available(&idx) {
+                panic!("vertex index not available");
+            }
+            self.vertices.insert_with_index(new_vertex, &idx);
+            idx
+        } else {
+            self.vertices.retrieve_index(new_vertex)
+        };
+
+        let new_edge = Edge {
+            id: EdgeI(0),
+            tail: if new_end == Tail { pivot_vertex } else { new_vertex_index },
+            head: if new_end == Tail { new_vertex_index } else { pivot_vertex },
+            left_face: None,
+            right_face: None,
+            weight: new_edge_weight,
+        };
+
+        let new_edge_index = if let Some(idx) = new_edge_index {
+            if !self.edges.is_available(&idx) {
+                panic!("edge index not available");
+            }
+            self.edges.insert_with_index(new_edge, &idx);
+            idx
+        } else {
+            self.edges.retrieve_index(new_edge)
+        };
+
+        // set indices of new edge and vertex
+        self.edge_mut(new_edge_index).id = new_edge_index;
+        self.vertex_mut(new_vertex_index).id = new_vertex_index;
+        self.vertex_mut(new_vertex_index).neighbors[1].edge = new_edge_index;
+
+        // patch old edge
+        match new_end {
+            Tail => self.edge_mut(eid).tail = new_vertex_index,
+            Head => self.edge_mut(eid).head = new_vertex_index
+        }
+        self.vertex_mut(other_vertex).get_nb_mut(pivot_vertex).unwrap().other = new_vertex_index;
+
+        // patch pivot vertex
+        {
+            let mut v = self.vertex_mut(pivot_vertex).get_nb_mut(other_vertex).unwrap();
+            v.edge = new_edge_index;
+            v.other = new_vertex_index;
+        }
+
+        return (new_vertex_index, new_edge_index)
+    }
+
+    /// new_end = end of the existing edge that will be replaced by the new edge
+    fn split_embedded_edge(&mut self, eid: EdgeI, new_end: EdgeEnd, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>, new_vertex_weight: N, new_edge_weight: E) -> (VertexI, EdgeI) {
+        if !self.embedded {
+            panic!("not embedded");
+        }
+
+        let (old_tail, old_head) = self.edge(eid).to_vertex_pair(Forward);
+        let (new_vid, new_eid) = self.split_edge_(eid, new_end, new_vertex_index, new_edge_index, new_vertex_weight, new_edge_weight);
+
+        self.edge_mut(new_eid).left_face = self.edge(eid).left_face;
+        self.edge_mut(new_eid).right_face = self.edge(eid).right_face;
+
+        {
+            let f = self.face_mut(self.edge(eid).right_face.unwrap());
+            let old_head_index = f.angles.iter().position(|&vid| vid == old_head).unwrap();
+            f.angles.insert(old_head_index, new_vid);
+        }
+        {
+            let f = self.face_mut(self.edge(eid).left_face.unwrap());
+            let old_tail_index = f.angles.iter().position(|&vid| vid == old_tail).unwrap();
+            f.angles.insert(old_tail_index, new_vid);
+        }
+
+        return (new_vid, new_eid);
     }
 
     /// Dirty function, can also panic instead of returning false
