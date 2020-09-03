@@ -21,7 +21,7 @@ use crate::graph::io::{read_plantri_planar_code};
 use crate::graph::schnyder::algorithm::{make_contractible, make_inner_edge};
 use chrono::Utc;
 use petgraph::graph::Edge;
-use crate::algorithm::compute_contraction_candidates;
+use crate::algorithm::{compute_contraction_candidates, find_sequence};
 use crate::graph::EdgeEnd::{Tail, Head};
 
 
@@ -44,13 +44,18 @@ fn main() {
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
     let map1 = &maps[0];
-    let map2 = &maps[0];
+    let map2 = &maps[1];
 
     let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost);
     let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
+
+    find_sequence(wood1, wood2);
+
+    /*make_inner_edge(&mut wood1, Green);
+    DEBUG.write().unwrap().output(&wood1, Some("Wood1 (Made inner edge)"), &wood1.calculate_face_counts());
 
     {
         let look = &wood1;
@@ -68,10 +73,7 @@ fn main() {
                 println!("\t {} <---> {} : c = {}", a.0, b.0, contractible);
             }
         }
-    }
-
-    make_inner_edge(&mut wood1, Red);
-    DEBUG.write().unwrap().output(&wood1, Some("Wood1 (Made inner edge)"), &wood1.calculate_face_counts());
+    }*/
 
 }
 

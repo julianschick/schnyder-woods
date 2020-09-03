@@ -221,7 +221,7 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec
     return result;
 }
 
-pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
     if !wood.map.is_triangulation() {
         panic!("needs to be a triangulation");
     }
@@ -229,13 +229,13 @@ pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor
         panic!("vertex count is too small");
     }
 
-    if let Some(_) = wood.map.edge_indices()
+    if let Some(e) = wood.map.edge_indices()
         .filter(|e| wood.is_inner_edge(e))
         .find(|e| match wood.map.edge_weight(e) {
             Some(Unicolored(c, _)) if *c == color  => true,
             _ => false
         }) {
-        return vec![];
+        return (*e, vec![]);
     }
 
     let v = wood.map.vertex(wood.get_suspension_vertex(color));
@@ -260,5 +260,5 @@ pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor
     let split_target = wood.split_to_any(opposite_edge, split_hinge);
     result.push(Operation::split(split_hinge, merge_hinge, split_target));
 
-    return result;
+    return (opposite_edge, result);
 }
