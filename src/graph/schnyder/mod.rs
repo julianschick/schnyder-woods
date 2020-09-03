@@ -266,13 +266,13 @@ impl<F: Clone> SchnyderMap<F> {
         }
 
         // Color incoming red edges of red suspension vertex
-        for (eid, signum) in smap.vertex(r).nb_sector(b, g, CCW).iter().map(|nb|
+        for (eid, signum) in smap.vertex(r).nb_sector_between(b, g, CCW).iter().map(|nb|
             (nb.edge, match nb.end { Head => Forward, Tail => Backward})
         ).collect_vec() {
             smap.edge_mut(eid).weight = Unicolored(Red, signum);
         }
 
-        let mut frontier = smap.vertex(r).nb_sector(b, g, CCW).iter()
+        let mut frontier = smap.vertex(r).nb_sector_between(b, g, CCW).iter()
             .map(|nb| nb.other)
             .collect_vec();
 
@@ -306,7 +306,7 @@ impl<F: Clone> SchnyderMap<F> {
                     .tuple_windows()
                     .enumerate()
                     .filter(|(pos, (&left_neighbour, &pivot, &right_neighbour))| {
-                        !smap.vertex(pivot).nb_sector(right_neighbour, left_neighbour, CW)
+                        !smap.vertex(pivot).nb_sector_between(right_neighbour, left_neighbour, CW)
                             .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
                     }
                     ).collect();
@@ -324,14 +324,14 @@ impl<F: Clone> SchnyderMap<F> {
             smap.edge_mut(eid_left).weight = Unicolored(Blue, signum_left);
             smap.edge_mut(eid_right).weight = Unicolored(Green, signum_right);
 
-            for (eid, signum) in smap.vertex(pivot).nb_sector(right_neighbour, left_neighbour, CW).iter().map(|nb|
+            for (eid, signum) in smap.vertex(pivot).nb_sector_between(right_neighbour, left_neighbour, CW).iter().map(|nb|
                 (nb.edge, match nb.end { Head => Forward, Tail => Backward})
             ).collect_vec() {
                 smap.edge_mut(eid).weight = Unicolored(Red, signum);
             }
 
             let check_v = smap.vertex(pivot)
-                .nb_sector(left_neighbour, right_neighbour, CCW)
+                .nb_sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec();
 
             if check_v.len()>0 {
@@ -351,7 +351,7 @@ impl<F: Clone> SchnyderMap<F> {
 
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
-                .nb_sector(left_neighbour, right_neighbour, CCW)
+                .nb_sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec());
         }
 
@@ -419,6 +419,36 @@ impl<F: Clone> SchnyderMap<F> {
 
     pub fn incoming_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
         self.map.edge(nb.edge).color(match nb.end { Tail => Backward, Head => Forward})
+    }
+
+    pub fn get_color(&self, v1: VertexI, v2: VertexI) -> SchnyderEdgeDirection {
+        match self.map.get_edge_with_signum(v1, v2) {
+            (e, Forward) => self.map.edge(e).weight,
+            (e, Backward) => self.map.edge(e).weight.reversed()
+        }
+    }
+
+    pub fn get_suspension_vertex(&self, color: SchnyderColor) -> VertexI {
+        return match color {
+            Red => self.red_vertex,
+            Green => self.green_vertex,
+            Blue => self.blue_vertex
+        }
+    }
+
+    pub fn is_inner_edge(&self, eid: &EdgeI) -> bool {
+        let e = self.map.edge(*eid);
+        let weights = vec![self.map.vertex_weight(&e.tail), self.map.vertex_weight(&e.head)];
+
+        for w in weights {
+            match w {
+                Some(Suspension(_)) => return false,
+                None => panic!("ref error"),
+                _ => ()
+            }
+        }
+
+        return true;
     }
 
     pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> SchnyderColor {
@@ -680,8 +710,12 @@ impl<F: Clone> SchnyderMap<F> {
         eprintln!("cw_nb = {:?}", cw_nb);
         eprintln!("ccw_nb = {:?}", ccw_nb);
 
-        self.map.add_embedded_edge(new_vid, cw_nb, Black, cw_face);
-        //self.map.add_embedded_edge(new_vid, ccw_nb, Black, ccw_face);
+        if let Unicolored(color, _) = old_weight {
+            self.map.add_embedded_edge(new_vid, cw_nb, Unicolored(color.next(), Forward), cw_face);
+            self.map.add_embedded_edge(new_vid, ccw_nb, Unicolored(color.prev(), Forward), ccw_face);
+        } else {
+            panic!("undiscontractible edge");
+        }
 
         return (pivot_vid, eid);
     }

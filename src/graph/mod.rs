@@ -1,18 +1,23 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
-use itertools::{Itertools, any, merge};
-use array_tool::vec::Intersect;
-use std::cell::RefCell;
-use crate::graph::EdgeEnd::{Head, Tail};
-use crate::graph::Signum::{Forward, Backward};
-use crate::graph::guarded_map::{GuardedMap, Index, Ideable};
-use crate::util::iterators::cyclic::{CyclicIterable};
-use crate::graph::ClockDirection::{CW, CCW};
-use std::fmt::{Debug, Formatter};
-use std::iter::FromIterator;
 use core::fmt;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 use std::iter;
+use std::iter::FromIterator;
+
+use array_tool::vec::Intersect;
+use itertools::{any, Itertools, merge};
 use petgraph::algo::has_path_connecting;
+use petgraph::{Graph, EdgeType};
+use petgraph::graph::{IndexType, NodeIndex};
+
+use crate::graph::ClockDirection::{CCW, CW};
+use crate::graph::EdgeEnd::{Head, Tail};
+use crate::graph::guarded_map::{GuardedMap, Ideable, Index};
+use crate::graph::Signum::{Backward, Forward};
+use crate::util::iterators::cyclic::CyclicIterable;
+use crate::graph::Side::{Left, Right};
 
 pub mod schnyder;
 pub mod io;
@@ -42,7 +47,7 @@ impl Into<usize> for FaceI { fn into(self) -> usize { self.0 } }
 impl Index for FaceI { }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-enum EdgeEnd {
+pub enum EdgeEnd {
     Tail, Head
 }
 
@@ -76,6 +81,20 @@ impl ClockDirection {
         match self {
             CW => CCW,
             CCW => CW
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Side {
+    Left, Right
+}
+
+impl Side {
+    pub fn reversed(&self) -> Self {
+        match self {
+            Left => Right,
+            Right => Left
         }
     }
 }
@@ -238,8 +257,9 @@ impl<N> Vertex<N> {
         self.get_iterator(start_index, direction).take_while(condition_while).collect_vec()
     }
 
-    fn nb_sector(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
-        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1),self.get_nb(v2)) {
+    /// does not include the edges to v1 and v2 respectively
+    fn nb_sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
             return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction);
         } else {
             panic!("v1/v2 invalid");
@@ -262,6 +282,51 @@ pub struct PlanarMap<N, E, F: Clone> {
     //
     embedded: bool,
     enforce_simple: bool
+}
+
+impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> From<Graph<N, E, Ty, Ix>> for PlanarMap<N, E, F> {
+    fn from(g: Graph<N, E, Ty, Ix>) -> Self {
+        let mut map = PlanarMap::new();
+
+        let mut node_map = HashMap::new();
+        for i in g.node_indices() {
+            let new_idx = map.add_vertex(g.node_weight(i).unwrap().clone());
+            node_map.insert(i, new_idx);
+        }
+
+        for i in g.edge_indices() {
+            let (a, b) = g.edge_endpoints(i).unwrap();
+
+            let v1 = node_map.get(&a).unwrap();
+            let v2 = node_map.get(&b).unwrap();
+
+            map.add_edge(*v1, *v2, g.edge_weight(i).unwrap().clone());
+        }
+
+        return map;
+    }
+}
+
+impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> Into<Graph<N, E, Ty, Ix>> for PlanarMap<N, E, F> {
+    fn into(self) -> Graph<N, E, Ty, Ix> {
+        let mut g: Graph<N, E, Ty, Ix> = Graph::default();
+
+        let mut node_map = HashMap::new();
+        for v in self.vertices.get_map().values() {
+            let new_idx = g.add_node(v.weight.clone());
+            node_map.insert(v.id, new_idx);
+        }
+
+        for e in self.edges.get_map().values() {
+
+            let v1 = node_map.get(&e.tail).unwrap();
+            let v2 = node_map.get(&e.head).unwrap();
+
+            g.add_edge(*v1, *v2, e.weight.clone());
+        }
+
+        return g;
+    }
 }
 
 impl<N, E, F: Clone> PlanarMap<N, E, F> {
@@ -360,7 +425,19 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn is_embedded(&self) -> bool { self.embedded }
 
+    fn edges(&self) -> impl Iterator<Item=&Edge<E>> {
+        self.edges.get_map().values()
+    }
+
+    pub fn edge_indices(&self) -> impl Iterator<Item=&EdgeI> {
+        self.edges.get_map().keys()
+    }
+
     pub fn edge_count(&self) -> usize { self.edges.get_map().len() }
+
+    fn vertices(&self) -> impl Iterator<Item=&Vertex<N>> {
+        self.vertices.get_map().values()
+    }
 
     pub fn vertex_count(&self) -> usize { self.vertices.get_map().len() }
 
@@ -370,6 +447,22 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         self.faces.get_map().len()
+    }
+
+    pub fn edge_endvertex(&self, edge: &EdgeI, end: EdgeEnd) -> Option<VertexI> {
+        let mut e = self.edges.get_map().get(&edge);
+        match end {
+            Tail => e.map(|e| e.tail),
+            Head => e.map(|e| e.head)
+        }
+    }
+
+    pub fn edge_weight(&self, edge: &EdgeI) -> Option<&E> {
+        self.edges.get_map().get(edge).map(|e| &e.weight)
+    }
+
+    pub fn vertex_weight(&self, vertex: &VertexI) -> Option<&N> {
+        self.vertices.get_map().get(vertex).map(|e| &e.weight)
     }
 
     pub fn is_connected(&self) -> bool {
@@ -829,12 +922,21 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         {
             let f = self.face_mut(self.edge(eid).right_face.unwrap());
             let old_head_index = f.angles.iter().position(|&vid| vid == old_head).unwrap();
-            f.angles.insert(old_head_index, new_vid);
+            f.angles.insert(old_head_index + 1, new_vid);
         }
         {
             let f = self.face_mut(self.edge(eid).left_face.unwrap());
             let old_tail_index = f.angles.iter().position(|&vid| vid == old_tail).unwrap();
-            f.angles.insert(old_tail_index, new_vid);
+            f.angles.insert(old_tail_index + 1, new_vid);
+        }
+
+        {
+            let f = self.face_mut(self.edge(eid).right_face.unwrap());
+            println!("{:?}", f.angles);
+        }
+        {
+            let f = self.face_mut(self.edge(eid).left_face.unwrap());
+            println!("{:?}", f.angles);
         }
 
         return (new_vid, new_eid);
@@ -1360,9 +1462,9 @@ mod tests {
             (the_face, 0)
         ]);
 
-        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
-        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
-        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
-        assert_eq!(g.vertex(ctr).nb_sector(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
+        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
+        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
     }
 }

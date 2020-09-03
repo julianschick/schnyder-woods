@@ -6,15 +6,18 @@ use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
 
 use crate::DEBUG;
-use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI};
+use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI, Side};
 use crate::graph::ClockDirection::{CCW, CW};
 use crate::graph::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType};
 use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
 use crate::graph::schnyder::IndexedEnum;
 use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
-use crate::graph::schnyder::SchnyderVertexType::Suspension;
+use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
+use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
+use crate::graph::EdgeEnd::{Tail, Head};
+use crate::util::errors::GraphErr;
 
 #[derive(Debug)]
 pub enum OpType {
@@ -120,20 +123,67 @@ fn cycle_while_color<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap
         .iter().map(|nb| nb.edge).collect()
 }
 
-pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec<Operation> {
+fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
 
-    let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
+    let (v1, v2, apex1, apex2) = {
+        let (tail, head) = {
+            let e = wood.map.edge(eid);
+            (wood.map.vertex(e.tail), wood.map.vertex(e.head))
+        };
 
-    for &v in &[tail, head] {
-        if let Suspension(_) = v.weight {
-            panic!("only inner edges can be made contractable");
+        let (tail_apex, head_apex) = match side {
+            Side::Right=> (tail.next_nb(head.id, CW), head.next_nb(tail.id, CCW)),
+            Side::Left => (tail.next_nb(head.id, CCW), head.next_nb(tail.id, CW))
+        };
+
+        (tail.id, head.id, tail_apex.other, head_apex.other)
+    };
+
+
+    if apex1 == apex2 {
+        let apex = apex1;
+        match wood.get_color(v1, apex1) {
+            Unicolored(c1, Forward) => match wood.get_color(v2, apex2) {
+                Unicolored(c2, Forward) if c1 == c2 => Ok(()),
+                _ => Err(GraphErr::new("Edge in triangle is not unicolored").with_operation("Check triangle for schnyder contractibility"))
+            },
+            _ => Err(GraphErr::new("Edge in triangle is not unicolored").with_operation("Check triangle for schnyder contractibility"))
         }
+    } else {
+        return Err(GraphErr::new("The face is not triangular").with_operation("Check triangle for schnyder contractibility"));
+    }
+}
+
+pub fn schnyder_contractible<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI) -> Result<(), GraphErr> {
+    if !wood.is_inner_edge(&eid) {
+        return Err(
+            GraphErr::new("Only inner edges can be schnyder contractible.")
+                .with_operation("Check schnyder contractibility")
+                .with_edge(eid)
+        );
     }
 
+    return match wood.map.edge_weight(&eid) {
+        Some(Unicolored(c, _)) => {
+            check_triangle(wood, eid, Side::Left)?;
+            check_triangle(wood, eid, Side::Right)?;
+            Ok(())
+        },
+        Some(_) => Err(GraphErr::new("Bicolored edges are not schnyder contractible").with_operation("Check schnyder contractibility").with_edge(eid)),
+        None => Err(GraphErr::invalid_edge_index(eid).with_operation("Check schnyder contractibility")),
+    }
+}
+
+pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec<Operation> {
+
+    if !wood.is_inner_edge(&eid) {
+        panic!("only inner edges can be made contractible");
+    }
     if !wood.map.is_triangulation() {
         panic!("needs to be a triangulation")
     }
 
+    let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
     let yummi = &wood.calculate_face_counts();
     let mut result = Vec::new();
 
@@ -167,6 +217,48 @@ pub fn make_contractable<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec
         wood.do_operation(&op);
         DEBUG.write().unwrap().output(wood, Some("Revert"), yummi);
     }*/
+
+    return result;
+}
+
+pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+    if !wood.map.is_triangulation() {
+        panic!("needs to be a triangulation");
+    }
+    if wood.map.vertex_count() < 4 {
+        panic!("vertex count is too small");
+    }
+
+    if let Some(_) = wood.map.edge_indices()
+        .filter(|e| wood.is_inner_edge(e))
+        .find(|e| match wood.map.edge_weight(e) {
+            Some(Unicolored(c, _)) if *c == color  => true,
+            _ => false
+        }) {
+        return vec![];
+    }
+
+    let v = wood.map.vertex(wood.get_suspension_vertex(color));
+    let nbs = v.nb_sector_between(wood.get_suspension_vertex(color.prev()), wood.get_suspension_vertex(color.next()), CCW);
+
+    if nbs.len() < 2 {
+        panic!("assertion failed! (vertex count >= 4 and non presence of inner edge should guarantee at least 2 nbs");
+    }
+
+    let mut result = Vec::new();
+
+    let opposite_edge = wood.map.get_edge(nbs[0].other, nbs[1].other).unwrap();
+    let merged_edge = match wood.get_color(nbs[0].other, nbs[1].other) {
+        Unicolored(_, Forward) => nbs[1].edge,
+        Unicolored(_, Backward) => nbs[0].edge,
+        _ => panic!("bicolored edge found")
+    };
+
+    result.push(Operation::merge(wood.map.edge(merged_edge).to_vertex_pair(Forward), wood.map.edge(opposite_edge).to_vertex_pair(Forward)));
+    let merge_hinge = wood.merge(merged_edge, opposite_edge);
+    let split_hinge = wood.map.edge(opposite_edge).get_other(merge_hinge);
+    let split_target = wood.split_to_any(opposite_edge, split_hinge);
+    result.push(Operation::split(split_hinge, merge_hinge, split_target));
 
     return result;
 }

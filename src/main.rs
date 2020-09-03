@@ -18,9 +18,11 @@ use std::io::Read;
 use std::process::Command;
 use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
 use crate::graph::io::{read_plantri_planar_code};
-use crate::graph::schnyder::algorithm::make_contractable;
+use crate::graph::schnyder::algorithm::{make_contractible, make_inner_edge};
 use chrono::Utc;
 use petgraph::graph::Edge;
+use crate::algorithm::compute_contraction_candidates;
+use crate::graph::EdgeEnd::{Tail, Head};
 
 
 #[macro_use]
@@ -28,12 +30,52 @@ extern crate lazy_static;
 
 mod graph;
 mod util;
+mod algorithm;
 
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
 }
 
 fn main() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+
+    let map1 = &maps[0];
+    let map2 = &maps[0];
+
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+
+    DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
+
+    {
+        let look = &wood1;
+        let cc = compute_contraction_candidates(look);
+
+        for color in &[Red, Green, Blue] {
+            let empty = Vec::new();
+            let info = cc.get(color).unwrap_or(&empty);
+
+            println!("{:?}:", color);
+
+            for (e, contractible) in info {
+                let a = look.map.edge_endvertex(e, Tail).unwrap();
+                let b = look.map.edge_endvertex(e, Head).unwrap();
+                println!("\t {} <---> {} : c = {}", a.0, b.0, contractible);
+            }
+        }
+    }
+
+    make_inner_edge(&mut wood1, Red);
+    DEBUG.write().unwrap().output(&wood1, Some("Wood1 (Made inner edge)"), &wood1.calculate_face_counts());
+
+}
+
+fn main2() {
 
     let mut file = File::open("/tmp/test.tri").unwrap();
     let mut data = Vec::new();
@@ -55,7 +97,7 @@ fn main() {
         DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();
-        let seq = make_contractable(&mut wood, edge);
+        let seq = make_contractible(&mut wood, edge);
 
         println!("pre-contracted refint = {}", wood.map.check_referential_integrity());
         DEBUG.write().unwrap().output(&wood, Some("Uncontracted"), &wood.calculate_face_counts());
@@ -69,9 +111,9 @@ fn main() {
         //DEBUG.write().unwrap().output(&wood, Some("Contracted w/ Updated Vertex Positions"), &wood.calculate_face_counts());
 
         let edge_to_discontract = wood.find_outgoing_edge(retained_vertex, contracted_color).unwrap();
-        wood.schnyder_discontract(edge_to_discontract, retained_vertex, Some(dropped_vertex), Some(dropped_edge));
+        wood.schnyder_discontract(wood.map.get_edge(VertexI(9), VertexI(7)).unwrap(), VertexI(9), None, None);
 
-        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &fc);
+        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &wood.calculate_face_counts());
         println!("discontracted refint = {}", wood.map.check_referential_integrity());
 
         println!("{:?}", seq);

@@ -141,7 +141,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, true, face_counts);
+            let tikz_string = wood.generate_tikz(title, false, face_counts);
             let name = format!("{}", self.counter);
             self.counter += 1;
 
@@ -163,6 +163,60 @@ pub mod debug {
                 .arg(format!("{}/{}", outputdir, name))
                 .arg("-png").arg("-singlefile").output();
         }
+    }
+
+}
+
+pub mod errors {
+    use crate::graph::{VertexI, EdgeI, FaceI};
+
+    type GraphResult<T> = Result<T, GraphErr>;
+
+    pub struct GraphErr {
+        problem: String,
+        operation: Option<String>,
+        vertex: Option<VertexI>,
+        edge: Option<EdgeI>,
+        face: Option<FaceI>
+    }
+
+    impl GraphErr {
+
+        pub fn new(problem: &str) -> Self {
+            GraphErr {
+                problem: problem.to_string(),
+                operation: None,
+                vertex: None,
+                edge: None,
+                face: None
+            }
+        }
+
+        pub fn invalid_edge_index(eid: EdgeI) -> GraphErr {
+            GraphErr::new("Invalid edge index")
+                .with_edge(eid)
+        }
+
+        pub fn with_operation(mut self, operation: &str) -> Self {
+            self.operation = Some(operation.to_string());
+            return self;
+        }
+
+        pub fn with_vertex(mut self, v: VertexI) -> Self {
+            self.vertex = Some(v);
+            return self;
+        }
+
+        pub fn with_edge(mut self, e: EdgeI) -> Self {
+            self.edge = Some(e);
+            return self;
+        }
+
+        pub fn with_face(mut self, f: FaceI) -> Self {
+            self.face = Some(f);
+            return self;
+        }
+
     }
 
 }
