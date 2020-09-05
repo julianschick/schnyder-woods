@@ -19,12 +19,12 @@ use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::GraphErr;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum OpType {
     Split, Merge
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Operation {
     hinge_vertex: VertexI,
     source_vertex: VertexI,
@@ -63,6 +63,26 @@ impl Operation {
             source_vertex: self.target_vertex,
             target_vertex: self.source_vertex,
             operation_type: match &self.operation_type { Merge => Split, Split => Merge}
+        }
+    }
+
+    pub fn swap_vertices(&mut self, a: VertexI, b: VertexI) {
+        if self.target_vertex == a {
+            self.target_vertex = b;
+        } else if self.target_vertex == b {
+            self.target_vertex = a;
+        }
+
+        if self.source_vertex == a {
+            self.source_vertex = b;
+        } else if self.source_vertex == b {
+            self.source_vertex = a;
+        }
+
+        if self.hinge_vertex == a {
+            self.hinge_vertex = b;
+        } else if self.hinge_vertex == b {
+            self.hinge_vertex = a;
         }
     }
 
@@ -108,11 +128,11 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
         let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_hinge);
         let split_edge = merge_target_edge;
 
-        DEBUG.write().unwrap().output(wood, Some("merge"), face_counts);
+        //DEBUG.write().unwrap().output(wood, Some("merge"), face_counts);
 
         let split_target_vertex = wood.split_to_any(merge_target_edge, split_hinge);
         result.push(Operation::split(split_hinge, wood.map.edge(split_edge).get_other(split_hinge), split_target_vertex));
-        DEBUG.write().unwrap().output(wood, Some("split"), face_counts);
+        //DEBUG.write().unwrap().output(wood, Some("split"), face_counts);
         flip_edges.pop();
     }
     return result;
@@ -209,8 +229,8 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec
         panic!("assertion failed - triangulation should only consist of unicolored inner edges.");
     }
 
-    DEBUG.write().unwrap().output(wood, Some("Finish"), yummi);
-    DEBUG.write().unwrap().output(wood, Some("Finish w/ Updated Vertex Positions"), &wood.calculate_face_counts());
+    //DEBUG.write().unwrap().output(wood, Some("Finish"), yummi);
+    //DEBUG.write().unwrap().output(wood, Some("Finish w/ Updated Vertex Positions"), &wood.calculate_face_counts());
 
     /*DEBUG.write().unwrap().output(wood, Some("Pre-Revert"), yummi);
     for op in result.iter().rev().map(|op| op.inverted()) {
@@ -239,7 +259,7 @@ pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor
     }
 
     let v = wood.map.vertex(wood.get_suspension_vertex(color));
-    let nbs = v.nb_sector_between(wood.get_suspension_vertex(color.prev()), wood.get_suspension_vertex(color.next()), CCW);
+    let nbs = v.sector_between(wood.get_suspension_vertex(color.prev()), wood.get_suspension_vertex(color.next()), CCW);
 
     if nbs.len() < 2 {
         panic!("assertion failed! (vertex count >= 4 and non presence of inner edge should guarantee at least 2 nbs");

@@ -9,7 +9,7 @@ use std::iter::FromIterator;
 use array_tool::vec::Intersect;
 use itertools::{any, Itertools, merge};
 use petgraph::algo::has_path_connecting;
-use petgraph::{Graph, EdgeType};
+use petgraph::{Graph, EdgeType, Undirected};
 use petgraph::graph::{IndexType, NodeIndex};
 
 use crate::graph::ClockDirection::{CCW, CW};
@@ -240,6 +240,7 @@ impl<N> Vertex<N> {
         self.neighbors.iter_mut().find(|nb| nb.other == other)
     }
 
+    /// does not include start index
     fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
         let mut iter = self.neighbors.cycle(start_index, true);
         match direction {
@@ -253,17 +254,22 @@ impl<N> Vertex<N> {
         self.get_iterator(nb.index, direction).next().unwrap()
     }
 
+    /// does not include start index
     fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<&NbVertex> {
         self.get_iterator(start_index, direction).take_while(condition_while).collect_vec()
     }
 
     /// does not include the edges to v1 and v2 respectively
-    fn nb_sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+    fn sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction);
+            return self.nb_sector_between(nb1, nb2, direction);
         } else {
             panic!("v1/v2 invalid");
         }
+    }
+
+    fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+        return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction);
     }
 }
 
@@ -307,9 +313,9 @@ impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> From<Graph<N, E,
     }
 }
 
-impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> Into<Graph<N, E, Ty, Ix>> for PlanarMap<N, E, F> {
-    fn into(self) -> Graph<N, E, Ty, Ix> {
-        let mut g: Graph<N, E, Ty, Ix> = Graph::default();
+impl<N: Clone, E: Clone, F: Clone> /*Into<(Graph<N, E, Ty, Ix>, HashMap<VertexI, NodeIndex<Ix>>)> for*/ PlanarMap<N, E, F> {
+    fn into_petgraph(&self) -> (Graph<N, E, Undirected, u32>, HashMap<VertexI, NodeIndex<u32>>) {
+        let mut g: Graph<N, E, _, u32> = Graph::new_undirected();
 
         let mut node_map = HashMap::new();
         for v in self.vertices.get_map().values() {
@@ -325,7 +331,7 @@ impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> Into<Graph<N, E,
             g.add_edge(*v1, *v2, e.weight.clone());
         }
 
-        return g;
+        return (g, node_map);
     }
 }
 
@@ -1462,9 +1468,9 @@ mod tests {
             (the_face, 0)
         ]);
 
-        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
-        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
-        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
-        assert_eq!(g.vertex(ctr).nb_sector_between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[2]]);
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
     }
 }

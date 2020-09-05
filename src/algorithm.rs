@@ -7,7 +7,7 @@ use crate::graph::schnyder::SchnyderColor::{Blue, Green, Red};
 use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
 use crate::graph::schnyder::{SchnyderMap, SchnyderColor};
 use crate::graph::schnyder::SchnyderVertexType::Normal;
-use crate::graph::EdgeI;
+use crate::graph::{EdgeI, VertexI};
 
 use crate::DEBUG;
 
@@ -38,22 +38,26 @@ fn compute_color_quality(candidates: &HashMap<SchnyderColor, Vec<(EdgeI, bool)>>
     ).collect()
 }
 
-fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<SchnyderColor, Vec<(EdgeI, bool)>>, color: SchnyderColor) {
+fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<SchnyderColor, Vec<(EdgeI, bool)>>, color: SchnyderColor) -> (VertexI, Vec<Operation>) {
 
-    if let Some(cand) = candidates.get(&color) {
+    let mut seq = Vec::new();
+    let (_, dropped_vertex, _) = if let Some(cand) = candidates.get(&color) {
         let (e, contractible) = cand[0];
         if !contractible {
-            make_contractible(wood, e);
+            seq.extend(make_contractible(wood, e));
         }
-        wood.schnyder_contract(e);
+        wood.schnyder_contract(e)
     } else {
-        let (new_edge, _) = make_inner_edge(wood, color);
+        let (new_edge, sub_seq) = make_inner_edge(wood, color);
+        seq.extend(sub_seq);
 
         if !schnyder_contractible(wood, new_edge).is_ok() {
-            make_contractible(wood, new_edge);
+            seq.extend(make_contractible(wood, new_edge));
         }
-        wood.schnyder_contract(new_edge);
-    }
+        wood.schnyder_contract(new_edge)
+    };
+
+    return (dropped_vertex, seq);
 }
 
 fn find_sequence_<F: Clone>(mut wood1: SchnyderMap<F>, mut wood2: SchnyderMap<F>) -> Vec<Operation> {
@@ -85,14 +89,15 @@ fn find_sequence_<F: Clone>(mut wood1: SchnyderMap<F>, mut wood2: SchnyderMap<F>
 
         eprintln!("best_color = {:?}", best_color);
 
-        prepare_wood(&mut wood1, &candidates1, *best_color);
-        prepare_wood(&mut wood2, &candidates2, *best_color);
+        let (dropped_vertex1, prep_seq1) = prepare_wood(&mut wood1, &candidates1, *best_color);
+        let (dropped_vertex2, prep_seq2) =  prepare_wood(&mut wood2, &candidates2, *best_color);
 
         DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
         DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
 
-        find_sequence(wood1, wood2);
+        let mut seq = find_sequence_(wood1, wood2);
+        seq.splice(0..0, prep_seq1);
 
-        return Vec::new();
+        return seq;
     }
 }

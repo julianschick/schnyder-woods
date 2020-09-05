@@ -45,7 +45,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         return result;
     }
 
-    pub fn insert_with_index(&mut self, mut item: V, index: &N) {
+    pub fn insert_with_index(&mut self, item: V, index: &N) {
         if !self.is_available(index) {
             panic!("index not available");
         }

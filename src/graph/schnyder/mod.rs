@@ -17,6 +17,11 @@ use crate::util::is_in_cyclic_order;
 use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
 use rand::{thread_rng, Rng};
+use crate::util::errors::GraphErr;
+use crate::graph::schnyder::algorithm::{make_contractible, Operation};
+use crate::DEBUG;
+use petgraph::Graph;
+use petgraph::graph::{NodeIndex, EdgeIndex};
 
 pub mod algorithm;
 
@@ -242,9 +247,18 @@ impl<F: Clone> SchnyderMap<F> {
         // by convention
         let mut suspension_vertices = smap.face(outer_face).angles.iter()
             .sorted_by_key(|vid| vid.0);
-        let r = *suspension_vertices.next().unwrap();
-        let g = *suspension_vertices.next().unwrap();
-        let b = *suspension_vertices.next().unwrap();
+
+        // TODO: remove!!!
+        let (r, g, b) = {
+            let r = *suspension_vertices.next().unwrap();
+            let g = *suspension_vertices.next().unwrap();
+            let b = *suspension_vertices.next().unwrap();
+
+            match mode {
+                SchnyderBuildMode::LeftMost | SchnyderBuildMode::Random => (r, g, b),
+                SchnyderBuildMode::RightMost => (g, b, r)
+            }
+        };
 
         // Color the suspension vertices
         smap.vertex_mut(r).weight = Suspension(Red);
@@ -266,13 +280,13 @@ impl<F: Clone> SchnyderMap<F> {
         }
 
         // Color incoming red edges of red suspension vertex
-        for (eid, signum) in smap.vertex(r).nb_sector_between(b, g, CCW).iter().map(|nb|
+        for (eid, signum) in smap.vertex(r).sector_between(b, g, CCW).iter().map(|nb|
             (nb.edge, match nb.end { Head => Forward, Tail => Backward})
         ).collect_vec() {
             smap.edge_mut(eid).weight = Unicolored(Red, signum);
         }
 
-        let mut frontier = smap.vertex(r).nb_sector_between(b, g, CCW).iter()
+        let mut frontier = smap.vertex(r).sector_between(b, g, CCW).iter()
             .map(|nb| nb.other)
             .collect_vec();
 
@@ -285,9 +299,6 @@ impl<F: Clone> SchnyderMap<F> {
             }
         }
 
-        println!("r = {:?}", r);
-        println!("g = {:?}", g);
-        println!("b = {:?}", b);
         let b_singleton = [b];
         let g_singleton = [g];
 
@@ -306,7 +317,7 @@ impl<F: Clone> SchnyderMap<F> {
                     .tuple_windows()
                     .enumerate()
                     .filter(|(pos, (&left_neighbour, &pivot, &right_neighbour))| {
-                        !smap.vertex(pivot).nb_sector_between(right_neighbour, left_neighbour, CW)
+                        !smap.vertex(pivot).sector_between(right_neighbour, left_neighbour, CW)
                             .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
                     }
                     ).collect();
@@ -324,14 +335,14 @@ impl<F: Clone> SchnyderMap<F> {
             smap.edge_mut(eid_left).weight = Unicolored(Blue, signum_left);
             smap.edge_mut(eid_right).weight = Unicolored(Green, signum_right);
 
-            for (eid, signum) in smap.vertex(pivot).nb_sector_between(right_neighbour, left_neighbour, CW).iter().map(|nb|
+            for (eid, signum) in smap.vertex(pivot).sector_between(right_neighbour, left_neighbour, CW).iter().map(|nb|
                 (nb.edge, match nb.end { Head => Forward, Tail => Backward})
             ).collect_vec() {
                 smap.edge_mut(eid).weight = Unicolored(Red, signum);
             }
 
             let check_v = smap.vertex(pivot)
-                .nb_sector_between(left_neighbour, right_neighbour, CCW)
+                .sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec();
 
             if check_v.len()>0 {
@@ -351,11 +362,10 @@ impl<F: Clone> SchnyderMap<F> {
 
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
-                .nb_sector_between(left_neighbour, right_neighbour, CCW)
+                .sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec());
         }
 
-        println!("OK SO FAR");
         return SchnyderMap::from(smap);
     }
 
@@ -413,6 +423,16 @@ impl<F: Clone> SchnyderMap<F> {
             .position(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
     }
 
+    fn get_incoming_sector(&self, vid: &VertexI, color: SchnyderColor) -> Vec<EdgeI> {
+        let v = self.map.vertex(*vid);
+        let before_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.next())).unwrap();
+        let after_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.prev())).unwrap();
+
+        return v.nb_sector_between(before_out, after_out, CW).iter()
+            .map(|nb| nb.edge)
+            .collect();
+    }
+
     pub fn outgoing_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
         self.map.edge(nb.edge).color(match nb.end { Tail => Forward, Head => Backward})
     }
@@ -425,6 +445,16 @@ impl<F: Clone> SchnyderMap<F> {
         match self.map.get_edge_with_signum(v1, v2) {
             (e, Forward) => self.map.edge(e).weight,
             (e, Backward) => self.map.edge(e).weight.reversed()
+        }
+    }
+
+    pub fn get_color_orientation(&self, eid: EdgeI) -> Option<(SchnyderColor, VertexI, VertexI)> {
+        match self.map.edge_weight(&eid) {
+            Some(Unicolored(color, signum)) => {
+                let (a, b) = self.map.edge(eid).to_vertex_pair(*signum);
+                Some((*color, a, b))
+            },
+            _ => None,
         }
     }
 
@@ -598,6 +628,20 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
+    pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: VertexI) {
+        let merge_hinge = self.merge(source, target);
+        let split_hinge = self.map.edge(target).get_other(merge_hinge);
+        DEBUG.write().unwrap().output(&self, Some("intermediate"), &self.calculate_face_counts());
+        self.split(target, split_hinge, resplit_target);
+    }
+
+    pub fn merge_and_resplit_to_any(&mut self, source: EdgeI, target: EdgeI) {
+        let merge_hinge = self.merge(source, target);
+        let split_hinge = self.map.edge(target).get_other(merge_hinge);
+        DEBUG.write().unwrap().output(&self, Some("intermediate"), &self.calculate_face_counts());
+        self.split_to_any(target, split_hinge);
+    }
+
     pub fn generate_tikz(&self, title: Option<&str>, face_labels: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
         let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
         let tail = "\\end{tikzpicture}\\end{document}";
@@ -718,6 +762,124 @@ impl<F: Clone> SchnyderMap<F> {
         }
 
         return (pivot_vid, eid);
+    }
+
+    pub fn swap_locally(&mut self, a: VertexI, b: VertexI) -> Result<Vec<Operation>, GraphErr> {
+        if !self.map.is_triangulation() {
+            return GraphErr::new_err("Swaps can only be done on triangulations");
+        }
+
+        return if let Some(eid) = self.map.get_edge(a, b) {
+            if !self.is_inner_edge(&eid) {
+                return GraphErr::new_err("Edge for swap has to be an inner edge");
+            }
+
+            let mut seq = make_contractible(self, eid);
+            DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
+
+            if let Some((color, tail, head)) = self.get_color_orientation(eid) {
+
+                // colors referring to example with the swap edge being red
+                // incoming red edges at tail over to head
+                for tail_incoming_red in self.get_incoming_sector(&tail, color) {
+
+                    let source = self.find_outgoing_edge(tail, color.next()).unwrap();
+                    let target = tail_incoming_red;
+
+                    self.merge_and_resplit(source, target, head);
+                    DEBUG.write().unwrap().output(&self, Some("Red incoming over to head"), &self.calculate_face_counts());
+                }
+
+                // blue outgoing at tail down
+                let out_prev = self.find_outgoing_edge(head, color.prev()).unwrap();
+                self.merge_and_resplit_to_any(out_prev, eid);
+                DEBUG.write().unwrap().output(&self, Some("Blue down"), &self.calculate_face_counts());
+
+                // green incoming over to tail
+                for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
+                    let target = self.find_outgoing_edge(tail, color).unwrap();
+                    let source = head_incoming_green;
+
+                    self.merge_and_resplit_to_any(source, target);
+                    DEBUG.write().unwrap().output(&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
+                }
+
+                // pivot edge is blue and turns green
+                {
+                    let source = self.find_outgoing_edge(tail, color.next()).unwrap();
+                    let target = eid;
+
+                    self.merge_and_resplit_to_any(source, target);
+                    DEBUG.write().unwrap().output(&self, Some("Blue -> Green"), &self.calculate_face_counts());
+                }
+
+                // blue incoming over to tail
+                for blue_incoming_edge in self.get_incoming_sector(&head, color.prev()) {
+                    let source = self.find_outgoing_edge(head, color).unwrap();
+                    let target = blue_incoming_edge;
+
+                    self.merge_and_resplit_to_any(source, target);
+                    DEBUG.write().unwrap().output(&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
+                }
+
+                //pivot edge is green and turns red
+                {
+                    let source = self.find_outgoing_edge(head, color).unwrap();
+                    let target = eid;
+
+                    self.merge_and_resplit_to_any(source, target);
+                    DEBUG.write().unwrap().output(&self, Some("Green -> Red"), &self.calculate_face_counts());
+                }
+                
+                /*for op in seq.iter().rev() {
+                    eprintln!("op = {:?}", op.inverted());
+                }*/
+
+                for op in seq.iter_mut().rev() {
+                    op.swap_vertices(a, b);
+                    self.do_operation(&op.inverted());
+                }
+
+                DEBUG.write().unwrap().output(&self, Some("Unmade contractible"), &self.calculate_face_counts());
+
+                Ok(seq)
+            } else {
+                GraphErr::new_err("Edge for swap has to be unicolored")
+            }
+        } else {
+            Err(GraphErr::new("No such edge"))
+        }
+    }
+
+    pub fn swap(&mut self, a: VertexI, b: VertexI) -> Result<Vec<Operation>, GraphErr> {
+        let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
+
+        g.remove_node(*vmap.get(&self.red_vertex).unwrap());
+        g.remove_node(*vmap.get(&self.blue_vertex).unwrap());
+        g.remove_node(*vmap.get(&self.green_vertex).unwrap());
+
+        let from = vmap.get(&a).unwrap();
+        let to = vmap.get(&b).unwrap();
+
+        let rmap : HashMap<_, _> = vmap.iter().map(|(k,v)| (v, k)).collect();
+
+         let (_, route) = petgraph::algo::astar(
+             &g,
+             *from,
+             |n| n == *to,
+             |n| 1,
+             |n| 0
+         ).unwrap();
+
+        let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();
+        for &&tmp in translated_route.iter().skip(1) {
+            self.swap_locally(a, tmp);
+        }
+        for &&tmp in translated_route.iter().skip(1).rev().skip(1) {
+            self.swap_locally(b, tmp);
+        }
+
+        return Ok(vec![]);
     }
 
     pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
@@ -953,5 +1115,4 @@ impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
             _ => None
         }
     }
-
 }

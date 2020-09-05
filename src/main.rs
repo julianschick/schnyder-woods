@@ -43,6 +43,21 @@ fn main() {
 
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
+    let map = &maps[256];
+    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+
+    DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
+
+    wood.swap(VertexI(7), VertexI(2));
+}
+
+fn main3() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+
     let map1 = &maps[0];
     let map2 = &maps[1];
 
@@ -52,7 +67,15 @@ fn main() {
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
 
-    find_sequence(wood1, wood2);
+    let seq = find_sequence(wood1, wood2);
+
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+
+    DEBUG.write().unwrap().output(&wood1, Some("Wood1 POST"), &wood1.calculate_face_counts());
+    for op in seq {
+        wood1.do_operation(&op);
+        DEBUG.write().unwrap().output(&wood1, Some("Wood1 POST"), &wood1.calculate_face_counts());
+    }
 
     /*make_inner_edge(&mut wood1, Green);
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 (Made inner edge)"), &wood1.calculate_face_counts());

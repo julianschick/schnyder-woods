@@ -192,6 +192,10 @@ pub mod errors {
             }
         }
 
+        pub fn new_err<T>(problem: &str) -> Result<T, Self> {
+            return Err(GraphErr::new(problem));
+        }
+
         pub fn invalid_edge_index(eid: EdgeI) -> GraphErr {
             GraphErr::new("Invalid edge index")
                 .with_edge(eid)
