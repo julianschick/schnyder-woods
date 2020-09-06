@@ -1,6 +1,13 @@
 use itertools::Itertools;
 use crate::util::iterators::cyclic::CyclicIterable;
 
+pub mod macros {
+    #[macro_export]
+    macro_rules! ge {
+        ($e:expr) => { return Err(GraphErr::new($e)) };
+    }
+}
+
 pub mod iterators {
 
     pub mod cyclic {
@@ -88,6 +95,16 @@ pub fn is_in_cyclic_order<T: Eq>(vec: &Vec<T>, order: &Vec<T>)  -> bool {
     return true;
 }
 
+pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
+    if handled == a {
+        *b
+    } else if handled == b {
+        *a
+    } else {
+        *handled
+    }
+}
+
 pub mod debug {
     use std::path::Path;
     use std::fs::{create_dir, read_dir, remove_file, File};
@@ -169,8 +186,9 @@ pub mod debug {
 
 pub mod errors {
     use crate::graph::{VertexI, EdgeI, FaceI};
+    use std::fmt::{Debug, Formatter};
 
-    type GraphResult<T> = Result<T, GraphErr>;
+    pub type GraphResult<T> = Result<T, GraphErr>;
 
     pub struct GraphErr {
         problem: String,
@@ -221,6 +239,12 @@ pub mod errors {
             return self;
         }
 
+    }
+
+    impl Debug for GraphErr {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&format!("GraphErr: {}", self.problem))
+        }
     }
 
 }

@@ -18,6 +18,7 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::GraphErr;
+use crate::util::swapped;
 
 #[derive(Debug, Copy, Clone)]
 pub enum OpType {
@@ -26,10 +27,10 @@ pub enum OpType {
 
 #[derive(Debug, Copy, Clone)]
 pub struct Operation {
-    hinge_vertex: VertexI,
-    source_vertex: VertexI,
-    target_vertex: VertexI,
-    operation_type: OpType
+    pub hinge_vertex: VertexI,
+    pub source_vertex: VertexI,
+    pub target_vertex: VertexI,
+    pub operation_type: OpType
 }
 
 impl Operation {
@@ -66,23 +67,12 @@ impl Operation {
         }
     }
 
-    pub fn swap_vertices(&mut self, a: VertexI, b: VertexI) {
-        if self.target_vertex == a {
-            self.target_vertex = b;
-        } else if self.target_vertex == b {
-            self.target_vertex = a;
-        }
-
-        if self.source_vertex == a {
-            self.source_vertex = b;
-        } else if self.source_vertex == b {
-            self.source_vertex = a;
-        }
-
-        if self.hinge_vertex == a {
-            self.hinge_vertex = b;
-        } else if self.hinge_vertex == b {
-            self.hinge_vertex = a;
+    pub fn swapped_vertices(&mut self, a: &VertexI, b: &VertexI) -> Self {
+        Operation {
+            hinge_vertex: swapped(a, b, &self.hinge_vertex),
+            source_vertex: swapped(a, b, &self.source_vertex),
+            target_vertex: swapped(a, b, &self.target_vertex),
+            operation_type: self.operation_type
         }
     }
 
@@ -106,7 +96,7 @@ impl<F: Clone> SchnyderMap<F> {
                 let e = self.map.get_edge(op.hinge_vertex, op.source_vertex);
 
                 if let Some(e) = e {
-                    self.split(e, op.hinge_vertex, op.target_vertex);
+                    self.split(e, op.hinge_vertex, Some(op.target_vertex));
                 } else {
                     panic!("invalid edge given");
                 }
@@ -124,14 +114,14 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
         let merge_target_edge = flip_edges[flip_edges.len() - 2];
 
         result.push(Operation::merge(wood.map.edge(merge_source_edge).to_vertex_pair(Forward), wood.map.edge(merge_target_edge).to_vertex_pair(Forward)));
-        let merge_hinge = wood.merge(merge_source_edge, merge_target_edge);
-        let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_hinge);
+        let merge_op = wood.merge(merge_source_edge, merge_target_edge).unwrap();
+        let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_op.hinge_vertex);
         let split_edge = merge_target_edge;
 
         //DEBUG.write().unwrap().output(wood, Some("merge"), face_counts);
 
-        let split_target_vertex = wood.split_to_any(merge_target_edge, split_hinge);
-        result.push(Operation::split(split_hinge, wood.map.edge(split_edge).get_other(split_hinge), split_target_vertex));
+        let split_op = wood.split(merge_target_edge, split_hinge, None).unwrap();
+        result.push(split_op);
         //DEBUG.write().unwrap().output(wood, Some("split"), face_counts);
         flip_edges.pop();
     }
@@ -274,11 +264,12 @@ pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor
         _ => panic!("bicolored edge found")
     };
 
-    result.push(Operation::merge(wood.map.edge(merged_edge).to_vertex_pair(Forward), wood.map.edge(opposite_edge).to_vertex_pair(Forward)));
-    let merge_hinge = wood.merge(merged_edge, opposite_edge);
-    let split_hinge = wood.map.edge(opposite_edge).get_other(merge_hinge);
-    let split_target = wood.split_to_any(opposite_edge, split_hinge);
-    result.push(Operation::split(split_hinge, merge_hinge, split_target));
+    let merge_op = wood.merge(merged_edge, opposite_edge).unwrap();
+    let split_hinge = wood.map.edge(opposite_edge).get_other(merge_op.hinge_vertex);
+    let split_op = wood.split(opposite_edge, split_hinge, None).unwrap();
+
+    result.push(merge_op);
+    result.push(split_op);
 
     return (opposite_edge, result);
 }

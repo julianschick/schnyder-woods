@@ -17,11 +17,12 @@ use crate::util::is_in_cyclic_order;
 use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
 use rand::{thread_rng, Rng};
-use crate::util::errors::GraphErr;
+use crate::util::errors::{GraphErr, GraphResult};
 use crate::graph::schnyder::algorithm::{make_contractible, Operation};
 use crate::DEBUG;
 use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
+use std::convert::TryFrom;
 
 pub mod algorithm;
 
@@ -206,36 +207,20 @@ pub enum SchnyderBuildMode {
 
 impl<F: Clone> SchnyderMap<F> {
 
-    pub fn from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>) -> SchnyderMap<F> {
-
-        let mut result = SchnyderMap {
-            map,
-            outer_face: FaceI(0),
-            red_vertex: VertexI(0),
-            green_vertex: VertexI(0),
-            blue_vertex: VertexI(0)
-        };
-
-        if !result.init_wood() {
-            panic!("wood initialization failed");
-        }
-        return result;
-    }
-
     /// the suspension vertex with the lowest index gets red, the next one green, and the vertex
     /// with the hightest index gets blue.
     pub fn build_on_triangulation<E, N>(
         map: &PlanarMap<N, E, F>,
         outer_face: FaceI,
         mode: SchnyderBuildMode
-    ) -> SchnyderMap<F> {
+    ) -> GraphResult<SchnyderMap<F>> {
 
         if !map.is_embedded() {
-            panic!("map has to have an embedding");
+            return GraphErr::new_err("Underlying planar map has to be embedded");
         }
 
         if !map.is_triangulation() {
-            panic!("needs to be a triangulation");
+            return GraphErr::new_err("Underlying planar map has to be a triangulation (i.e. every face including the outer face has to be a triangle)");
         }
 
         let mut smap = map.clone_with_maps(
@@ -286,31 +271,34 @@ impl<F: Clone> SchnyderMap<F> {
             smap.edge_mut(eid).weight = Unicolored(Red, signum);
         }
 
-        let mut frontier = smap.vertex(r).sector_between(b, g, CCW).iter()
-            .map(|nb| nb.other)
-            .collect_vec();
-
-        for (&a,&b,&c) in  [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
+        /*for (&a,&b,&c) in  [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
             if smap.get_edge(a, b).is_none() {
                 println!("{:?}-{:?} ab not existent", a, b);
             }
             if smap.get_edge(b, c).is_none() {
                 println!("{:?}-{:?} bc not existent", a, b);
             }
-        }
+        }*/
+
+        //
+        // execute the algorithm which moves the 'frontier' line away from the red suspension vertex
+        //
+        let mut frontier = smap.vertex(r).sector_between(b, g, CCW).iter()
+            .map(|nb| nb.other)
+            .collect_vec();
 
         let b_singleton = [b];
         let g_singleton = [g];
 
         while frontier.len() > 0 {
-            for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
+            /*for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
                 if smap.get_edge(a, b).is_none() {
                     println!("{:?}-{:?} ab in loop not existent", a, b);
                 }
                 if smap.get_edge(b, c).is_none() {
                     println!("{:?}-{:?} bc in loop  not existent", a, b);
                 }
-            }
+            }*/
 
             let (pos, (&left_neighbour, &pivot, &right_neighbour)) = {
                 let candidates: Vec<_> = b_singleton.iter().chain(frontier.iter()).chain(g_singleton.iter())
@@ -345,7 +333,7 @@ impl<F: Clone> SchnyderMap<F> {
                 .sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec();
 
-            if check_v.len()>0 {
+            if check_v.len() > 0 {
                 if smap.get_edge(left_neighbour, check_v[0]).is_none() {
                     println!("first problem");
                 }
@@ -360,13 +348,14 @@ impl<F: Clone> SchnyderMap<F> {
                 }
             }
 
+            // alter the frontier (remove the selected vertex and add its neighbors beyond the old frontier)
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
                 .sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec());
         }
 
-        return SchnyderMap::from(smap);
+        return SchnyderMap::try_from(smap);
     }
 
     pub fn debug(&self) {
@@ -495,7 +484,7 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> Option<MergeData> {
+    fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> GraphResult<MergeData> {
         let knee = self.map.get_knee(source, target);
 
         if let Some((hinge_vertex, nb1, nb2)) = knee {
@@ -504,55 +493,59 @@ impl<F: Clone> SchnyderMap<F> {
             let target_edge = self.map.edge(target);
             let (source_nb, target_nb) = if source == nb1.edge { (nb1, nb2) } else { (nb2, nb1) };
 
-            // both edges involved must be unicolored
-            if !source_edge.weight.is_unicolored() || !target_edge.weight.is_unicolored() {
-                return None;
+            if !source_edge.weight.is_unicolored() {
+                return GraphErr::new_err("Source edge for merge is not unicolored");
+            }
+            if !target_edge.weight.is_unicolored() {
+                return GraphErr::new_err("Target edge for merge is not unicolored");
             }
 
             let source_color = match self.outgoing_color(source_nb) {
-                None => return None,
+                None => return GraphErr::new_err("Source edge for merge must be directed away from hinge"),
                 Some(c) => c
             };
             let target_color = match self.incoming_color(target_nb) {
-                None => return None,
+                None => return return GraphErr::new_err("Target edge for merge must be directed towards hinge"),
                 Some(c) => c
             };
 
-            return Some(MergeData {
+            Ok(MergeData {
                 hinge_vertex, source_edge, source_nb, source_color, target_edge, target_nb, target_color
-            });
+            })
         } else {
-            return None;
+            GraphErr::new_err("The source edge is not mergeable onto the target edge, as they do not share a common angle")
         }
     }
 
-    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> Option<VertexI> {
-        self.assemble_merge_data(source, target).map(|d| d.hinge_vertex.id)
+    pub fn mergeable(&self, source: EdgeI, target: EdgeI) -> GraphResult<()> {
+        self.assemble_merge_data(source, target).map(|_| ())
     }
 
-    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> VertexI {
-        let s: *mut Self = self;
-        let data = match self.assemble_merge_data(source, target) {
-            Some(d) => d,
-            None => panic!("not mergeable")
+    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> GraphResult<Operation> {
+
+        let dir = {
+            let data = self.assemble_merge_data(source, target)?;
+            self.replace_color_nb(data.target_nb, data.source_color, Forward)
         };
 
-        let dir = self.replace_color_nb(data.target_nb, data.source_color, Forward);
+        let source_as_pair = self.map.edge(source).to_vertex_pair(Forward);
+        let target_as_pair = self.map.edge(target).to_vertex_pair(Forward);
 
-        unsafe {
-            (*s).map.edge_mut(data.target_edge.id).weight = dir;
-            (*s).map.remove_embedded_edge_by_id(data.source_edge.id, &(|a, b| a));
-        }
-        return data.hinge_vertex.id;
+        self.map.edge_mut(target).weight = dir;
+        self.map.remove_embedded_edge_by_id(source, &(|a, b| a));
+
+        Ok(Operation::merge(
+            source_as_pair,
+            target_as_pair
+        ))
     }
 
-    fn assemble_split_data(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> Option<SplitData> {
-        let e = self.map.edge(eid);
-
-        if e.tail != hinge_vid && e.head != hinge_vid {
-            panic!("hinge vertex invalid!")
+    fn assemble_split_data(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<SplitData> {
+        if !self.map.edge_contains(&eid, &hinge_vid) {
+            return GraphErr::new_err("Hinge vertex not part of given edge");
         }
 
+        let e = self.map.edge(eid);
         if let Bicolored(tail_color, head_color) = e.weight {
 
             let hinge_end = if e.tail == hinge_vid { Tail } else { Head };
@@ -561,8 +554,13 @@ impl<F: Clone> SchnyderMap<F> {
             } else if tail_color.prev() == head_color {
                 self.map.edge(eid).left_face
             } else {
-                panic!("not really bicolored edge");
+                assert_ne!(tail_color, head_color);
+                panic!("bugu")
             }.unwrap();
+
+            if target_face == self.outer_face {
+                return GraphErr::new_err("Splits into the outer face are not possible");
+            }
 
             let (split_color, constant_color) = match hinge_end {
                 Tail => (tail_color, head_color),
@@ -576,15 +574,13 @@ impl<F: Clone> SchnyderMap<F> {
 
             if let Some(tvid) = target_vid {
                 if !target_vids.contains(&tvid) {
-                    panic!("vertex is not a good parking lot!")
+                    return GraphErr::new_err("Target vertex is not a valid target for this split");
                 }
             }
 
-            if target_vids.is_empty() {
-                panic!("no good parking lot!");
-            }
+            assert!(!target_vids.is_empty());
 
-            Some(SplitData {
+            Ok(SplitData {
                 target_vids,
                 split_color,
                 remaining_color: match hinge_end { Tail => Unicolored(constant_color, Backward), Head => Unicolored(constant_color, Forward)},
@@ -592,110 +588,39 @@ impl<F: Clone> SchnyderMap<F> {
             })
 
         } else {
-            panic!("not bicolored");
+            return GraphErr::new_err("Edge is not splittable as it is not bicolored");
         }
     }
 
-    pub fn splittable(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> bool {
-        return match self.assemble_split_data(eid, hinge_vid, Some(target_vid)) {
-            Some(_) => true, None => false
-        }
+    pub fn splittable(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> GraphResult<()> {
+        self.assemble_split_data(eid, hinge_vid, Some(target_vid))
+            .map(|_| ())
     }
 
-    pub fn find_split_target(&mut self, eid: EdgeI, hinge_vid: VertexI) -> Vec<VertexI> {
-        return match self.assemble_split_data(eid, hinge_vid, None) {
-            Some(data) => data.target_vids,
-            None => Vec::new()
-        }
+    pub fn find_split_target(&mut self, eid: EdgeI, hinge_vid: VertexI) -> GraphResult<Vec<VertexI>> {
+        self.assemble_split_data(eid, hinge_vid, None)
+            .map(|data| data.target_vids)
     }
 
-    pub fn split(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) {
-        if let Some(data) = self.assemble_split_data(eid, hinge_vid, Some(target_vid)) {
-            self.map.add_embedded_edge(hinge_vid, target_vid, Unicolored(data.split_color, Forward), data.target_face);
-            self.map.edge_mut(eid).weight = data.remaining_color;
-        } else {
-            panic!("not splittable!");
-        }
+    pub fn split(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<Operation> {
+        let data = self.assemble_split_data(eid, hinge_vid, target_vid)?;
+        let effective_target = match target_vid {
+            Some(target_vid) => target_vid,
+            _ => data.target_vids[0]
+        };
+        self.map.add_embedded_edge(hinge_vid, effective_target, Unicolored(data.split_color, Forward), data.target_face);
+        self.map.edge_mut(eid).weight = data.remaining_color;
+
+        Ok(Operation::split(hinge_vid, self.map.edge(eid).get_other(hinge_vid), effective_target))
     }
 
-    pub fn split_to_any(&mut self, eid: EdgeI, hinge_vid: VertexI) -> VertexI {
-        if let Some(data) = self.assemble_split_data(eid, hinge_vid, None) {
-            self.map.add_embedded_edge(hinge_vid, data.target_vids[0], Unicolored(data.split_color, Forward), data.target_face);
-            self.map.edge_mut(eid).weight = data.remaining_color;
-            return data.target_vids[0];
-        } else {
-            panic!("not splittable!");
-        }
-    }
-
-    pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: VertexI) {
-        let merge_hinge = self.merge(source, target);
-        let split_hinge = self.map.edge(target).get_other(merge_hinge);
+    pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: Option<VertexI>) -> GraphResult<Vec<Operation>> {
+        let merge_op = self.merge(source, target)?;
+        let split_hinge = self.map.edge(target).get_other(merge_op.hinge_vertex);
         DEBUG.write().unwrap().output(&self, Some("intermediate"), &self.calculate_face_counts());
-        self.split(target, split_hinge, resplit_target);
-    }
+        let split_op = self.split(target, split_hinge, resplit_target)?;
 
-    pub fn merge_and_resplit_to_any(&mut self, source: EdgeI, target: EdgeI) {
-        let merge_hinge = self.merge(source, target);
-        let split_hinge = self.map.edge(target).get_other(merge_hinge);
-        DEBUG.write().unwrap().output(&self, Some("intermediate"), &self.calculate_face_counts());
-        self.split_to_any(target, split_hinge);
-    }
-
-    pub fn generate_tikz(&self, title: Option<&str>, face_labels: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
-        let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
-        let tail = "\\end{tikzpicture}\\end{document}";
-        let mut mid = String::new();
-
-        for v in self.map.vertices.get_map().values() {
-            let (r, g, b) = face_counts.get(&v.id).unwrap();
-            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, g, r).chars());
-            mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
-        }
-
-        for edge in self.map.edges.get_map().values() {
-            mid.extend(match edge.weight {
-                Black => format!("\\draw ({}) -- ({});", edge.head.0, edge.tail.0),
-                Unicolored(color, signum) => match signum {
-                    Forward => if face_labels {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
-                    } else {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
-                    },
-                    Backward => if face_labels {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
-                    } else {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
-                    }
-                }
-                Bicolored(fwd_c, bwd_c) => {
-                    let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
-
-                    if face_labels {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[->, {}, thick] ({}) -- ({});",
-                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
-                    } else {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
-                            mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
-                    }
-                }
-            }.chars());
-        }
-
-        for v in self.map.vertices.get_map().values() {
-            let (r, g, b) = face_counts.get(&v.id).unwrap();
-            mid.extend(format!("\\fill ({}) circle (2pt);", v.id.0).chars());
-        }
-
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Red.to_tikz(),  Red.to_tikz(), self.red_vertex.0).chars());
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Green.to_tikz(),  Green.to_tikz(), self.green_vertex.0).chars());
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Blue.to_tikz(),  Blue.to_tikz(), self.blue_vertex.0).chars());
-
-        if let Some(title) = title {
-            mid.extend(format!("\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};", title).chars());
-        }
-
-        return format!("{}{}{}", preamble, mid, tail);
+        Ok(vec![merge_op, split_op])
     }
 
     pub fn schnyder_contract(&mut self, eid: EdgeI) -> (SchnyderColor, VertexI, EdgeI) {
@@ -774,70 +699,68 @@ impl<F: Clone> SchnyderMap<F> {
                 return GraphErr::new_err("Edge for swap has to be an inner edge");
             }
 
-            let mut seq = make_contractible(self, eid);
-            DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
-
             if let Some((color, tail, head)) = self.get_color_orientation(eid) {
 
-                // colors referring to example with the swap edge being red
+                let mut seq = make_contractible(self, eid);
+                DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
+
+                // following comments:
+                // colors referring to the example with the pivot edge being red
+                //
                 // incoming red edges at tail over to head
                 for tail_incoming_red in self.get_incoming_sector(&tail, color) {
 
                     let source = self.find_outgoing_edge(tail, color.next()).unwrap();
                     let target = tail_incoming_red;
 
-                    self.merge_and_resplit(source, target, head);
+                    self.merge_and_resplit(source, target, Some(head));
                     DEBUG.write().unwrap().output(&self, Some("Red incoming over to head"), &self.calculate_face_counts());
                 }
 
-                // blue outgoing at tail down
+                // outgoing blue edge at tail merged onto pivot edge
                 let out_prev = self.find_outgoing_edge(head, color.prev()).unwrap();
-                self.merge_and_resplit_to_any(out_prev, eid);
+                self.merge_and_resplit(out_prev, eid, None);
                 DEBUG.write().unwrap().output(&self, Some("Blue down"), &self.calculate_face_counts());
 
-                // green incoming over to tail
+                // incoming green edges at head over to tail
                 for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
                     let target = self.find_outgoing_edge(tail, color).unwrap();
                     let source = head_incoming_green;
 
-                    self.merge_and_resplit_to_any(source, target);
+                    self.merge_and_resplit(source, target, None);
                     DEBUG.write().unwrap().output(&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
                 }
 
-                // pivot edge is blue and turns green
+                // split red part away from pivot edge (leaving it green)
                 {
                     let source = self.find_outgoing_edge(tail, color.next()).unwrap();
                     let target = eid;
 
-                    self.merge_and_resplit_to_any(source, target);
+                    self.merge_and_resplit(source, target, None);
                     DEBUG.write().unwrap().output(&self, Some("Blue -> Green"), &self.calculate_face_counts());
                 }
 
-                // blue incoming over to tail
+                // incoming blue edges at head over to tail
                 for blue_incoming_edge in self.get_incoming_sector(&head, color.prev()) {
                     let source = self.find_outgoing_edge(head, color).unwrap();
                     let target = blue_incoming_edge;
 
-                    self.merge_and_resplit_to_any(source, target);
+                    self.merge_and_resplit(source, target, None);
                     DEBUG.write().unwrap().output(&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
                 }
 
-                //pivot edge is green and turns red
+                // pivot edge is green and turns red
                 {
                     let source = self.find_outgoing_edge(head, color).unwrap();
                     let target = eid;
 
-                    self.merge_and_resplit_to_any(source, target);
+                    self.merge_and_resplit(source, target, None);
                     DEBUG.write().unwrap().output(&self, Some("Green -> Red"), &self.calculate_face_counts());
                 }
-                
-                /*for op in seq.iter().rev() {
-                    eprintln!("op = {:?}", op.inverted());
-                }*/
 
+                // revert the "make contractible" step
                 for op in seq.iter_mut().rev() {
-                    op.swap_vertices(a, b);
-                    self.do_operation(&op.inverted());
+                    self.do_operation(&op.swapped_vertices(&a, &b).inverted());
                 }
 
                 DEBUG.write().unwrap().output(&self, Some("Unmade contractible"), &self.calculate_face_counts());
@@ -869,7 +792,7 @@ impl<F: Clone> SchnyderMap<F> {
              |n| n == *to,
              |n| 1,
              |n| 0
-         ).unwrap();
+         ).expect("no route found!");
 
         let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();
         for &&tmp in translated_route.iter().skip(1) {
@@ -970,17 +893,73 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    fn init_wood(&mut self) -> bool {
+    pub fn generate_tikz(&self, title: Option<&str>, face_labels: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
+        let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
+        let tail = "\\end{tikzpicture}\\end{document}";
+        let mut mid = String::new();
 
-        let suspension_vertices = self.map.vertices.get_map().values().filter(|v|
+        for v in self.map.vertices.get_map().values() {
+            let (r, g, b) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
+            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, g, r).chars());
+            mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
+        }
+
+        for edge in self.map.edges.get_map().values() {
+            mid.extend(match edge.weight {
+                Black => format!("\\draw ({}) -- ({});", edge.head.0, edge.tail.0),
+                Unicolored(color, signum) => match signum {
+                    Forward => if face_labels {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
+                    } else {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
+                    },
+                    Backward => if face_labels {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
+                    } else {
+                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
+                    }
+                }
+                Bicolored(fwd_c, bwd_c) => {
+                    let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
+
+                    if face_labels {
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[->, {}, thick] ({}) -- ({});",
+                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
+                    } else {
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
+                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
+                    }
+                }
+            }.chars());
+        }
+
+        for v in self.map.vertices.get_map().values() {
+            let (r, g, b) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
+            mid.extend(format!("\\fill ({}) circle (2pt);", v.id.0).chars());
+        }
+
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Red.to_tikz(),  Red.to_tikz(), self.red_vertex.0).chars());
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Green.to_tikz(),  Green.to_tikz(), self.green_vertex.0).chars());
+        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Blue.to_tikz(),  Blue.to_tikz(), self.blue_vertex.0).chars());
+
+        if let Some(title) = title {
+            mid.extend(format!("\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};", title).chars());
+        }
+
+        return format!("{}{}{}", preamble, mid, tail);
+    }
+
+    fn with_initialized_wood(mut self) -> GraphResult<Self> {
+
+        let suspension_vertices = self.map.vertices().filter(|v|
             match v.weight {
-                Suspension(c) => true,
+                Suspension(_) => true,
                 _ => false
             }
         ).collect_vec();
 
         if suspension_vertices.len() != 3 {
-            return false;
+            return GraphErr::new_err("There have to be exactly three suspension vertices");
         }
 
         let rgb = (
@@ -991,29 +970,25 @@ impl<F: Clone> SchnyderMap<F> {
 
         let (r,g,b) = match rgb {
             (Some(r_), Some(g_), Some(b_)) => (r_.id, g_.id, b_.id),
-            _ => return false
+            _ => return GraphErr::new_err("There has to be one suspension vertex for each of the colors red, green, and blue")
         };
 
         self.red_vertex = r;
         self.green_vertex = g;
         self.blue_vertex = b;
 
-        if let Some(outer_face) = self.map.find_outer_face(r, g, b) {
-            self.outer_face = outer_face;
-        } else {
-            return false;
-        }
+        self.outer_face = self.map.find_outer_face(r, g, b)?;
 
         // check if every bicolored edge has two distinct colors
         if self.map.edges.get_map().values()
             .any(|nb| match nb.weight
                 { Bicolored(a, b) if a == b => true, _ => false}) {
-            return false;
+            return return GraphErr::new_err("Every bicolored edge has to have two distinct colors");
         }
 
         // check no black edges
         if self.map.edges.get_map().values().any(|nb|match nb.weight { Black => true, _ => false}) {
-            return false;
+            return return GraphErr::new_err("No black edges allowed");;
         }
 
         // check vertex rule
@@ -1026,13 +1001,13 @@ impl<F: Clone> SchnyderMap<F> {
             };
 
             match v.weight {
-                Normal(id) => if l < 3 { return false },
-                Suspension(c) => if l < 2 { return false }
+                Normal(id) => if l < 3 { return GraphErr::new_err("Vertex rule violated"); },
+                Suspension(c) => if l < 2 { return GraphErr::new_err("Vertex rule violated"); }
             }
 
             let begin = self.find_outgoing(v, begin_sector.next());
             if begin.is_none() {
-                return false
+                return GraphErr::new_err("Vertex rule violated");
             }
 
             let mut i = (begin.unwrap() + 1) % l;
@@ -1045,15 +1020,15 @@ impl<F: Clone> SchnyderMap<F> {
 
                 match last_outgoing {
                     Some(c) => if c != state.prev() {
-                        return false
+                        return GraphErr::new_err("Vertex rule violated");
                     } else {
                         state = state.next();
                     },
                     _ => match self.incoming_color(nb) {
                         Some(c) => if c != state {
-                            return false
+                            return GraphErr::new_err("Vertex rule violated");
                         },
-                        None => panic!("assertion failed")
+                        None => assert!(false)
                     }
                 }
 
@@ -1061,8 +1036,8 @@ impl<F: Clone> SchnyderMap<F> {
             }
 
             match v.weight {
-                Normal(id) => if state != begin_sector.prev() { return false },
-                Suspension(c) => if state != begin_sector.next() || last_outgoing != Some(c.prev()) { return false }
+                Normal(_) => if state != begin_sector.prev() { return GraphErr::new_err("Vertex rule violated") },
+                Suspension(c) => if state != begin_sector.next() || last_outgoing != Some(c.prev()) { return GraphErr::new_err("Vertex rule violated") }
             }
         }
 
@@ -1075,7 +1050,7 @@ impl<F: Clone> SchnyderMap<F> {
             for (&v1, &v2) in f.angles.cycle(0, true).tuple_windows() {
 
                 if let None = self.map.get_edge(v1, v2) {
-                    panic!("{} - {} invalid in face {}", v1.0, v2.0, f.id.0);
+                    return GraphErr::new_err("Face cycle rule cannot be checked as face cycle contains invalid edges");
                 }
 
                 let e = self.map.edge(self.map.get_edge(v1, v2).unwrap());
@@ -1086,16 +1061,16 @@ impl<F: Clone> SchnyderMap<F> {
             }
 
             if (fwd_colors.len() == 1 && !fwd_colors.iter().next().unwrap().is_none()) || (bwd_colors.len() == 1 && !bwd_colors.iter().next().unwrap().is_none()) {
-                return false;
+                return GraphErr::new_err("Face cycle rule violated");
             }
         }
 
-        return true;
+        return Ok(self);
     }
 }
 
 impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
-    fn find_outer_face(&self, r: VertexI, g: VertexI, b: VertexI) -> Option<FaceI> {
+    fn find_outer_face(&self, r: VertexI, g: VertexI, b: VertexI) -> GraphResult<FaceI> {
         let outer_face_candidates = self.faces.get_map().values().filter(|&f|
             f.angles.contains(&r) &&
                 f.angles.contains(&g) &&
@@ -1103,7 +1078,7 @@ impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
         ).collect_vec();
 
         if outer_face_candidates.len() < 1 || outer_face_candidates.len() > 2 {
-            return None;
+            return GraphErr::new_err("There are not exactly two outer face candidates, this means the embedding is invalid");
         }
 
         let outer_face = outer_face_candidates.iter().filter(|&&f|
@@ -1111,8 +1086,25 @@ impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
         ).collect_vec();
 
         return match outer_face.len() {
-            1 => Some(outer_face[0].id),
-            _ => None
+            1 => Ok(outer_face[0].id),
+            _ => return GraphErr::new_err("There is no outer face in which the suspension vertices appear in the right order, this means the embedding is invalid")
         }
+    }
+}
+
+impl<F: Clone> TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>> for SchnyderMap<F> {
+    type Error = GraphErr;
+
+    fn try_from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>) -> GraphResult<SchnyderMap<F>> {
+
+        let mut result = SchnyderMap {
+            map,
+            outer_face: FaceI(0),
+            red_vertex: VertexI(0),
+            green_vertex: VertexI(0),
+            blue_vertex: VertexI(0)
+        };
+
+        return result.with_initialized_wood();
     }
 }

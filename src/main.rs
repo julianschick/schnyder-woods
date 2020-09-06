@@ -24,7 +24,6 @@ use petgraph::graph::Edge;
 use crate::algorithm::{compute_contraction_candidates, find_sequence};
 use crate::graph::EdgeEnd::{Tail, Head};
 
-
 #[macro_use]
 extern crate lazy_static;
 
@@ -37,18 +36,7 @@ lazy_static! {
 }
 
 fn main() {
-    let mut file = File::open("/tmp/test.tri").unwrap();
-    let mut data = Vec::new();
-    file.read_to_end(&mut data);
-
-    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
-
-    let map = &maps[256];
-    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
-
-    DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
-
-    wood.swap(VertexI(7), VertexI(2));
+    main3();
 }
 
 fn main3() {
@@ -58,18 +46,33 @@ fn main3() {
 
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
+    let map = &maps[256];
+    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+
+    DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
+
+    wood.swap(VertexI(6), VertexI(3));
+}
+
+fn main2() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+
     let map1 = &maps[0];
     let map2 = &maps[1];
 
-    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost);
-    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
 
     let seq = find_sequence(wood1, wood2);
 
-    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 POST"), &wood1.calculate_face_counts());
     for op in seq {
@@ -100,7 +103,7 @@ fn main3() {
 
 }
 
-fn main2() {
+fn main1() {
 
     let mut file = File::open("/tmp/test.tri").unwrap();
     let mut data = Vec::new();
@@ -118,7 +121,7 @@ fn main2() {
         let a = VertexI(3);
         let b = VertexI(9);
 
-        let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost);
+        let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
         DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();

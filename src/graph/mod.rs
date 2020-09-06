@@ -441,6 +441,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn edge_count(&self) -> usize { self.edges.get_map().len() }
 
+    pub fn edge_contains(&self, eid: &EdgeI, vid: &VertexI) -> bool {
+        let e = self.edge(*eid);
+        return &e.head == vid || &e.tail == vid;
+    }
+
     fn vertices(&self) -> impl Iterator<Item=&Vertex<N>> {
         self.vertices.get_map().values()
     }
