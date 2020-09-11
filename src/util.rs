@@ -158,7 +158,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, false, face_counts);
+            let tikz_string = wood.generate_tikz(title, true, face_counts);
             let name = format!("{}", self.counter);
             self.counter += 1;
 
@@ -190,12 +190,16 @@ pub mod errors {
 
     pub type GraphResult<T> = Result<T, GraphErr>;
 
+    pub enum GraphErrKind {
+        Generic,
+        InvalidVertexIndex(VertexI),
+        InvalidEdgeIndex(EdgeI),
+        InvalidFaceIndex(FaceI)
+    }
+
     pub struct GraphErr {
         problem: String,
-        operation: Option<String>,
-        vertex: Option<VertexI>,
-        edge: Option<EdgeI>,
-        face: Option<FaceI>
+        kind: GraphErrKind
     }
 
     impl GraphErr {
@@ -203,10 +207,7 @@ pub mod errors {
         pub fn new(problem: &str) -> Self {
             GraphErr {
                 problem: problem.to_string(),
-                operation: None,
-                vertex: None,
-                edge: None,
-                face: None
+                kind: GraphErrKind::Generic
             }
         }
 
@@ -215,30 +216,25 @@ pub mod errors {
         }
 
         pub fn invalid_edge_index(eid: EdgeI) -> GraphErr {
-            GraphErr::new("Invalid edge index")
-                .with_edge(eid)
+            GraphErr {
+                problem: format!("Invalid edge index: {}", eid.0),
+                kind: GraphErrKind::InvalidEdgeIndex(eid)
+            }
         }
 
-        pub fn with_operation(mut self, operation: &str) -> Self {
-            self.operation = Some(operation.to_string());
-            return self;
+        pub fn invalid_vertex_index(vid: VertexI) -> GraphErr {
+            GraphErr {
+                problem: format!("Invalid vertex index: {}", vid.0),
+                kind: GraphErrKind::InvalidVertexIndex(vid)
+            }
         }
 
-        pub fn with_vertex(mut self, v: VertexI) -> Self {
-            self.vertex = Some(v);
-            return self;
+        pub fn invalid_face_index(fid: FaceI) -> GraphErr {
+            GraphErr {
+                problem: format!("Invalid face index: {}", fid.0),
+                kind: GraphErrKind::InvalidFaceIndex(fid)
+            }
         }
-
-        pub fn with_edge(mut self, e: EdgeI) -> Self {
-            self.edge = Some(e);
-            return self;
-        }
-
-        pub fn with_face(mut self, f: FaceI) -> Self {
-            self.face = Some(f);
-            return self;
-        }
-
     }
 
     impl Debug for GraphErr {

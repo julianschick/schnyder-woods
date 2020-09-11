@@ -33,6 +33,16 @@ pub struct Operation {
     pub operation_type: OpType
 }
 
+#[derive(Debug)]
+pub struct Contraction {
+    pub retained_vertex: VertexI,
+    pub color: SchnyderColor,
+    pub color_orientation: Signum,
+    //
+    pub dropped_vertex: VertexI,
+    pub dropped_edge: EdgeI
+}
+
 impl Operation {
 
     pub fn split(hinge_vertex: VertexI, source_vertex: VertexI, target_vertex: VertexI) -> Operation {
@@ -133,7 +143,7 @@ fn cycle_while_color<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap
         .iter().map(|nb| nb.edge).collect()
 }
 
-fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
+pub fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
 
     let (v1, v2, apex1, apex2) = {
         let (tail, head) = {
@@ -155,32 +165,12 @@ fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -> Re
         match wood.get_color(v1, apex1) {
             Unicolored(c1, Forward) => match wood.get_color(v2, apex2) {
                 Unicolored(c2, Forward) if c1 == c2 => Ok(()),
-                _ => Err(GraphErr::new("Edge in triangle is not unicolored").with_operation("Check triangle for schnyder contractibility"))
+                _ => GraphErr::new_err("Edge in triangle is not unicolored")
             },
-            _ => Err(GraphErr::new("Edge in triangle is not unicolored").with_operation("Check triangle for schnyder contractibility"))
+            _ => GraphErr::new_err("Edge in triangle is not unicolored")
         }
     } else {
-        return Err(GraphErr::new("The face is not triangular").with_operation("Check triangle for schnyder contractibility"));
-    }
-}
-
-pub fn schnyder_contractible<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI) -> Result<(), GraphErr> {
-    if !wood.is_inner_edge(&eid) {
-        return Err(
-            GraphErr::new("Only inner edges can be schnyder contractible.")
-                .with_operation("Check schnyder contractibility")
-                .with_edge(eid)
-        );
-    }
-
-    return match wood.map.edge_weight(&eid) {
-        Some(Unicolored(c, _)) => {
-            check_triangle(wood, eid, Side::Left)?;
-            check_triangle(wood, eid, Side::Right)?;
-            Ok(())
-        },
-        Some(_) => Err(GraphErr::new("Bicolored edges are not schnyder contractible").with_operation("Check schnyder contractibility").with_edge(eid)),
-        None => Err(GraphErr::invalid_edge_index(eid).with_operation("Check schnyder contractibility")),
+        return GraphErr::new_err("The face is not triangular");
     }
 }
 

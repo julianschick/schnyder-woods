@@ -1,4 +1,4 @@
-use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI, ClockDirection, FaceI};
+use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI, ClockDirection, FaceI, Side};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::{Itertools, Merge};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
@@ -18,7 +18,7 @@ use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
 use rand::{thread_rng, Rng};
 use crate::util::errors::{GraphErr, GraphResult};
-use crate::graph::schnyder::algorithm::{make_contractible, Operation};
+use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle};
 use crate::DEBUG;
 use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
@@ -281,7 +281,8 @@ impl<F: Clone> SchnyderMap<F> {
         }*/
 
         //
-        // execute the algorithm which moves the 'frontier' line away from the red suspension vertex
+        // execute the main part of the algorithm which moves the 'frontier' line away from the
+        // red suspension vertex until no vertices are left 'beyond' the frontier.
         //
         let mut frontier = smap.vertex(r).sector_between(b, g, CCW).iter()
             .map(|nb| nb.other)
@@ -289,6 +290,7 @@ impl<F: Clone> SchnyderMap<F> {
 
         let b_singleton = [b];
         let g_singleton = [g];
+        let mut rand = thread_rng();
 
         while frontier.len() > 0 {
             /*for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
@@ -300,6 +302,7 @@ impl<F: Clone> SchnyderMap<F> {
                 }
             }*/
 
+            // find a pivot vertex at which the frontier can be pushed further
             let (pos, (&left_neighbour, &pivot, &right_neighbour)) = {
                 let candidates: Vec<_> = b_singleton.iter().chain(frontier.iter()).chain(g_singleton.iter())
                     .tuple_windows()
@@ -310,26 +313,30 @@ impl<F: Clone> SchnyderMap<F> {
                     }
                     ).collect();
 
+                assert!(!candidates.is_empty());
+
                 match mode {
                     SchnyderBuildMode::LeftMost => candidates.first().unwrap().clone(),
                     SchnyderBuildMode::RightMost => candidates.last().unwrap().clone(),
-                    SchnyderBuildMode::Random => candidates[thread_rng().gen_range(0, candidates.len())].clone()
+                    SchnyderBuildMode::Random => candidates[rand.gen_range(0, candidates.len())].clone()
                 }
             };
 
+            // color the left and right connecting edge of the pivot vertex on the current frontier
             let (eid_left, signum_left) = smap.get_edge_with_signum(pivot, left_neighbour);
             let (eid_right, signum_right) = smap.get_edge_with_signum(pivot, right_neighbour);
 
             smap.edge_mut(eid_left).weight = Unicolored(Blue, signum_left);
             smap.edge_mut(eid_right).weight = Unicolored(Green, signum_right);
 
+            // color the edges reaching from the pivot vertex to the new part of the frontier
             for (eid, signum) in smap.vertex(pivot).sector_between(right_neighbour, left_neighbour, CW).iter().map(|nb|
                 (nb.edge, match nb.end { Head => Forward, Tail => Backward})
             ).collect_vec() {
                 smap.edge_mut(eid).weight = Unicolored(Red, signum);
             }
 
-            let check_v = smap.vertex(pivot)
+            /*let check_v = smap.vertex(pivot)
                 .sector_between(left_neighbour, right_neighbour, CCW)
                 .iter().map(|nb| nb.other).collect_vec();
 
@@ -346,9 +353,9 @@ impl<F: Clone> SchnyderMap<F> {
                         println!("mid problem");
                     }
                 }
-            }
+            }*/
 
-            // alter the frontier (remove the selected vertex and add its neighbors beyond the old frontier)
+            // alter the frontier (remove the pivot vertex and add its neighbors beyond the old frontier)
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
                 .sector_between(left_neighbour, right_neighbour, CCW)
@@ -401,10 +408,17 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn find_outgoing_edge(&self, vid: VertexI, c: SchnyderColor) -> Option<EdgeI> {
+    fn find_outgoing_nb(&self, vid: VertexI, color: SchnyderColor) -> Option<&NbVertex> {
         self.map.vertex(vid).neighbors.iter()
-            .find(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
-            .map(|nb| nb.edge)
+            .find(|nb| match self.outgoing_color(nb) { Some(cc) if cc == color => true, _ => false })
+    }
+
+    pub fn find_outgoing_edge(&self, vid: VertexI, color: SchnyderColor) -> Option<EdgeI> {
+        self.find_outgoing_nb(vid, color).map(|nb| nb.edge)
+    }
+
+    pub fn find_outgoing_endvertex(&self, vid: VertexI, color: SchnyderColor) -> Option<VertexI> {
+        self.find_outgoing_nb(vid, color).map(|nb| nb.other)
     }
 
     fn find_outgoing(&self, v: &Vertex<SchnyderVertexType>, c: SchnyderColor) -> Option<usize> {
@@ -453,6 +467,16 @@ impl<F: Clone> SchnyderMap<F> {
             Green => self.green_vertex,
             Blue => self.blue_vertex
         }
+    }
+
+    pub fn get_inner_vertices(&self) -> Vec<VertexI> {
+        self.map.vertices.get_map().values()
+            .filter(|v| match v.weight {
+                Normal(_) => true,
+                _ => false
+            })
+            .map(|v| v.id)
+            .collect()
     }
 
     pub fn is_inner_edge(&self, eid: &EdgeI) -> bool {
@@ -623,26 +647,62 @@ impl<F: Clone> SchnyderMap<F> {
         Ok(vec![merge_op, split_op])
     }
 
-    pub fn schnyder_contract(&mut self, eid: EdgeI) -> (SchnyderColor, VertexI, EdgeI) {
-        //TODO: check preconditions
+    pub fn is_schnyder_contractible(&self, eid: EdgeI) -> Result<(), GraphErr> {
+        if !self.is_inner_edge(&eid) {
+            return GraphErr::new_err("Only inner edges can be schnyder contractible.");
+        }
 
-        if let Unicolored(color, _) = self.map.edge(eid).weight {
-            let merge_weights = |a: &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
+        return match self.map.edge_weight(&eid) {
+            Some(Unicolored(c, _)) => {
+                check_triangle(self, eid, Side::Left)?;
+                check_triangle(self, eid, Side::Right)?;
+                Ok(())
+            },
+            Some(_) => GraphErr::new_err("Bicolored edges are not schnyder contractible"),
+            None => Err(GraphErr::invalid_edge_index(eid)),
+        }
+    }
+
+    pub fn schnyder_contract(&mut self, eid: EdgeI) -> GraphResult<Contraction> {
+        self.is_schnyder_contractible(eid)?;
+
+        if let Unicolored(color, signum) = self.map.edge(eid).weight {
+            /*let merge_weights = |a: &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
                 if a.head == b.head || a.tail == b.tail {
                     a.weight
                 } else {
                     a.weight.reversed()
                 }
-            };
+            };*/
 
-            let (removed_vertex, removed_edge) = self.map.contract_embedded_edge(eid, &merge_weights);
-            return (color, removed_vertex, removed_edge);
+            let (retained_vertex, dropped_vertex, dropped_edge) = self.map.contract_embedded_edge(
+                eid,
+                match signum {
+                    Forward => Tail,
+                    Backward => Head
+                }
+            );
+
+            Ok(Contraction {
+                retained_vertex,
+                color,
+                color_orientation: signum,
+                dropped_vertex,
+                dropped_edge
+            })
         } else {
-            panic!("only unicolored edges can be schnyder-contracted");
+            assert!(false); panic!();
         }
     }
 
-    pub fn schnyder_discontract(&mut self, eid: EdgeI, pivot_vid: VertexI, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> (VertexI, EdgeI) {
+    pub fn schnyder_discontract_by(&mut self, contraction: &Contraction) -> (VertexI, EdgeI) {
+        let edge = self.find_outgoing_edge(contraction.retained_vertex, contraction.color).unwrap();
+        self.schnyder_discontract(contraction.retained_vertex, contraction.color, Some(contraction.dropped_vertex), Some(contraction.dropped_edge))
+    }
+
+    pub fn schnyder_discontract(&mut self, pivot_vid: VertexI, color: SchnyderColor, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> (VertexI, EdgeI) {
+        let eid = self.find_outgoing_edge(pivot_vid, color).unwrap();
+
         let (new_end, old_weight) = {
             let e = self.map.edge(eid);
             if e.head != pivot_vid && e.tail != pivot_vid {
@@ -651,37 +711,60 @@ impl<F: Clone> SchnyderMap<F> {
             (if e.head == pivot_vid { Head } else { Tail }, e.weight)
         };
 
-        if self.map.vertex(pivot_vid).neighbors.len() < 3 {
-            panic!("not enough neighbors for blowup!");
-        }
+        // by the vertex rule for schnyder woods
+        assert!(self.map.vertex(pivot_vid).neighbors.len() >= 3);
+
+        //patch borders
+        let border_ccw = self.find_outgoing_endvertex(pivot_vid,color.prev()).unwrap();
+        let border_cw = self.find_outgoing_endvertex(pivot_vid, color.next()).unwrap();
 
         let (new_vid, new_eid) = self.map.split_embedded_edge(
             eid, new_end,
+            Some((border_ccw, border_cw)),
             new_vertex_index,
             new_edge_index,
             Normal(0),
             old_weight
-        );
+        ).unwrap();//TODO: unwrap
 
-        let cw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CW).other;
-        let ccw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CCW).other;
-        let (cw_face, ccw_face) = {
+        // moved sector
+        let prev_eid = self.find_outgoing_edge(pivot_vid, color.prev()).unwrap();
+        let next_eid = self.find_outgoing_edge(pivot_vid, color.next()).unwrap();
+        let prev_vid = self.map.edge(prev_eid).get_other(pivot_vid);
+        let next_vid = self.map.edge(next_eid).get_other(pivot_vid);
+
+        //let cw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CW).other;
+        //let ccw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CCW).other;
+
+        /*println!("cw_face = {}", cw_face.0);
+        println!("ccw_face = {}", ccw_face.0);
+        println!("pivot = {}", pivot_vid.0);
+        eprintln!("cw_nb = {:?}", cw_nb);
+        eprintln!("ccw_nb = {:?}", ccw_nb);*/
+
+        let prev_face = self.map.get_face(pivot_vid, prev_vid, Side::Right);
+        let next_face = self.map.get_face(pivot_vid, next_vid, Side::Left);
+
+        /*let (prev_face, next_face) = {
             let new_e = self.map.edge(new_eid);
             (
                 match new_end { Head => new_e.left_face, Tail => new_e.right_face }.unwrap(),
                 match new_end { Head => new_e.right_face, Tail => new_e.left_face }.unwrap(),
             )
-        };
+        };*/
 
-        println!("cw_face = {}", cw_face.0);
-        println!("ccw_face = {}", ccw_face.0);
-        println!("pivot = {}", pivot_vid.0);
-        eprintln!("cw_nb = {:?}", cw_nb);
-        eprintln!("ccw_nb = {:?}", ccw_nb);
+        eprintln!("prev_face = {:?}", prev_face);
+        eprintln!("next_face = {:?}", next_face);
+
+        //println!("{:#?}", self.map.face(prev_face).angles);
+        //println!("{:#?}", self.map.face(next_face).angles);
+
+        println!("{} -> {} in {}", new_vid.0, prev_vid.0, prev_face.0);
+        println!("{} -> {} in {}", new_vid.0, next_vid.0, next_face.0);
 
         if let Unicolored(color, _) = old_weight {
-            self.map.add_embedded_edge(new_vid, cw_nb, Unicolored(color.next(), Forward), cw_face);
-            self.map.add_embedded_edge(new_vid, ccw_nb, Unicolored(color.prev(), Forward), ccw_face);
+            self.map.add_embedded_edge(new_vid, prev_vid, Unicolored(color.prev(), Forward), prev_face);
+            self.map.add_embedded_edge(new_vid, next_vid, Unicolored(color.next(), Forward), next_face);
         } else {
             panic!("undiscontractible edge");
         }
@@ -774,7 +857,7 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn swap(&mut self, a: VertexI, b: VertexI) -> Result<Vec<Operation>, GraphErr> {
+    pub fn swap(&mut self, a: VertexI, b: VertexI) -> GraphResult<Vec<Operation>> {
         let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
 
         g.remove_node(*vmap.get(&self.red_vertex).unwrap());
@@ -792,7 +875,14 @@ impl<F: Clone> SchnyderMap<F> {
              |n| n == *to,
              |n| 1,
              |n| 0
-         ).expect("no route found!");
+         ).expect("no route found! (a*)");
+
+        /*petgraph::algo::dijkstra(
+            &g,
+            *from,
+            Some(to),
+            |n| 1,
+        ).expect("no route found! (dijkstra)");*/
 
         let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();
         for &&tmp in translated_route.iter().skip(1) {
@@ -871,9 +961,7 @@ impl<F: Clone> SchnyderMap<F> {
         let mut current_vertex = vid;
 
         while let Normal(_) = self.map.vertex(current_vertex).weight {
-            if path.contains(&current_vertex) {
-                panic!("cycle dected!");
-            }
+            assert!(!path.contains(&current_vertex));
 
             path.push(current_vertex);
 
@@ -882,14 +970,11 @@ impl<F: Clone> SchnyderMap<F> {
         }
 
         if let Suspension(c) = self.map.vertex(current_vertex).weight {
-            if c == color {
-                path.push(current_vertex);
-                return path;
-            } else {
-                panic!("wrong suspension vertex reached");
-            }
+            assert_eq!(c, color);
+            path.push(current_vertex);
+            return path;
         } else {
-            panic!("internal disagree")
+            panic!("should not happen. are there more schnyder vertex types than normal and suspension?");
         }
     }
 

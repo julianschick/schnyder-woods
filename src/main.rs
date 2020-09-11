@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::cmp::Ordering;
 use itertools::Itertools;
 
-use crate::graph::{PlanarMap, VertexI};
+use crate::graph::{PlanarMap, VertexI, Side};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored, Black};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
@@ -36,7 +36,7 @@ lazy_static! {
 }
 
 fn main() {
-    main3();
+    main1();
 }
 
 fn main3() {
@@ -47,7 +47,7 @@ fn main3() {
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
     let map = &maps[256];
-    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
 
@@ -64,41 +64,20 @@ fn main2() {
     let map1 = &maps[0];
     let map2 = &maps[1];
 
-    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
-    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 =>"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output(&wood2, Some("=> Wood2"), &wood2.calculate_face_counts());
 
     let seq = find_sequence(wood1, wood2);
 
-    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+    /*let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 POST"), &wood1.calculate_face_counts());
     for op in seq {
         wood1.do_operation(&op);
         DEBUG.write().unwrap().output(&wood1, Some("Wood1 POST"), &wood1.calculate_face_counts());
-    }
-
-    /*make_inner_edge(&mut wood1, Green);
-    DEBUG.write().unwrap().output(&wood1, Some("Wood1 (Made inner edge)"), &wood1.calculate_face_counts());
-
-    {
-        let look = &wood1;
-        let cc = compute_contraction_candidates(look);
-
-        for color in &[Red, Green, Blue] {
-            let empty = Vec::new();
-            let info = cc.get(color).unwrap_or(&empty);
-
-            println!("{:?}:", color);
-
-            for (e, contractible) in info {
-                let a = look.map.edge_endvertex(e, Tail).unwrap();
-                let b = look.map.edge_endvertex(e, Head).unwrap();
-                println!("\t {} <---> {} : c = {}", a.0, b.0, contractible);
-            }
-        }
     }*/
 
 }
@@ -114,14 +93,15 @@ fn main1() {
     //let mut i = 0;
     //for m in maps {
 
-        let mut map = &maps[142];
+        let mut map = &maps[123];
 
         //println!("{:?}", map);
 
-        let a = VertexI(3);
-        let b = VertexI(9);
+        let (nr_a, nr_b) = (16, 21);
+        let a = VertexI(nr_a);
+        let b = VertexI(nr_b);
 
-        let mut wood = SchnyderMap::build_on_triangulation(map, map.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
+        let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
         DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();
@@ -131,17 +111,17 @@ fn main1() {
         DEBUG.write().unwrap().output(&wood, Some("Uncontracted"), &wood.calculate_face_counts());
         let fc = wood.calculate_face_counts();
 
-        let (contracted_color, dropped_vertex, dropped_edge) = wood.schnyder_contract(wood.map.get_edge(a, b).unwrap());
-        let retained_vertex = if dropped_vertex == a { b } else { a };
+        let contraction = wood.schnyder_contract(wood.map.get_edge(a, b).unwrap()).unwrap();
+        println!("contraction = {:#?}", contraction);
 
         println!("contracted refint = {}", wood.map.check_referential_integrity());
         DEBUG.write().unwrap().output(&wood, Some("Contracted"), &fc);
         //DEBUG.write().unwrap().output(&wood, Some("Contracted w/ Updated Vertex Positions"), &wood.calculate_face_counts());
 
-        let edge_to_discontract = wood.find_outgoing_edge(retained_vertex, contracted_color).unwrap();
-        wood.schnyder_discontract(wood.map.get_edge(VertexI(9), VertexI(7)).unwrap(), VertexI(9), None, None);
+        //let edge_to_discontract = wood.find_outgoing_edge(contraction.retained_vertex, contraction.color).unwrap(); // should fail sometimes!!!
+        wood.schnyder_discontract_by(&contraction);
 
-        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &fc);
         println!("discontracted refint = {}", wood.map.check_referential_integrity());
 
         println!("{:?}", seq);
