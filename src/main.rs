@@ -62,10 +62,10 @@ fn main2() {
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
     let map1 = &maps[0];
-    let map2 = &maps[0];
+    let map2 = &maps[1];
 
     let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
-    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), RightMost).unwrap();
+    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
     DEBUG.write().unwrap().output(&wood1, Some("Wood1 (-1)"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output(&wood2, Some("Wood2 (-1)"), &wood2.calculate_face_counts());

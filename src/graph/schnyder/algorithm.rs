@@ -6,12 +6,12 @@ use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
 
 use crate::DEBUG;
-use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI, Side};
+use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI, Side, FaceI};
 use crate::graph::ClockDirection::{CCW, CW};
-use crate::graph::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType};
+use crate::graph::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType, SchnyderEdge, SchnyderEdgeDirection};
 use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
 use crate::graph::schnyder::IndexedEnum;
-use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
+use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
@@ -20,8 +20,9 @@ use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
 use std::convert::TryInto;
+use crate::graph::Side::{Left, Right};
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
     Split, Merge
 }
@@ -114,6 +115,55 @@ impl<F: Clone> SchnyderMap<F> {
         }
         Ok(())
     }
+
+    pub fn get_operation_direction(&self, op: &Operation) -> GraphResult<ClockDirection> {
+        Ok(match op.operation_type {
+            Split => {
+                let (fwd_c, bwd_c) = self.get_bidirected_colors(&op.hinge_vertex, &op.source_vertex);
+
+                if bwd_c.prev() == fwd_c {
+                    CW
+                } else if bwd_c.next() == fwd_c {
+                    CCW
+                } else {
+                    panic!("Assertion failed");
+                }
+            },
+            Merge => {
+                let target_color = self.get_unidirected_color(&op.target_vertex, &op.hinge_vertex);
+                let source_color = self.get_unidirected_color(&op.hinge_vertex, &op.source_vertex);
+
+                if target_color.prev() == source_color {
+                    CCW
+                } else if target_color.next() == source_color {
+                    CW
+                } else {
+                    panic!("Assertion failed");
+                }
+            }
+        })
+    }
+
+    pub fn get_affected_face(&self, op: &Operation) -> FaceI {
+        let dir = self.get_operation_direction(op).unwrap(); //TODO
+        self.map.get_face(op.hinge_vertex, op.source_vertex, match dir { CW => Right, CCW => Left })
+    }
+
+    fn get_unidirected_color(&self, v1: &VertexI, v2: &VertexI) -> SchnyderColor {
+        match self.get_color(*v1, *v2) {
+            Unicolored(color, Forward) => color,
+            _ => panic!("Other color or direction than expected by assertion")
+        }
+    }
+
+    fn get_bidirected_colors(&self, v1: &VertexI, v2: &VertexI) -> (SchnyderColor, SchnyderColor) {
+        match self.get_color(*v1, *v2) {
+            Bicolored(a, b)  => (a, b),
+            _ => panic!("Other color or direction than expected by assertion")
+        }
+    }
+
+
 
 }
 

@@ -365,6 +365,16 @@ impl<F: Clone> SchnyderMap<F> {
         return SchnyderMap::try_from(smap);
     }
 
+    pub fn clone_with_maps<Ff: Clone>(&self, face_map: Option<fn(&F) -> Ff>) -> SchnyderMap<Ff> {
+        SchnyderMap {
+            map: self.map.clone_with_maps(|v| *v, |e| *e, face_map),
+            outer_face: self.outer_face,
+            red_vertex: self.red_vertex,
+            green_vertex: self.green_vertex,
+            blue_vertex: self.blue_vertex
+        }
+    }
+
     pub fn debug(&self) {
         for v in self.map.vertices.get_map().values().sorted_by_key(|v| v.id.0) {
             v.debug();

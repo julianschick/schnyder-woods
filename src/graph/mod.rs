@@ -123,6 +123,13 @@ impl ClockDirection {
             CCW => CW
         }
     }
+    pub fn rev_if(&self, cond: bool) -> Self {
+        if cond {
+            self.reversed()
+        } else {
+            *self
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -509,6 +516,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         self.faces.get_map().len()
+    }
+
+    pub fn sector_between(&self, center: &VertexI, from: &VertexI, to: &VertexI, direction: ClockDirection) -> GraphResult<Vec<(EdgeI, VertexI)>> {
+        Ok(center.materialize_safely(&self)?.sector_between(*from, *to, direction).iter()
+            .map(|nb| (nb.edge, nb.other))
+            .collect_vec())
     }
 
     pub fn edge_endvertex(&self, edge: &EdgeI, end: EdgeEnd) -> Option<VertexI> {
@@ -1583,7 +1596,6 @@ impl<N, E, F: Clone> Debug for PlanarMap<N, E, F> {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 mod tests {
