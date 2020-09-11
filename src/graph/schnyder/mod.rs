@@ -408,16 +408,27 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    fn find_outgoing_nb(&self, vid: VertexI, color: SchnyderColor) -> Option<&NbVertex> {
-        self.map.vertex(vid).neighbors.iter()
-            .find(|nb| match self.outgoing_color(nb) { Some(cc) if cc == color => true, _ => false })
+    fn find_outgoing_nb(&self, vid: VertexI, color: SchnyderColor) -> GraphResult<&NbVertex> {
+        let result = mats!(&self.map, &vid)?
+            .neighbors.iter()
+            .find(|nb| match self.outgoing_color(nb) { Some(cc) if cc == color => true, _ => false });
+
+        return if let Some(nb) = result {
+            Ok(nb)
+        } else {
+            match self.map.vertex_weight(&vid)? {
+                Normal(_) => panic!("In a valid schnyder wood there should be an outgoing edge of each color at non-suspension vertices"),
+                Suspension(c) if *c == color => return GraphErr::new_err("The suspension vertices have no outgoing edges of their very color"),
+                Suspension(_) => panic!("In a valid schnyder wood there should be an outgoing edge of the other two colors at suspension vertices"),
+            }
+        }
     }
 
-    pub fn find_outgoing_edge(&self, vid: VertexI, color: SchnyderColor) -> Option<EdgeI> {
+    pub fn find_outgoing_edge(&self, vid: VertexI, color: SchnyderColor) -> GraphResult<EdgeI> {
         self.find_outgoing_nb(vid, color).map(|nb| nb.edge)
     }
 
-    pub fn find_outgoing_endvertex(&self, vid: VertexI, color: SchnyderColor) -> Option<VertexI> {
+    pub fn find_outgoing_endvertex(&self, vid: VertexI, color: SchnyderColor) -> GraphResult<VertexI> {
         self.find_outgoing_nb(vid, color).map(|nb| nb.other)
     }
 
@@ -479,19 +490,10 @@ impl<F: Clone> SchnyderMap<F> {
             .collect()
     }
 
-    pub fn is_inner_edge(&self, eid: &EdgeI) -> bool {
-        let e = self.map.edge(*eid);
-        let weights = vec![self.map.vertex_weight(&e.tail), self.map.vertex_weight(&e.head)];
-
-        for w in weights {
-            match w {
-                Some(Suspension(_)) => return false,
-                None => panic!("ref error"),
-                _ => ()
-            }
-        }
-
-        return true;
+    pub fn is_inner_edge(&self, eid: &EdgeI) -> GraphResult<bool> {
+        let e = mats![&self.map, eid]?;
+        let weights = vec![self.map.vertex_weight(&e.tail)?, self.map.vertex_weight(&e.head)?];
+        return Ok(!weights.iter().any(|w| if let Suspension(_) = w { true } else { false }));
     }
 
     pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> SchnyderColor {
@@ -648,7 +650,7 @@ impl<F: Clone> SchnyderMap<F> {
     }
 
     pub fn is_schnyder_contractible(&self, eid: EdgeI) -> Result<(), GraphErr> {
-        if !self.is_inner_edge(&eid) {
+        if !self.is_inner_edge(&eid)? {
             return GraphErr::new_err("Only inner edges can be schnyder contractible.");
         }
 
@@ -667,14 +669,6 @@ impl<F: Clone> SchnyderMap<F> {
         self.is_schnyder_contractible(eid)?;
 
         if let Unicolored(color, signum) = self.map.edge(eid).weight {
-            /*let merge_weights = |a: &Edge<SchnyderEdgeDirection>, b: &Edge<SchnyderEdgeDirection>| {
-                if a.head == b.head || a.tail == b.tail {
-                    a.weight
-                } else {
-                    a.weight.reversed()
-                }
-            };*/
-
             let (retained_vertex, dropped_vertex, dropped_edge) = self.map.contract_embedded_edge(
                 eid,
                 match signum {
@@ -695,19 +689,16 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn schnyder_discontract_by(&mut self, contraction: &Contraction) -> (VertexI, EdgeI) {
-        let edge = self.find_outgoing_edge(contraction.retained_vertex, contraction.color).unwrap();
-        self.schnyder_discontract(contraction.retained_vertex, contraction.color, Some(contraction.dropped_vertex), Some(contraction.dropped_edge))
+    pub fn schnyder_uncontract_by_contraction(&mut self, contraction: &Contraction) -> GraphResult<(VertexI, EdgeI)> {
+        self.schnyder_uncontract(contraction.retained_vertex, contraction.color, Some(contraction.dropped_vertex), Some(contraction.dropped_edge))
     }
 
-    pub fn schnyder_discontract(&mut self, pivot_vid: VertexI, color: SchnyderColor, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> (VertexI, EdgeI) {
-        let eid = self.find_outgoing_edge(pivot_vid, color).unwrap();
+    pub fn schnyder_uncontract(&mut self, pivot_vid: VertexI, color: SchnyderColor, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> GraphResult<(VertexI, EdgeI)> {
+        let eid = self.find_outgoing_edge(pivot_vid, color)?;
 
         let (new_end, old_weight) = {
-            let e = self.map.edge(eid);
-            if e.head != pivot_vid && e.tail != pivot_vid {
-                panic!("invalid arguments");
-            }
+            let e = mat![&self.map, &eid];
+            assert!(e.head == pivot_vid || e.tail == pivot_vid);
             (if e.head == pivot_vid { Head } else { Tail }, e.weight)
         };
 
@@ -769,95 +760,92 @@ impl<F: Clone> SchnyderMap<F> {
             panic!("undiscontractible edge");
         }
 
-        return (pivot_vid, eid);
+        return Ok((pivot_vid, eid));
     }
 
-    pub fn swap_locally(&mut self, a: VertexI, b: VertexI) -> Result<Vec<Operation>, GraphErr> {
+    pub fn swap_locally(&mut self, a: &VertexI, b: &VertexI) -> Result<Vec<Operation>, GraphErr> {
         if !self.map.is_triangulation() {
             return GraphErr::new_err("Swaps can only be done on triangulations");
         }
 
-        return if let Some(eid) = self.map.get_edge(a, b) {
-            if !self.is_inner_edge(&eid) {
-                return GraphErr::new_err("Edge for swap has to be an inner edge");
+        let eid = self.map.get_edge(*a, *b)?;
+        if !self.is_inner_edge(&eid)? {
+            return GraphErr::new_err("Edge for swap has to be an inner edge");
+        }
+
+        if let Some((color, tail, head)) = self.get_color_orientation(eid) {
+
+            let mut seq = make_contractible(self, eid)?;
+            DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
+
+            // following comments:
+            // colors referring to the example with the pivot edge being red
+            //
+            // incoming red edges at tail over to head
+            for tail_incoming_red in self.get_incoming_sector(&tail, color) {
+
+                let source = self.find_outgoing_edge(tail, color.next()).unwrap();
+                let target = tail_incoming_red;
+
+                self.merge_and_resplit(source, target, Some(head));
+                DEBUG.write().unwrap().output(&self, Some("Red incoming over to head"), &self.calculate_face_counts());
             }
 
-            if let Some((color, tail, head)) = self.get_color_orientation(eid) {
+            // outgoing blue edge at tail merged onto pivot edge
+            let out_prev = self.find_outgoing_edge(head, color.prev()).unwrap();
+            self.merge_and_resplit(out_prev, eid, None);
+            DEBUG.write().unwrap().output(&self, Some("Blue down"), &self.calculate_face_counts());
 
-                let mut seq = make_contractible(self, eid);
-                DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
+            // incoming green edges at head over to tail
+            for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
+                let target = self.find_outgoing_edge(tail, color).unwrap();
+                let source = head_incoming_green;
 
-                // following comments:
-                // colors referring to the example with the pivot edge being red
-                //
-                // incoming red edges at tail over to head
-                for tail_incoming_red in self.get_incoming_sector(&tail, color) {
-
-                    let source = self.find_outgoing_edge(tail, color.next()).unwrap();
-                    let target = tail_incoming_red;
-
-                    self.merge_and_resplit(source, target, Some(head));
-                    DEBUG.write().unwrap().output(&self, Some("Red incoming over to head"), &self.calculate_face_counts());
-                }
-
-                // outgoing blue edge at tail merged onto pivot edge
-                let out_prev = self.find_outgoing_edge(head, color.prev()).unwrap();
-                self.merge_and_resplit(out_prev, eid, None);
-                DEBUG.write().unwrap().output(&self, Some("Blue down"), &self.calculate_face_counts());
-
-                // incoming green edges at head over to tail
-                for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
-                    let target = self.find_outgoing_edge(tail, color).unwrap();
-                    let source = head_incoming_green;
-
-                    self.merge_and_resplit(source, target, None);
-                    DEBUG.write().unwrap().output(&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
-                }
-
-                // split red part away from pivot edge (leaving it green)
-                {
-                    let source = self.find_outgoing_edge(tail, color.next()).unwrap();
-                    let target = eid;
-
-                    self.merge_and_resplit(source, target, None);
-                    DEBUG.write().unwrap().output(&self, Some("Blue -> Green"), &self.calculate_face_counts());
-                }
-
-                // incoming blue edges at head over to tail
-                for blue_incoming_edge in self.get_incoming_sector(&head, color.prev()) {
-                    let source = self.find_outgoing_edge(head, color).unwrap();
-                    let target = blue_incoming_edge;
-
-                    self.merge_and_resplit(source, target, None);
-                    DEBUG.write().unwrap().output(&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
-                }
-
-                // pivot edge is green and turns red
-                {
-                    let source = self.find_outgoing_edge(head, color).unwrap();
-                    let target = eid;
-
-                    self.merge_and_resplit(source, target, None);
-                    DEBUG.write().unwrap().output(&self, Some("Green -> Red"), &self.calculate_face_counts());
-                }
-
-                // revert the "make contractible" step
-                for op in seq.iter_mut().rev() {
-                    self.do_operation(&op.swapped_vertices(&a, &b).inverted());
-                }
-
-                DEBUG.write().unwrap().output(&self, Some("Unmade contractible"), &self.calculate_face_counts());
-
-                Ok(seq)
-            } else {
-                GraphErr::new_err("Edge for swap has to be unicolored")
+                self.merge_and_resplit(source, target, None);
+                DEBUG.write().unwrap().output(&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
             }
+
+            // split red part away from pivot edge (leaving it green)
+            {
+                let source = self.find_outgoing_edge(tail, color.next()).unwrap();
+                let target = eid;
+
+                self.merge_and_resplit(source, target, None);
+                DEBUG.write().unwrap().output(&self, Some("Blue -> Green"), &self.calculate_face_counts());
+            }
+
+            // incoming blue edges at head over to tail
+            for blue_incoming_edge in self.get_incoming_sector(&head, color.prev()) {
+                let source = self.find_outgoing_edge(head, color).unwrap();
+                let target = blue_incoming_edge;
+
+                self.merge_and_resplit(source, target, None);
+                DEBUG.write().unwrap().output(&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
+            }
+
+            // pivot edge is green and turns red
+            {
+                let source = self.find_outgoing_edge(head, color).unwrap();
+                let target = eid;
+
+                self.merge_and_resplit(source, target, None);
+                DEBUG.write().unwrap().output(&self, Some("Green -> Red"), &self.calculate_face_counts());
+            }
+
+            // revert the "make contractible" step
+            for op in seq.iter_mut().rev() {
+                self.do_operation(&op.swapped_vertices(&a, &b).inverted());
+            }
+
+            DEBUG.write().unwrap().output(&self, Some("Unmade contractible"), &self.calculate_face_counts());
+
+            Ok(seq)
         } else {
-            Err(GraphErr::new("No such edge"))
+            GraphErr::new_err("Edge for swap has to be unicolored")
         }
     }
 
-    pub fn swap(&mut self, a: VertexI, b: VertexI) -> GraphResult<Vec<Operation>> {
+    pub fn swap(&mut self, a: &VertexI, b: &VertexI) -> GraphResult<Vec<Operation>> {
         let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
 
         g.remove_node(*vmap.get(&self.red_vertex).unwrap());
@@ -885,10 +873,10 @@ impl<F: Clone> SchnyderMap<F> {
         ).expect("no route found! (dijkstra)");*/
 
         let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();
-        for &&tmp in translated_route.iter().skip(1) {
+        for &tmp in translated_route.iter().skip(1) {
             self.swap_locally(a, tmp);
         }
-        for &&tmp in translated_route.iter().skip(1).rev().skip(1) {
+        for &tmp in translated_route.iter().skip(1).rev().skip(1) {
             self.swap_locally(b, tmp);
         }
 
@@ -1134,11 +1122,11 @@ impl<F: Clone> SchnyderMap<F> {
 
             for (&v1, &v2) in f.angles.cycle(0, true).tuple_windows() {
 
-                if let None = self.map.get_edge(v1, v2) {
-                    return GraphErr::new_err("Face cycle rule cannot be checked as face cycle contains invalid edges");
-                }
+                let eid = self.map.get_edge(v1, v2).map_err(|_|
+                    GraphErr::new("Face cycle rule cannot be checked as face cycle contains invalid edges")
+                )?;
 
-                let e = self.map.edge(self.map.get_edge(v1, v2).unwrap());
+                let e = self.map.edge(eid);
                 let signum = e.get_signum(v1, v2);
 
                 fwd_colors.insert(e.color(signum));

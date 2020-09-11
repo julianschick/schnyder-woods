@@ -20,15 +20,24 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::Side::{Left, Right};
 use crate::util::errors::{GraphResult, GraphErr};
 
+#[macro_export]
+macro_rules! mat {
+    ($map:expr, $thing:expr) => { crate::graph::Materialize::materialize_unsafely($thing, $map) };
+}
+
+#[macro_export]
+macro_rules! mats {
+    ($map:expr, $thing:expr) => { crate::graph::Materialize::materialize_safely($thing, $map) };
+}
+
 pub mod schnyder;
 pub mod io;
-
 mod guarded_map;
 
 trait Materialize<N, E, F: Clone> {
     type MaterializedType;
     fn materialize_unsafely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> &'a Self::MaterializedType;
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> Option<&'a Self::MaterializedType>;
+    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType>;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
@@ -41,8 +50,8 @@ impl<N, E, F: Clone> Materialize<N, E, F> for VertexI {
         map.vertex(*self)
     }
 
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> Option<&'a Self::MaterializedType> {
-        map.vertices.get_map().get(self)
+    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType> {
+        map.vertices.get_map().get(self).ok_or(GraphErr::invalid_vertex_index(*self))
     }
 }
 
@@ -64,8 +73,8 @@ impl<N, E, F: Clone> Materialize<N, E, F> for EdgeI {
         map.edge(*self)
     }
 
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> Option<&'a Self::MaterializedType> {
-        map.edges.get_map().get(self)
+    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType> {
+        map.edges.get_map().get(self).ok_or(GraphErr::invalid_edge_index(*self))
     }
 }
 
@@ -129,15 +138,6 @@ impl Side {
         }
     }
 }
-
-macro_rules! mat {
-    ($map:expr, $thing:expr) => { Materialize::materialize_unsafely($thing, $map) };
-}
-
-macro_rules! mats {
-    ($map:expr, $thing:expr) => { Materialize::materialize_safely($thing, $map) };
-}
-
 
 struct Edge<E> {
     id: EdgeI,
@@ -440,12 +440,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.edges.is_valid_index(&e)
     }
 
-    pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
-        let v = self.vertices.get(&v1);
-        match v.neighbors.iter().find(|nb| nb.other == v2) {
-            Some(nb) => Some(nb.edge),
-            None => None
-        }
+    pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
+        let v = mats!(self, &v1)?;
+        v.neighbors.iter()
+            .find(|nb| nb.other == v2)
+            .map(|nb| nb.edge)
+            .ok_or(GraphErr::new(&format!("No edge between vertices {} and {}", v1.0, v2.0)))
     }
 
     pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> FaceI {
@@ -523,8 +523,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.edges.get_map().get(edge).map(|e| &e.weight)
     }
 
-    pub fn vertex_weight(&self, vertex: &VertexI) -> Option<&N> {
-        self.vertices.get_map().get(vertex).map(|e| &e.weight)
+    pub fn vertex_weight(&self, vertex: &VertexI) -> GraphResult<&N> {
+        Ok(&mats![self, vertex]?.weight)
     }
 
     pub fn is_connected(&self) -> bool {
@@ -720,11 +720,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return e;
     }
 
-    fn remove_edge_(&mut self, v1: VertexI, v2: VertexI) -> Option<Edge<E>> {
-        let eid = match self.get_edge(v1, v2) {
-            Some(eid) => eid,
-            None => return None
-        };
+    fn remove_edge_(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<Edge<E>> {
+        let eid = self.get_edge(v1, v2)?;
 
         let e = self.edges.free_index(&eid).unwrap();
         self.vertex_mut(v1).neighbors.retain(|nb| nb.other != v2);
@@ -733,10 +730,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.restore_nb_indices(v1);
         self.restore_nb_indices(v2);
 
-        return Some(e);
+        return Ok(e);
     }
 
-    pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> Option<EdgeI> {
+    pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
         if self.embedded {
             panic!("superplanar operation on embedded graph.")
         }
@@ -744,20 +741,17 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.remove_edge_(v1, v2).map(|e|e.id)
     }
 
-    pub fn remove_embedded_edge_by_id(&mut self, eid: EdgeI, merge_weights: &Fn(F, F) -> F) -> Option<(EdgeI, FaceI)> {
-        let e = self.edge(eid);
+    pub fn remove_embedded_edge_by_id(&mut self, eid: EdgeI, merge_weights: &Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
+        let e = mats![&self, &eid]?;
         self.remove_embedded_edge(e.tail, e.head, merge_weights)
     }
 
-    pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &Fn(F, F) -> F) -> Option<(EdgeI, FaceI)> {
+    pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
         if !self.embedded {
             panic!("no embedding given");
         }
 
-        let e = match self.remove_edge_(v1, v2) {
-            Some(e) => e,
-            None => return None,
-        };
+        let e = self.remove_edge_(v1, v2)?;
 
         // two faces must be merged
         let left_face = self.faces.free_index(&e.left_face.unwrap()).unwrap();
@@ -780,7 +774,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let fid = self.faces.retrieve_index(f);
         self.restore_face_refs(fid);
 
-        return Some((e.id, fid));
+        return Ok((e.id, fid));
     }
 
     /// the nbvectors of from and to are not touched!
@@ -1266,21 +1260,23 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
     /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
     /// specifying the order of vertices around the face in counterclockwise direction.
-    pub fn set_embedding(&mut self, faces: Vec<(Vec<VertexI>, F)>) {
+    pub fn set_embedding(&mut self, faces: Vec<(Vec<VertexI>, F)>) -> GraphResult<()> {
         if !(self.is_simple() && self.is_connected()) {
-            panic!("Embeddings can only be set if the graph is simple and connected");
+            return GraphErr::new_err("Embeddings can only be set if the graph is simple and connected");
         }
 
-        if let Some(v) = faces.iter().flat_map(|(fc, w)| fc.iter()).find(|v| !self.is_valid_vertex(v)) {
-            panic!("Invalid vertex index found, {} for instance.", v.0);
+        for vid in faces.iter()
+            .flat_map(|(fc, w)| fc.iter()) {
+            mats![&self, vid]?;
         }
+
 
         let n = self.vertices.get_map().len() as isize;
         let m = self.edges.get_map().len() as isize;
         let f = faces.len() as isize;
 
         if n - m + f != 2 {
-            panic!("The number of faces for a full embedding should be {}, you have given {}.", 2 - n + m, f);
+            return GraphErr::new_err(&format!("Euler is not happy at all. The number of faces for a full embedding should be {}, you have given {}.", 2 - n + m, f));
         }
 
         let mut angles = HashMap::new();
@@ -1299,24 +1295,23 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 angles.get_mut(&b).unwrap().insert(a, c);
 
                 // covered edges
-                let e = self.get_edge(a, b);
-                if e.is_none() {
-                    panic!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0);
-                }
+                let e = self.get_edge(a, b).map_err(|_|
+                    GraphErr::new(&format!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0))
+                )?;
 
-                match self.get_signum(e.unwrap(), a, b) {
-                    Forward => fwd_occurence.insert(e.unwrap()),
-                    Backward => backwd_occurence.insert(e.unwrap())
+                match self.get_signum(e, a, b) {
+                    Forward => fwd_occurence.insert(e),
+                    Backward => backwd_occurence.insert(e)
                 };
             }
         }
 
         // check if each edge occurs exactly twice, one time as (a,b), one time as (b,a)
         if fwd_occurence.len() < self.edges.get_map().len() {
-            return panic!("It is wrong forwardly");
+            return GraphErr::new_err("Not every each occurs twice in the face cycles");
         }
         if backwd_occurence.len() < self.edges.get_map().len() {
-            return panic!("It is wrong backwardly");
+            return GraphErr::new_err("Not every each occurs twice in the face cycles");
         }
 
         // check if all vertices have a well-defined total order on their neighbors now
@@ -1325,7 +1320,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let vertex_angles = angles.get(&v.id).unwrap();
 
             if vertex_angles.len() != v.neighbors.len() {
-                return panic!("total order fail (count)");
+                return GraphErr::new_err("Not every vertex has a well-defined total order on their neighbors");
             }
 
             {
@@ -1333,12 +1328,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 let angle_entering: HashSet<&VertexI> = vertex_angles.iter().map(|(u, _)| u).collect();
                 let angle_leaving: HashSet<&VertexI> = vertex_angles.iter().map(|(_, v)| v).collect();
 
-                if neighbors != angle_entering {
-                    return panic!("total order fail (entering)");
-                }
-
-                if neighbors != angle_leaving {
-                    return panic!("total order fail (leaving)");
+                if neighbors != angle_entering || neighbors != angle_leaving {
+                    return GraphErr::new_err("Not every vertex has a well-defined total order on their neighbors");
                 }
             }
 
@@ -1379,8 +1370,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-
-        self.embedded = true;
+        self.embedded = true; Ok(())
     }
 
     pub fn get_dual(&self, enforce_simple: bool) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {

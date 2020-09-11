@@ -17,8 +17,9 @@ use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::EdgeEnd::{Tail, Head};
-use crate::util::errors::GraphErr;
+use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
+use std::convert::TryInto;
 
 #[derive(Debug, Copy, Clone)]
 pub enum OpType {
@@ -86,33 +87,32 @@ impl Operation {
         }
     }
 
+    pub fn mapped_vertices(&self, map: &HashMap<VertexI, VertexI>) -> Self {
+        Operation {
+            hinge_vertex: *map.get(&self.hinge_vertex).unwrap(),
+            source_vertex: *map.get(&self.source_vertex).unwrap(),
+            target_vertex: *map.get(&self.target_vertex).unwrap(),
+            operation_type: self.operation_type
+        }
+    }
+
 }
 
 impl<F: Clone> SchnyderMap<F> {
 
-    pub fn do_operation(&mut self, op: &Operation) {
+    pub fn do_operation(&mut self, op: &Operation) -> GraphResult<()> {
         match op.operation_type {
             Merge => {
-                let src = self.map.get_edge(op.hinge_vertex, op.source_vertex);
-                let tgt = self.map.get_edge(op.hinge_vertex, op.target_vertex);
-
-                if let (Some(source_edge), Some(target_edge)) = (src, tgt) {
-                    self.merge(source_edge, target_edge);
-                } else {
-                    panic!("invalid edges given!");
-                }
+                let src = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
+                let tgt = self.map.get_edge(op.hinge_vertex, op.target_vertex)?;
+                self.merge(src, tgt);
             }
             Split => {
-                let e = self.map.get_edge(op.hinge_vertex, op.source_vertex);
-
-                if let Some(e) = e {
-                    self.split(e, op.hinge_vertex, Some(op.target_vertex));
-                } else {
-                    panic!("invalid edge given");
-                }
-
+                let e = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
+                self.split(e, op.hinge_vertex, Some(op.target_vertex));
             }
         }
+        Ok(())
     }
 
 }
@@ -174,13 +174,13 @@ pub fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -
     }
 }
 
-pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec<Operation> {
+pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> GraphResult<Vec<Operation>> {
 
-    if !wood.is_inner_edge(&eid) {
-        panic!("only inner edges can be made contractible");
+    if !wood.is_inner_edge(&eid)? {
+        return GraphErr::new_err("Only inner edges can be made contractible");
     }
     if !wood.map.is_triangulation() {
-        panic!("needs to be a triangulation")
+        return GraphErr::new_err("Only in triangulations edges can be made contractible");
     }
 
     let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
@@ -206,7 +206,8 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec
         result.extend(flip_over_to_triangle(wood, left_tail_section, true, yummi));
 
     } else {
-        panic!("assertion failed - triangulation should only consist of unicolored inner edges.");
+        assert!(false);
+        //panic!("assertion failed - triangulation should only consist of unicolored inner edges.");
     }
 
     //DEBUG.write().unwrap().output(wood, Some("Finish"), yummi);
@@ -218,7 +219,7 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Vec
         DEBUG.write().unwrap().output(wood, Some("Revert"), yummi);
     }*/
 
-    return result;
+    return Ok(result);
 }
 
 pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
@@ -230,7 +231,7 @@ pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor
     }
 
     if let Some(e) = wood.map.edge_indices()
-        .filter(|e| wood.is_inner_edge(e))
+        .filter(|e| wood.is_inner_edge(e).unwrap())
         .find(|e| match wood.map.edge_weight(e) {
             Some(Unicolored(c, _)) if *c == color  => true,
             _ => false
