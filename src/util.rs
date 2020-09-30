@@ -107,7 +107,7 @@ pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
 
 pub mod debug {
     use std::path::Path;
-    use std::fs::{create_dir, read_dir, remove_file, File};
+    use std::fs::{create_dir, read_dir, remove_file, File, remove_dir_all};
     use crate::graph::schnyder::SchnyderMap;
     use std::collections::HashMap;
     use crate::graph::VertexI;
@@ -117,8 +117,8 @@ pub mod debug {
     pub struct Debug {
         base_dir: &'static str,
         output_dir: &'static str,
+        counters: HashMap<String, usize>,
         active: bool,
-        counter: usize
     }
 
     impl Debug {
@@ -137,45 +137,55 @@ pub mod debug {
                 base_dir,
                 output_dir,
                 active: true,
-                counter: 0
+                counters: HashMap::new()
             };
 
-            if !Path::new(&base_dir).is_dir() {
+            remove_dir_all(base_dir);
+
+            /*if !Path::new(&base_dir).is_dir() {
                 create_dir(base_dir).expect("Unable to create temporary output dir");
             }
             if !Path::new(&output_dir).is_dir() {
                 create_dir(&output_dir).expect("Unable to create output dir");
-            }
+            }*/
 
-            Self::delete_all_files(base_dir);
-            Self::delete_all_files(output_dir);
+            //Self::delete_all_files(base_dir);
+            //Self::delete_all_files(output_dir);
 
             return result;
         }
 
-        pub fn output<F: Clone>(&mut self, wood: &SchnyderMap<F>, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
+        pub fn output<F: Clone>(&mut self, context: &str, wood: &SchnyderMap<F>, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
             if !self.active {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, true, face_counts);
-            let name = format!("{}", self.counter);
-            self.counter += 1;
+            let tikz_string = wood.generate_tikz(title, false, face_counts);
+            if !self.counters.contains_key(context) {
+                self.counters.insert(context.to_string(), 0);
+            }
+            let name = format!("{}", self.counters.get(context).unwrap());
+            self.counters.insert(context.to_string(), self.counters.get(context).unwrap() + 1);
 
             let basedir = "/tmp/schnyder";
+            let contextdir = &format!("{}/{}", basedir, context);
+            let outputdir = format!("{}/{}/output", basedir, context);
+
             if !Path::new(&basedir).is_dir() {
                 create_dir(basedir).expect("Unable to create temporary output dir");
             }
-            let outputdir = format!("{}/output", basedir);
+            if !Path::new(&contextdir).is_dir() {
+                create_dir(contextdir).expect("Unable to create temporary output dir");
+            }
             if !Path::new(&outputdir).is_dir() {
                 create_dir(&outputdir).expect("Unable to create output dir");
             }
 
-            let mut f = File::create(format!("{}/{}.tex", basedir, name)).expect("Unable to create file");
+            let mut f = File::create(format!("{}/{}/{}.tex", basedir, context, name)).expect("Unable to create file");
             f.write_all(tikz_string.as_bytes()).expect("Unable to write data");
 
-            Command::new("xelatex").current_dir(basedir).arg(format!("{}.tex", name)).output();
-            Command::new("pdftoppm").current_dir(basedir)
+            Command::new("xelatex").current_dir(format!("{}/{}", basedir, context)).arg(format!("{}.tex", name)).output();
+            Command::new("pdftoppm").current_dir(format!("{}/{}", basedir, context))
                 .arg(format!("{}.pdf", name))
                 .arg(format!("{}/{}", outputdir, name))
                 .arg("-png").arg("-singlefile").output();

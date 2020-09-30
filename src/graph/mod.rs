@@ -578,6 +578,47 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return visited.into_iter().collect();
     }
 
+    pub fn shortest_path(&self, from: &VertexI, to: &VertexI, forbidden_vertices: &HashSet<VertexI>) -> Vec<VertexI> {
+        let mut dist = HashMap::new();
+        let mut pred = HashMap::new();
+        let mut visited = HashSet::new();
+        let mut unvisited : HashSet<_> = self.vertices.get_map().values().map(|v| v.id).collect();
+
+        dist.insert(*from, 0);
+        for forbidden in forbidden_vertices {
+            unvisited.remove(forbidden);
+        }
+
+        while !unvisited.is_empty() {
+            let v = *unvisited.iter()
+                .filter(|v| dist.get(v).is_some())
+                .min_by_key(|v| (dist.get(v).unwrap(), v.0)).unwrap();
+
+            visited.insert(v);
+            unvisited.remove(&v);
+
+            let d = *dist.get(&v).unwrap();
+
+            self.vertex(v).neighbors.iter().map(|nb| nb.other)
+                .filter(|&other| unvisited.contains(&other))
+                .for_each(|other| {
+                    if !dist.contains_key(&other) || *dist.get(&other).unwrap() > d + 1 {
+                        dist.insert(other, d + 1);
+                        pred.insert(other, v);
+                    }
+                });
+        }
+
+        let mut rev_path = vec![*to];
+        let mut v = *to;
+        while let Some(predecessor) = pred.get(&v) {
+            rev_path.push(*predecessor);
+            v = *predecessor;
+        }
+
+        return rev_path.into_iter().rev().collect();
+    }
+
     pub fn add_vertex(&mut self, weight: N) -> VertexI {
         if self.embedded {
             panic!("superplanar operation on embedded graph.");
@@ -1126,11 +1167,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         {
             let f = self.face_mut(self.edge(split_eid).right_face.unwrap());
-            println!("{:?}", f.angles);
+            //println!("{:?}", f.angles);
         }
         {
             let f = self.face_mut(self.edge(split_eid).left_face.unwrap());
-            println!("{:?}", f.angles);
+            //println!("{:?}", f.angles);
         }
 
         return Ok((new_vid, new_eid));

@@ -21,13 +21,15 @@ use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
 use std::convert::TryInto;
 use crate::graph::Side::{Left, Right};
+use std::fmt::{Debug, Formatter, Write};
+use bimap::BiMap;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
     Split, Merge
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct Operation {
     pub hinge_vertex: VertexI,
     pub source_vertex: VertexI,
@@ -79,7 +81,7 @@ impl Operation {
         }
     }
 
-    pub fn swapped_vertices(&mut self, a: &VertexI, b: &VertexI) -> Self {
+    pub fn swapped_vertices(&self, a: &VertexI, b: &VertexI) -> Self {
         Operation {
             hinge_vertex: swapped(a, b, &self.hinge_vertex),
             source_vertex: swapped(a, b, &self.source_vertex),
@@ -88,15 +90,21 @@ impl Operation {
         }
     }
 
-    pub fn mapped_vertices(&self, map: &HashMap<VertexI, VertexI>) -> Self {
+    pub fn mapped_vertices(&self, map: &BiMap<VertexI, VertexI>) -> Self {
         Operation {
-            hinge_vertex: *map.get(&self.hinge_vertex).unwrap(),
-            source_vertex: *map.get(&self.source_vertex).unwrap(),
-            target_vertex: *map.get(&self.target_vertex).unwrap(),
+            hinge_vertex: *map.get_by_left(&self.hinge_vertex).unwrap(),
+            source_vertex: *map.get_by_left(&self.source_vertex).unwrap(),
+            target_vertex: *map.get_by_left(&self.target_vertex).unwrap(),
             operation_type: self.operation_type
         }
     }
 
+}
+
+impl Debug for Operation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{:?} @{}: {} => {}", self.operation_type, self.hinge_vertex.0, self.source_vertex.0, self.target_vertex.0))
+    }
 }
 
 impl<F: Clone> SchnyderMap<F> {

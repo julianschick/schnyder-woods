@@ -14,14 +14,16 @@ use crate::util::errors::GraphResult;
 use crate::graph::ClockDirection::{CW, CCW};
 use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
 use crate::graph::Side::{Right, Left};
+use bimap::BiMap;
 
 pub fn find_sequence<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>) -> Vec<Operation> {
-    let (_, seq) = find_sequence_(wood1, wood2, 0);
+    let (vm, seq) = find_sequence_(wood1, wood2, 0);
+    println!("outer vertex map = {:?}", vm);
     return seq;
 }
 
-pub fn compute_contraction_candidates<F: Clone>(wood: &SchnyderMap<F>) -> HashMap<SchnyderColor, Vec<(EdgeI, bool)>> {
-    wood.map.edge_indices().map(|&e| (wood.map.edge_weight(&e).unwrap(), e))
+pub fn compute_contraction_candidates<F: Clone>(wood: &SchnyderMap<F>) -> HashMap<SchnyderColor, (EdgeI, bool)> {
+    let tmp = wood.map.edge_indices().map(|&e| (wood.map.edge_weight(&e).unwrap(), e))
         .filter(|(_, e)| wood.is_inner_edge(e).unwrap())
         .filter_map(|(dir,e)|
             match dir {
@@ -30,30 +32,35 @@ pub fn compute_contraction_candidates<F: Clone>(wood: &SchnyderMap<F>) -> HashMa
             }
         )
         .map(|(c, e)| (c, (e, wood.is_schnyder_contractible(e).is_ok())))
-        .sorted_by_key(|(c, (e, contractible))| !*contractible)
-        .into_group_map()
-}
+        .sorted_by_key(|(c, (e, contractible))| (!*contractible, e.0))
+        .into_group_map();
 
-fn compute_color_quality(candidates: &HashMap<SchnyderColor, Vec<(EdgeI, bool)>>) -> HashMap<SchnyderColor, usize> {
-    [Red, Green, Blue].iter().map(|&c|
-        match candidates.get(&c) {
-            Some(cand) =>  if cand[0].1 { (c, 2) } else { (c, 1) },
-            None => (c, 0usize)
+    [Red, Green, Blue].iter().filter_map(
+        |&c| if let Some(list) = tmp.get(&c) {
+            Some((c, list[0]))
+        } else {
+            None
         }
     ).collect()
 }
 
-fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<SchnyderColor, Vec<(EdgeI, bool)>>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Operation>)> {
+fn compute_color_quality(info: Option<&(EdgeI, bool)>) -> usize {
+    match info {
+        Some((_, contractible)) =>  if *contractible { 2 } else { 1 },
+        None => 0
+    }
+}
+
+fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<SchnyderColor, (EdgeI, bool)>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Operation>)> {
 
     let mut seq = Vec::new();
-    let contraction = if let Some(cand) = candidates.get(&color) {
-        let (e, contractible) = cand[0];
+    let contraction = if let Some((e, contractible)) = candidates.get(&color) {
         if !contractible {
-            seq.extend(make_contractible(wood, e)?);
+            seq.extend(make_contractible(wood, *e)?);
         }
 
-        DEBUG.write().unwrap().output(&wood, Some(&format!("Precontract/mc")), &wood.calculate_face_counts());
-        wood.schnyder_contract(e)?
+        //DEBUG.write().unwrap().output("std", &wood, Some(&format!("Precontract/mc")), &wood.calculate_face_counts());
+        wood.schnyder_contract(*e)?
     } else {
         let (new_edge, sub_seq) = make_inner_edge(wood, color);
         seq.extend(sub_seq);
@@ -62,7 +69,7 @@ fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<Schnyd
             seq.extend(make_contractible(wood, new_edge)?);
         }
 
-        DEBUG.write().unwrap().output(&wood, Some(&format!("Precontract/mi+mc")), &wood.calculate_face_counts());
+        //DEBUG.write().unwrap().output("std", &wood, Some(&format!("Precontract/mi+mc")), &wood.calculate_face_counts());
         wood.schnyder_contract(new_edge)?
     };
 
@@ -76,104 +83,125 @@ fn calc_sector<F: Clone>(wood: &mut SchnyderMap<F>, center: &VertexI, from: &Ver
         .collect_vec()
 }
 
-fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap<F>) -> Vec<Operation> {
+fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap<F>, lvl: usize) -> Vec<Operation> {
 
     let mut result = Vec::new();
-
     let vr = ctr.retained_vertex;
     let vd = ctr.dropped_vertex;
     let mut u = wood.find_outgoing_endvertex(ctr.retained_vertex, ctr.color.prev()).unwrap();
     let mut w = wood.find_outgoing_endvertex(ctr.retained_vertex, ctr.color.next()).unwrap();
     let mut sector = calc_sector(wood,&vr, &u, &w, CW);
 
+    println!("lifting (vd = {}, vr = {}, u = {}, w = {})", vd.0, vr.0, u.0, w.0);
+    println!("sector = {:?}", sector);
+
+
     for op in seq {
 
+        let mut recalculate_sector = false;
+        let mut replacement_ops = Vec::new();
+
         if op.hinge_vertex == vr &&
-            (op.operation_type == Split && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex))) &&
-            (op.operation_type == Merge && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex)))
+            ((op.operation_type == Split && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex))) ||
+            (op.operation_type == Merge && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex))))
         {
+
             if op.source_vertex == u || op.source_vertex == w {
                 let dir = wood.get_operation_direction(op).unwrap().rev_if(op.source_vertex == w);
-                let u_or_v = op.source_vertex;
+                let u_or_w = op.source_vertex;
 
                 match (op.operation_type, dir) {
                     (Split, CW) => {
-                        result.push(Operation::split(vd, u_or_v, op.target_vertex));
-                        result.push(Operation::merge((vd, u_or_v), (vr, u_or_v)));
-                        result.push(*op);
+                        replacement_ops.push(Operation::split(vd, u_or_w, op.target_vertex));
+                        replacement_ops.push(Operation::merge((vd, u_or_w), (vr, u_or_w)));
+                        replacement_ops.push(*op);
                     },
                     (Split, CCW) => {
-                        result.push(*op);
-                        result.push(Operation::merge((vr, u_or_v), (vd, u_or_v)));
-                        result.push(Operation::split(vd, u, op.target_vertex));
+                        replacement_ops.push(*op);
+                        replacement_ops.push(Operation::merge((vr, u_or_w), (vd, u_or_w)));
+                        replacement_ops.push(Operation::split(vd, u_or_w, op.target_vertex));
                     },
                     (Merge, CW) => {
-                        result.push(Operation::merge((vd, u_or_v), (vd, op.target_vertex)));
-                        result.push(Operation::split(op.target_vertex, vd, vr));
-                        result.push(*op);
+                        replacement_ops.push(Operation::merge((vd, u_or_w), (vd, op.target_vertex)));
+                        replacement_ops.push(Operation::split(op.target_vertex, vd, vr));
+                        replacement_ops.push(*op);
                     },
                     (Merge, CCW) => {
-                        result.push(*op);
-                        result.push(Operation::split(op.target_vertex, vr, vd));
-                        result.push(Operation::merge((vd, u_or_v), (vd, op.target_vertex)));
+                        replacement_ops.push(*op);
+                        replacement_ops.push(Operation::split(op.target_vertex, vr, vd));
+                        replacement_ops.push(Operation::merge((vd, u_or_w), (vd, op.target_vertex)));
                     }
                 }
 
-                if u_or_v == u { u = op.target_vertex } else { w = op.target_vertex };
-                sector = calc_sector(wood, &vr, &u, &w, CW);
+                if u_or_w == u { u = op.target_vertex } else { w = op.target_vertex };
+                println!("\tu = {}, w = {}", u.0, w.0);
+                recalculate_sector = true;
 
             } else { // sector
-                result.push(Operation { hinge_vertex: vd, ..*op });
+                replacement_ops.push(Operation { hinge_vertex: vd, ..*op });
             }
         }
 
         else if op.target_vertex == vr &&
-            (op.operation_type == Split && sector.contains(&op.hinge_vertex)) &&
-            (op.operation_type == Merge && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex)))
+            ((op.operation_type == Split && sector.contains(&op.hinge_vertex)) ||
+            (op.operation_type == Merge && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex))))
         {
             match op.operation_type {
-                Split => result.push(Operation { target_vertex: vd, ..*op }),
+                Split => replacement_ops.push(Operation { target_vertex: vd, ..*op }),
                 Merge => {
                     if op.hinge_vertex == u || op.hinge_vertex == w {
                         let dir = wood.get_operation_direction(op).unwrap().rev_if(op.hinge_vertex == w);
                         match dir {
-                            CW => result.push(Operation { target_vertex: vd, ..*op }),
-                            CCW => result.push(*op)
+                            CW => replacement_ops.push(Operation { target_vertex: vd, ..*op }),
+                            CCW => replacement_ops.push(*op)
                         }
                     } else {
-                        result.push(Operation { target_vertex: vd, ..*op });
+                        replacement_ops.push(Operation { target_vertex: vd, ..*op });
                     }
                 }
             }
         }
 
         else if op.source_vertex == vr &&
-            (op.operation_type == Split && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex))) &&
-            (op.operation_type == Merge && sector.contains(&op.hinge_vertex))
+            ((op.operation_type == Split && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex))) ||
+            (op.operation_type == Merge && sector.contains(&op.hinge_vertex)))
         {
             match op.operation_type {
                 Split => {
                     if op.hinge_vertex == u || op.hinge_vertex == w {
                         let dir = wood.get_operation_direction(op).unwrap().rev_if(op.hinge_vertex == w);
                         match dir {
-                            CW => result.push(*op),
-                            CCW => result.push(Operation { source_vertex: vd, ..*op })
+                            CW => replacement_ops.push(*op),
+                            CCW => replacement_ops.push(Operation { source_vertex: vd, ..*op })
                         }
                     } else { // sector
-                        result.push(Operation { source_vertex: vd, ..*op })
+                        replacement_ops.push(Operation { source_vertex: vd, ..*op })
                     }
                 },
                 Merge => { // sector
-                    result.push(Operation { source_vertex: vd, ..*op })
+                    replacement_ops.push(Operation { source_vertex: vd, ..*op })
                 }
             }
         }
 
         else {
-            result.push(*op);
+            replacement_ops.push(*op);
         }
 
+        println!("\t{:?}", op);
+        for r_op in &replacement_ops {
+            println!("\t\t{:?}", r_op);
+        }
+
+        result.extend(replacement_ops);
         wood.do_operation(op);
+
+        if recalculate_sector {
+            sector = calc_sector(wood, &vr, &u, &w, CW);
+            println!("\tsector = {:?}", sector);
+        }
+
+        DEBUG.write().unwrap().output(&format!("level{}", lvl), &wood, Some(&format!("Step")), &wood.calculate_face_counts());
     }
 
     //rewind
@@ -184,7 +212,7 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
     return result;
 }
 
-fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>, depth: usize) -> (HashMap<VertexI, VertexI>, Vec<Operation>) {
+fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Operation>) {
     if wood1.map.vertex_count() != wood2.map.vertex_count() {
         panic!("vertex count is not equal");
     }
@@ -201,7 +229,7 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
 
     // induction start
     if n == 4 {
-        let mut vertex_map = HashMap::new();
+        let mut vertex_map = BiMap::new();
         for &c in &[Red, Green, Blue] {
             vertex_map.insert(wood2.get_suspension_vertex(c), wood1.get_suspension_vertex(c));
         }
@@ -214,29 +242,47 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
         let candidates1 = compute_contraction_candidates(&wood1);
         let candidates2 = compute_contraction_candidates(&wood2);
 
-        let color_quality1 = compute_color_quality(&candidates1);
-        let color_quality2 = compute_color_quality(&candidates2);
-        let best_color = [Red, Green, Blue].iter()
-            .max_by_key(|c| color_quality1.get(c).unwrap() + color_quality2.get(c).unwrap()).unwrap();
+        let best_color = [Red, Green, Blue].iter().max_by_key(|c|
+            compute_color_quality(candidates1.get(c)) + compute_color_quality(candidates2.get(c))
+        ).unwrap();
 
         println!("best_color = {:?}; depth = {}", best_color, depth);
+
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2"), &wood2.calculate_face_counts());
 
         let (contraction1, prep_seq1) = prepare_wood(wood1, &candidates1, *best_color).unwrap();
         let (contraction2, prep_seq2) =  prepare_wood(wood2, &candidates2, *best_color).unwrap();
 
-        DEBUG.write().unwrap().output(&wood1, Some(&format!("Wood1 ({})", depth)), &wood1.calculate_face_counts());
-        DEBUG.write().unwrap().output(&wood2, Some(&format!("Wood2 ({})", depth)), &wood2.calculate_face_counts());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, contracted)"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, contracted)"), &wood2.calculate_face_counts());
 
         let (mut vertex_map, mut lifted_seq) = {
             let (mut vertex_map, mut seq) = find_sequence_(wood1, wood2, depth + 1);
+            println!("level{} vertex map (wood2 -> wood1) = {:?}", depth, vertex_map);
             vertex_map.insert(contraction2.dropped_vertex, contraction1.dropped_vertex);
 
             // swap
-            let retained_vertex = vertex_map.get(&contraction2.retained_vertex).unwrap();//TODO
+            let retained_vertex = *vertex_map.get_by_left(&contraction2.retained_vertex).unwrap();//TODO
             for op in &seq {
                 wood1.do_operation(op);
             }
-            let swap_seq = wood1.swap(retained_vertex, &contraction1.retained_vertex).unwrap();//TODO
+            println!("swap {} ~ {}", retained_vertex.0, contraction1.retained_vertex.0);
+            let swap_seq = wood1.swap(&retained_vertex, &contraction1.retained_vertex).unwrap();//TODO
+            println!("swap seq len = {}", swap_seq.len());
+
+            // reflect swap in vertex_map
+            let swap_a = retained_vertex;
+            let swap_b = contraction1.retained_vertex;
+            if swap_a != swap_b {
+                let (a2, a1) = vertex_map.remove_by_right(&swap_a).unwrap();
+                let (b2, b1) = vertex_map.remove_by_right(&swap_b).unwrap();
+                vertex_map.insert(a2, b1);
+                vertex_map.insert(b2, a1);
+            }
+
+
+
 
             // rewind changes
             for op in swap_seq.iter().rev().chain(seq.iter().rev()) {
@@ -245,18 +291,27 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
 
             seq.extend(swap_seq);
 
-            (vertex_map, lift_sequence(&seq, &contraction1, wood1))
+            (vertex_map, lift_sequence(&seq, &contraction1, wood1, depth))
         };
 
-        wood1.schnyder_uncontract_by_contraction(&contraction1);
+        wood1.revert_schnyder_contraction(&contraction1);
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, uncontracted)"), &wood1.calculate_face_counts());
         for op in prep_seq1.iter().rev() {
             wood1.do_operation(&op.inverted());
         }
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (re-unprepared, uncontracted)"), &wood1.calculate_face_counts());
 
-        wood2.schnyder_uncontract_by_contraction(&contraction2);
+        wood2.revert_schnyder_contraction(&contraction2);
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, uncontracted)"), &wood2.calculate_face_counts());
+        let mut i = 1;
         for op in prep_seq2.iter().rev() {
             wood2.do_operation(&op.inverted());
+            DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some(&format!("Wood2 unprepare Step {}", i)), &wood2.calculate_face_counts());
+            i += 1;
         }
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (re-unprepared, uncontracted)"), &wood2.calculate_face_counts());
+
+
 
         // final assembly of sequence
         lifted_seq.splice(0..0, prep_seq1);

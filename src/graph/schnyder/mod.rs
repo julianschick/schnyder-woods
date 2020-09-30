@@ -23,6 +23,7 @@ use crate::DEBUG;
 use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
 use std::convert::TryFrom;
+use petgraph::algo::{connected_components, has_path_connecting};
 
 pub mod algorithm;
 
@@ -653,9 +654,7 @@ impl<F: Clone> SchnyderMap<F> {
     pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: Option<VertexI>) -> GraphResult<Vec<Operation>> {
         let merge_op = self.merge(source, target)?;
         let split_hinge = self.map.edge(target).get_other(merge_op.hinge_vertex);
-        DEBUG.write().unwrap().output(&self, Some("intermediate"), &self.calculate_face_counts());
         let split_op = self.split(target, split_hinge, resplit_target)?;
-
         Ok(vec![merge_op, split_op])
     }
 
@@ -699,8 +698,9 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn schnyder_uncontract_by_contraction(&mut self, contraction: &Contraction) -> GraphResult<(VertexI, EdgeI)> {
-        self.schnyder_uncontract(contraction.retained_vertex, contraction.color, Some(contraction.dropped_vertex), Some(contraction.dropped_edge))
+    pub fn revert_schnyder_contraction(&mut self, contraction: &Contraction) -> GraphResult<(VertexI, EdgeI)> {
+        // last parameter: a new edge index is requested, as the old one might have been turned unavailable by intermediate operations
+        self.schnyder_uncontract(contraction.retained_vertex, contraction.color, Some(contraction.dropped_vertex), None)
     }
 
     pub fn schnyder_uncontract(&mut self, pivot_vid: VertexI, color: SchnyderColor, new_vertex_index: Option<VertexI>, new_edge_index: Option<EdgeI>) -> GraphResult<(VertexI, EdgeI)> {
@@ -754,14 +754,14 @@ impl<F: Clone> SchnyderMap<F> {
             )
         };*/
 
-        eprintln!("prev_face = {:?}", prev_face);
-        eprintln!("next_face = {:?}", next_face);
+        //eprintln!("prev_face = {:?}", prev_face);
+        //eprintln!("next_face = {:?}", next_face);
 
         //println!("{:#?}", self.map.face(prev_face).angles);
         //println!("{:#?}", self.map.face(next_face).angles);
 
-        println!("{} -> {} in {}", new_vid.0, prev_vid.0, prev_face.0);
-        println!("{} -> {} in {}", new_vid.0, next_vid.0, next_face.0);
+        //println!("{} -> {} in {}", new_vid.0, prev_vid.0, prev_face.0);
+        //println!("{} -> {} in {}", new_vid.0, next_vid.0, next_face.0);
 
         if let Unicolored(color, _) = old_weight {
             self.map.add_embedded_edge(new_vid, prev_vid, Unicolored(color.prev(), Forward), prev_face);
@@ -785,8 +785,9 @@ impl<F: Clone> SchnyderMap<F> {
 
         if let Some((color, tail, head)) = self.get_color_orientation(eid) {
 
-            let mut seq = make_contractible(self, eid)?;
-            DEBUG.write().unwrap().output(&self, Some("Made contractible"), &self.calculate_face_counts());
+            let leading_seq = make_contractible(self, eid)?;
+            let mut mid_seq = Vec::new();
+            //DEBUG.write().unwrap().output("std", &self, Some("Made contractible"), &self.calculate_face_counts());
 
             // following comments:
             // colors referring to the example with the pivot edge being red
@@ -797,22 +798,22 @@ impl<F: Clone> SchnyderMap<F> {
                 let source = self.find_outgoing_edge(tail, color.next()).unwrap();
                 let target = tail_incoming_red;
 
-                self.merge_and_resplit(source, target, Some(head));
-                DEBUG.write().unwrap().output(&self, Some("Red incoming over to head"), &self.calculate_face_counts());
+                mid_seq.extend(self.merge_and_resplit(source, target, Some(head))?);
+                //DEBUG.write().unwrap().output("std", &self, Some("Red incoming over to head"), &self.calculate_face_counts());
             }
 
             // outgoing blue edge at tail merged onto pivot edge
             let out_prev = self.find_outgoing_edge(head, color.prev()).unwrap();
-            self.merge_and_resplit(out_prev, eid, None);
-            DEBUG.write().unwrap().output(&self, Some("Blue down"), &self.calculate_face_counts());
+            mid_seq.extend(self.merge_and_resplit(out_prev, eid, None)?);
+            //DEBUG.write().unwrap().output("std", &self, Some("Blue down"), &self.calculate_face_counts());
 
             // incoming green edges at head over to tail
             for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
                 let target = self.find_outgoing_edge(tail, color).unwrap();
                 let source = head_incoming_green;
 
-                self.merge_and_resplit(source, target, None);
-                DEBUG.write().unwrap().output(&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
+                mid_seq.extend(self.merge_and_resplit(source, target, None)?);
+                //DEBUG.write().unwrap().output("std",&self, Some("Green incoming over to tail"), &self.calculate_face_counts());
             }
 
             // split red part away from pivot edge (leaving it green)
@@ -820,8 +821,8 @@ impl<F: Clone> SchnyderMap<F> {
                 let source = self.find_outgoing_edge(tail, color.next()).unwrap();
                 let target = eid;
 
-                self.merge_and_resplit(source, target, None);
-                DEBUG.write().unwrap().output(&self, Some("Blue -> Green"), &self.calculate_face_counts());
+                mid_seq.extend(self.merge_and_resplit(source, target, None)?);
+                //DEBUG.write().unwrap().output("std",&self, Some("Blue -> Green"), &self.calculate_face_counts());
             }
 
             // incoming blue edges at head over to tail
@@ -829,8 +830,8 @@ impl<F: Clone> SchnyderMap<F> {
                 let source = self.find_outgoing_edge(head, color).unwrap();
                 let target = blue_incoming_edge;
 
-                self.merge_and_resplit(source, target, None);
-                DEBUG.write().unwrap().output(&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
+                mid_seq.extend(self.merge_and_resplit(source, target, None)?);
+                //DEBUG.write().unwrap().output("std",&self, Some("Blue incoming over to tail"), &self.calculate_face_counts());
             }
 
             // pivot edge is green and turns red
@@ -838,25 +839,37 @@ impl<F: Clone> SchnyderMap<F> {
                 let source = self.find_outgoing_edge(head, color).unwrap();
                 let target = eid;
 
-                self.merge_and_resplit(source, target, None);
-                DEBUG.write().unwrap().output(&self, Some("Green -> Red"), &self.calculate_face_counts());
+                mid_seq.extend(self.merge_and_resplit(source, target, None)?);
+                //DEBUG.write().unwrap().output("std",&self, Some("Green -> Red"), &self.calculate_face_counts());
             }
 
             // revert the "make contractible" step
-            for op in seq.iter_mut().rev() {
-                self.do_operation(&op.swapped_vertices(&a, &b).inverted());
+            for op in leading_seq.iter().rev() {
+                let inv_op = op.swapped_vertices(&a, &b).inverted();
+                self.do_operation(&inv_op);
+                mid_seq.push(inv_op);
             }
 
-            DEBUG.write().unwrap().output(&self, Some("Unmade contractible"), &self.calculate_face_counts());
+            mid_seq.splice(0..0, leading_seq);
 
-            Ok(seq)
+            //DEBUG.write().unwrap().output("std",&self, Some("Unmade contractible"), &self.calculate_face_counts());
+
+            Ok(mid_seq)
         } else {
             GraphErr::new_err("Edge for swap has to be unicolored")
         }
     }
 
     pub fn swap(&mut self, a: &VertexI, b: &VertexI) -> GraphResult<Vec<Operation>> {
-        let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
+        if a == b {
+            return Ok(Vec::new());
+        }
+
+        let forbidden = vec![self.red_vertex, self.blue_vertex, self.green_vertex];
+
+        let route = self.map.shortest_path(a, b, &forbidden.into_iter().collect());
+
+        /*let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
 
         g.remove_node(*vmap.get(&self.red_vertex).unwrap());
         g.remove_node(*vmap.get(&self.blue_vertex).unwrap());
@@ -867,12 +880,14 @@ impl<F: Clone> SchnyderMap<F> {
 
         let rmap : HashMap<_, _> = vmap.iter().map(|(k,v)| (v, k)).collect();
 
+        //println!("connected = {}", has_path_connecting(g, from, to, None));
+
          let (_, route) = petgraph::algo::astar(
              &g,
              *from,
              |n| n == *to,
              |n| 1,
-             |n| 0
+             |n| 1
          ).expect("no route found! (a*)");
 
         /*petgraph::algo::dijkstra(
@@ -882,15 +897,17 @@ impl<F: Clone> SchnyderMap<F> {
             |n| 1,
         ).expect("no route found! (dijkstra)");*/
 
-        let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();
-        for &tmp in translated_route.iter().skip(1) {
-            self.swap_locally(a, tmp);
+        let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();*/
+        eprintln!("route = {:?}", route);
+        let mut result = Vec::new();
+        for tmp in route.iter().skip(1) {
+            result.extend(self.swap_locally(a, tmp)?);
         }
-        for &tmp in translated_route.iter().skip(1).rev().skip(1) {
-            self.swap_locally(b, tmp);
+        for tmp in route.iter().skip(1).rev().skip(1) {
+            result.extend(self.swap_locally(b, tmp)?);
         }
 
-        return Ok(vec![]);
+        return Ok(result);
     }
 
     pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {

@@ -49,7 +49,7 @@ fn main3() {
     let map = &maps[256];
     let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
-    DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
+    DEBUG.write().unwrap().output("std", &wood, Some("The Wood"), &wood.calculate_face_counts());
 
     wood.swap(&VertexI(6), &VertexI(3));
 }
@@ -61,19 +61,19 @@ fn main2() {
 
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
-    let map1 = &maps[0];
-    let map2 = &maps[1];
+    let map1 = &maps[7];
+    let map2 = &maps[13];
 
     let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
     let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
-    DEBUG.write().unwrap().output(&wood1, Some("Wood1 (-1)"), &wood1.calculate_face_counts());
-    DEBUG.write().unwrap().output(&wood2, Some("Wood2 (-1)"), &wood2.calculate_face_counts());
+    DEBUG.write().unwrap().output("std",&wood1, Some("Wood1 (-1)"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("std",&wood2, Some("Wood2 (-1)"), &wood2.calculate_face_counts());
 
     let seq = find_sequence(&mut wood1, &mut wood2);
 
-    DEBUG.write().unwrap().output(&wood1, Some("Final1 (-1)"), &wood1.calculate_face_counts());
-    DEBUG.write().unwrap().output(&wood2, Some("Final2 (-1)"), &wood2.calculate_face_counts());
+    DEBUG.write().unwrap().output("std",&wood1, Some("Final1 (-1)"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("std",&wood2, Some("Final2 (-1)"), &wood2.calculate_face_counts());
 
     /*let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_left_face(VertexI(0), VertexI(1)), LeftMost).unwrap();
 
@@ -84,12 +84,15 @@ fn main2() {
     }*/
 
     let mut i = 0;
-    DEBUG.write().unwrap().output(&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
     for op in &seq {
         i += 1;
-        wood1.do_operation(op);
-        DEBUG.write().unwrap().output(&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
+        wood1.do_operation(op).expect(&format!("first level operation {:?} execution failed!", op));
+        DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
     }
+
+
+
 
 }
 
@@ -113,26 +116,26 @@ fn main1() {
         let b = VertexI(nr_b);
 
         let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
-        DEBUG.write().unwrap().output(&wood, Some("The Wood"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output("std",&wood, Some("The Wood"), &wood.calculate_face_counts());
 
         let edge = wood.map.get_edge(a, b).unwrap();
         let seq = make_contractible(&mut wood, edge);
 
         println!("pre-contracted refint = {}", wood.map.check_referential_integrity());
-        DEBUG.write().unwrap().output(&wood, Some("Uncontracted"), &wood.calculate_face_counts());
+        DEBUG.write().unwrap().output("std",&wood, Some("Uncontracted"), &wood.calculate_face_counts());
         let fc = wood.calculate_face_counts();
 
         let contraction = wood.schnyder_contract(wood.map.get_edge(a, b).unwrap()).unwrap();
         println!("contraction = {:#?}", contraction);
 
         println!("contracted refint = {}", wood.map.check_referential_integrity());
-        DEBUG.write().unwrap().output(&wood, Some("Contracted"), &fc);
+        DEBUG.write().unwrap().output("std", &wood, Some("Contracted"), &fc);
         //DEBUG.write().unwrap().output(&wood, Some("Contracted w/ Updated Vertex Positions"), &wood.calculate_face_counts());
 
         //let edge_to_discontract = wood.find_outgoing_edge(contraction.retained_vertex, contraction.color).unwrap(); // should fail sometimes!!!
-        wood.schnyder_uncontract_by_contraction(&contraction);
+        wood.revert_schnyder_contraction(&contraction);
 
-        DEBUG.write().unwrap().output(&wood, Some("Discontracted"), &fc);
+        DEBUG.write().unwrap().output("std", &wood, Some("Discontracted"), &fc);
         println!("discontracted refint = {}", wood.map.check_referential_integrity());
 
         println!("{:?}", seq);
