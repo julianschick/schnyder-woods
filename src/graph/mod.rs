@@ -289,23 +289,23 @@ impl<N> Vertex<N> {
         self.neighbors.iter_mut().find(|nb| nb.other == other)
     }
 
-    /// does not include start index
-    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
+    /// does contain start_index at the end (wraps around), if condition is always true
+    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection, include_start_index: bool) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
         let mut iter = self.neighbors.cycle(start_index, true);
+        let skip = if include_start_index { 0 } else { 1 };
         match direction {
-            CW => Box::new(iter.skip(1)),
-            CCW => Box::new(iter.rev().skip(1))
+            CW => Box::new(iter.skip(skip)),
+            CCW => Box::new(iter.rev().skip(skip))
         }
     }
 
     fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
         let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction).next().unwrap()
+        self.get_iterator(nb.index, direction, false).next().unwrap()
     }
 
-    /// does not include start index
-    fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection) -> Vec<&NbVertex> {
-        self.get_iterator(start_index, direction).take_while(condition_while).collect_vec()
+    fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
+        self.get_iterator(start_index, direction, include_start_index).take_while(condition_while).collect_vec()
     }
 
     /// does not include the edges to v1 and v2 respectively
@@ -318,8 +318,9 @@ impl<N> Vertex<N> {
     }
 
     fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
-        return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction);
+        return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
     }
+
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -467,6 +468,25 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         match signum {
             Forward => match side { Left => left, Right => right },
             Backward => match side { Left => right, Right => left },
+        }
+    }
+
+    pub fn faces_between(&self, v: &VertexI, v1: &VertexI, v2: &VertexI, direction: ClockDirection) -> Vec<FaceI> {
+        let v = self.vertex(*v);
+        if let (Some(nb1), Some(nb2)) = (v.get_nb(*v1),  v.get_nb(*v2)) {
+
+            let nbs = v.cycle_while(nb1.index, &|nb| nb.index != nb2.index, CW, true);
+
+            nbs.iter().map(|nb|
+               self.get_face(v.id, nb.other,
+                match direction {
+                        CW => Right,
+                        CCW => Left
+                    }
+               )
+            ).collect()
+        } else {
+            panic!("v1/v2 invalid");
         }
     }
 

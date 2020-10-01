@@ -61,14 +61,16 @@ fn main2() {
 
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
-    let map1 = &maps[7];
-    let map2 = &maps[13];
+    let map1 = &maps[4];
+    let map2 = &maps[8];
 
     let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
     let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
+    DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std",&wood1, Some("Wood1 (-1)"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output("std",&wood2, Some("Wood2 (-1)"), &wood2.calculate_face_counts());
+    DEBUG.write().unwrap().deactivate();
 
     let seq = find_sequence(&mut wood1, &mut wood2);
 
@@ -84,15 +86,14 @@ fn main2() {
     }*/
 
     let mut i = 0;
+    //DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
+    println!("{} operations", seq.len());
     for op in &seq {
         i += 1;
         wood1.do_operation(op).expect(&format!("first level operation {:?} execution failed!", op));
         DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
     }
-
-
-
 
 }
 

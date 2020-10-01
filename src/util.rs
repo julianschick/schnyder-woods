@@ -123,6 +123,14 @@ pub mod debug {
 
     impl Debug {
 
+        pub fn activate(&mut self) {
+            self.active = true;
+        }
+
+        pub fn deactivate(&mut self) {
+            self.active = false;
+        }
+
         fn delete_all_files(dir: &str) {
             for entry in read_dir(dir).unwrap() {
                 let p = entry.unwrap().path();
@@ -136,7 +144,7 @@ pub mod debug {
             let result = Debug {
                 base_dir,
                 output_dir,
-                active: true,
+                active: false,
                 counters: HashMap::new()
             };
 
@@ -160,7 +168,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, false, face_counts);
+            let tikz_string = wood.generate_tikz(title, true, face_counts);
             if !self.counters.contains_key(context) {
                 self.counters.insert(context.to_string(), 0);
             }

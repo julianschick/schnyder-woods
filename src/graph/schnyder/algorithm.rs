@@ -118,7 +118,7 @@ impl<F: Clone> SchnyderMap<F> {
             }
             Split => {
                 let e = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
-                self.split(e, op.hinge_vertex, Some(op.target_vertex));
+                self.split(e, op.hinge_vertex, Some(op.target_vertex))?;
             }
         }
         Ok(())
@@ -197,7 +197,7 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
 }
 
 fn cycle_while_color<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap<F>, start_index: usize, in_color: SchnyderColor, out_color: SchnyderColor, direction: ClockDirection) -> Vec<EdgeI> {
-    v.cycle_while(start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction)
+    v.cycle_while(start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction, false)
         .iter().map(|nb| nb.edge).collect()
 }
 

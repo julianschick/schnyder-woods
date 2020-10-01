@@ -18,7 +18,7 @@ use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
 use rand::{thread_rng, Rng};
 use crate::util::errors::{GraphErr, GraphResult};
-use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle};
+use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle, OpType};
 use crate::DEBUG;
 use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
@@ -577,7 +577,7 @@ impl<F: Clone> SchnyderMap<F> {
         ))
     }
 
-    fn assemble_split_data(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<SplitData> {
+    fn assemble_split_data(&self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<SplitData> {
         if !self.map.edge_contains(&eid, &hinge_vid) {
             return GraphErr::new_err("Hinge vertex not part of given edge");
         }

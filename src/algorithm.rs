@@ -90,20 +90,23 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
     let vd = ctr.dropped_vertex;
     let mut u = wood.find_outgoing_endvertex(ctr.retained_vertex, ctr.color.prev()).unwrap();
     let mut w = wood.find_outgoing_endvertex(ctr.retained_vertex, ctr.color.next()).unwrap();
-    let mut sector = calc_sector(wood,&vr, &u, &w, CW);
+    let mut sector_vertices = calc_sector(wood,&vr, &u, &w, CW);
+    let mut sector_faces = wood.map.faces_between(&vr, &u, &w, CW);
 
     println!("lifting (vd = {}, vr = {}, u = {}, w = {})", vd.0, vr.0, u.0, w.0);
-    println!("sector = {:?}", sector);
+    //println!("sector_vertices = {:?}", sector_vertices);
+    //println!("sector_faces = {:?}", sector_faces);
 
 
     for op in seq {
 
         let mut recalculate_sector = false;
         let mut replacement_ops = Vec::new();
+        let affected_face = wood.get_affected_face(op);
 
         if op.hinge_vertex == vr &&
-            ((op.operation_type == Split && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex))) ||
-            (op.operation_type == Merge && (op.source_vertex == u || op.source_vertex == w || sector.contains(&op.source_vertex))))
+            ((op.operation_type == Split && (op.source_vertex == u || op.source_vertex == w || sector_vertices.contains(&op.source_vertex))) ||
+            (op.operation_type == Merge && (op.source_vertex == u || op.source_vertex == w || sector_vertices.contains(&op.source_vertex))))
         {
 
             if op.source_vertex == u || op.source_vertex == w {
@@ -134,7 +137,7 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
                 }
 
                 if u_or_w == u { u = op.target_vertex } else { w = op.target_vertex };
-                println!("\tu = {}, w = {}", u.0, w.0);
+                //println!("\tu = {}, w = {}", u.0, w.0);
                 recalculate_sector = true;
 
             } else { // sector
@@ -143,8 +146,8 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
         }
 
         else if op.target_vertex == vr &&
-            ((op.operation_type == Split && sector.contains(&op.hinge_vertex)) ||
-            (op.operation_type == Merge && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex))))
+            ((op.operation_type == Split && sector_faces.contains(&affected_face)) ||
+            (op.operation_type == Merge && (op.hinge_vertex == u || op.hinge_vertex == w || sector_vertices.contains(&op.hinge_vertex))))
         {
             match op.operation_type {
                 Split => replacement_ops.push(Operation { target_vertex: vd, ..*op }),
@@ -163,8 +166,8 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
         }
 
         else if op.source_vertex == vr &&
-            ((op.operation_type == Split && (op.hinge_vertex == u || op.hinge_vertex == w || sector.contains(&op.hinge_vertex))) ||
-            (op.operation_type == Merge && sector.contains(&op.hinge_vertex)))
+            ((op.operation_type == Split && (op.hinge_vertex == u || op.hinge_vertex == w || sector_vertices.contains(&op.hinge_vertex))) ||
+            (op.operation_type == Merge && sector_vertices.contains(&op.hinge_vertex)))
         {
             match op.operation_type {
                 Split => {
@@ -188,17 +191,20 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
             replacement_ops.push(*op);
         }
 
-        println!("\t{:?}", op);
+        /*println!("\t{:?}", op);
         for r_op in &replacement_ops {
             println!("\t\t{:?}", r_op);
-        }
+        }*/
 
         result.extend(replacement_ops);
         wood.do_operation(op);
 
+        recalculate_sector = true;
         if recalculate_sector {
-            sector = calc_sector(wood, &vr, &u, &w, CW);
-            println!("\tsector = {:?}", sector);
+            sector_vertices = calc_sector(wood, &vr, &u, &w, CW);
+            sector_faces = wood.map.faces_between(&vr, &u, &w, CW);
+            //println!("\tsector_vertices = {:?}", sector_vertices);
+            //println!("\tsector_faces = {:?}", sector_faces);
         }
 
         DEBUG.write().unwrap().output(&format!("level{}", lvl), &wood, Some(&format!("Step")), &wood.calculate_face_counts());
@@ -281,9 +287,6 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
                 vertex_map.insert(b2, a1);
             }
 
-
-
-
             // rewind changes
             for op in swap_seq.iter().rev().chain(seq.iter().rev()) {
                 wood1.do_operation(&op.inverted());
@@ -310,8 +313,6 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
             i += 1;
         }
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (re-unprepared, uncontracted)"), &wood2.calculate_face_counts());
-
-
 
         // final assembly of sequence
         lifted_seq.splice(0..0, prep_seq1);
