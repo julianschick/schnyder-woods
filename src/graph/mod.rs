@@ -522,6 +522,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.vertices.get_map().values()
     }
 
+    pub fn next_nb(&self, v: VertexI, nb: VertexI, direction: ClockDirection) -> GraphResult<VertexI> {
+        let v = self.try_vertex(v)?;
+        if let Some(nb) = v.neighbors.iter().find(|&&n| n.other == nb) {
+            Ok(v.get_iterator(nb.index, direction, false).next().unwrap().other)
+        } else {
+            GraphErr::new_err(&format!("{:?} is not a neighbor of {:?}", nb, v))
+        }
+    }
+
     pub fn vertex_count(&self) -> usize { self.vertices.get_map().len() }
 
     pub fn vertex_cycle(&self, vid: VertexI, other: VertexI, wrap: bool, direction: ClockDirection) -> impl Iterator<Item=&NbVertex> {
@@ -565,7 +574,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             return true;
         }
 
-        let connected_component = self.connected_component(&self.vertices.any_index().unwrap(), &HashSet::new());
+        let connected_component = self.connected_component(&self.vertices.any_index().unwrap(), &HashSet::new()).unwrap();
         return connected_component.len() == self.vertex_count();
     }
 
@@ -573,10 +582,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get_map().values().all(|f| f.angles.len() == 3)
     }
 
-    pub fn connected_component(&self, vertex: &VertexI, forbidden_edges: &HashSet<EdgeI>) -> Vec<VertexI> {
-        if !self.vertices.is_valid_index(vertex) {
-            panic!("invalid starting vertex");
-        }
+    pub fn connected_component(&self, vertex: &VertexI, forbidden_edges: &HashSet<EdgeI>) -> GraphResult<Vec<VertexI>> {
+        self.try_vertex(*vertex)?;
 
         let mut visited = HashSet::new();
         let mut to_visit = vec![vertex];
@@ -585,7 +592,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let v = to_visit.remove(to_visit.len() - 1);
             visited.insert(*v);
 
-            for nb in &self.vertices.get(v).neighbors {
+            for nb in &self.try_vertex(*v)?.neighbors {
                 if !forbidden_edges.contains(&nb.edge) {
                     let v = &nb.other;
                     if !visited.contains(&v) {
@@ -595,7 +602,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-        return visited.into_iter().collect();
+        return Ok(visited.into_iter().collect());
     }
 
     pub fn shortest_path(&self, from: &VertexI, to: &VertexI, forbidden_vertices: &HashSet<VertexI>) -> Vec<VertexI> {
@@ -667,7 +674,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             if v1 == v2 {
                 panic!("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
-            if let Some(_) = self.vertices.get(&v1).get_nb(v2) {
+            if let Some(_) = self.vertex(v1).get_nb(v2) {
                 panic!("With this edge, the graph would not be simple any longer ('enforce_simple').");
             }
         }
@@ -1502,7 +1509,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     /// Unchecked retrieval of the edge struct for a given edge index
     fn edge(&self, e: EdgeI) -> &Edge<E> {
-        self.edges.get(&e)
+        self.edges.get(&e).unwrap()
     }
 
     fn edge_mut(&mut self, e: EdgeI) -> &mut Edge<E> {
@@ -1520,7 +1527,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     fn face(&self, f: FaceI) -> &Face<F> {
-        self.faces.get(&f)
+        self.faces.get(&f).unwrap()
     }
 
     fn face_mut(&mut self, f: FaceI) -> &mut Face<F> {
@@ -1529,7 +1536,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     /// Unchecked retrieval of the vertex struct for a given vertex index
     fn vertex(&self, v: VertexI) -> &Vertex<N> {
-        self.vertices.get(&v)
+        self.vertices.get(&v).unwrap()
+    }
+
+    fn try_vertex(&self, v: VertexI) -> GraphResult<&Vertex<N>> {
+        self.vertices.get(&v).ok_or_else(|| GraphErr::new(&format!("Invalid vertex index: {}", v.0)))
     }
 
     fn vertex_mut(&mut self, v: VertexI) -> &mut Vertex<N> {

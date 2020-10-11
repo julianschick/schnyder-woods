@@ -16,6 +16,10 @@ pub mod iterators {
             fn cycle(&self, offset: usize, wrap: bool) -> CyclicIterator<T>;
         }
 
+        pub trait CyclicIterableByElement<T: Eq> {
+            fn cycle_by_element(&self, start_element: &T, wrap: bool) -> CyclicIterator<T>;
+        }
+
         pub struct CyclicIterator<'a, T> {
             inner: &'a Vec<T>,
             left_pos: isize,
@@ -67,6 +71,17 @@ pub mod iterators {
                 }
             }
         }
+
+        impl<T: Eq> CyclicIterableByElement<T> for Vec<T> {
+            fn cycle_by_element(&self, start: &T, wrap: bool) -> CyclicIterator<T> {
+                if let Some(start_index) = self.iter().position(|element| element == start) {
+                    return self.cycle(start_index, wrap);
+                } else {
+                    panic!("invalid cycle starting element");
+                }
+            }
+        }
+
 
     }
 

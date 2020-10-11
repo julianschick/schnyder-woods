@@ -104,8 +104,8 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         self.map.len()
     }
 
-    pub fn get(&self, index: &N) -> &V {
-        self.map.get(index).unwrap()
+    pub fn get(&self, index: &N) -> Option<&V> {
+        self.map.get(index)
     }
 
     pub fn any_index(&self) -> Option<N> {

@@ -12,7 +12,7 @@ use crate::graph::{EdgeI, VertexI, PlanarMap, ClockDirection};
 use crate::DEBUG;
 use crate::util::errors::GraphResult;
 use crate::graph::ClockDirection::{CW, CCW};
-use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
+use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
 
@@ -133,7 +133,8 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
                         replacement_ops.push(*op);
                         replacement_ops.push(Operation::split(op.target_vertex, vr, vd));
                         replacement_ops.push(Operation::merge((vd, u_or_w), (vd, op.target_vertex)));
-                    }
+                    },
+                    (ExtMerge,_) | (ExtSplit, _) => panic!("No external ops allowed here")
                 }
 
                 if u_or_w == u { u = op.target_vertex } else { w = op.target_vertex };
@@ -161,7 +162,8 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
                     } else {
                         replacement_ops.push(Operation { target_vertex: vd, ..*op });
                     }
-                }
+                },
+                ExtSplit | ExtMerge => panic!("No external ops allowed here")
             }
         }
 
@@ -183,7 +185,8 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
                 },
                 Merge => { // sector
                     replacement_ops.push(Operation { source_vertex: vd, ..*op })
-                }
+                },
+                ExtSplit | ExtMerge => panic!("No external ops allowed here")
             }
         }
 

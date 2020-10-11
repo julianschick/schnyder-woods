@@ -36,7 +36,7 @@ lazy_static! {
 }
 
 fn main() {
-    main2();
+    main3();
 }
 
 fn main3() {
@@ -49,9 +49,21 @@ fn main3() {
     let map = &maps[256];
     let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
+    DEBUG.write().unwrap().activate();
+    let fc = wood.calculate_face_counts();
     DEBUG.write().unwrap().output("std", &wood, Some("The Wood"), &wood.calculate_face_counts());
 
-    wood.swap(&VertexI(6), &VertexI(3));
+    wood.ext_merge(VertexI(1), VertexI(7));
+    wood.ext_merge(VertexI(0), VertexI(1));
+    wood.ext_merge(VertexI(7), VertexI(0));
+    wood.ext_merge(VertexI(2), VertexI(1));
+    wood.ext_merge(VertexI(6), VertexI(0)).expect("hä?");
+
+    DEBUG.write().unwrap().output("std", &wood, Some("Merged"), &wood.calculate_face_counts());
+
+    wood.ext_split(VertexI(1), VertexI(7));
+
+    DEBUG.write().unwrap().output("std", &wood, Some("Resplit"), &wood.calculate_face_counts());
 }
 
 fn main2() {
@@ -67,7 +79,7 @@ fn main2() {
     let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
     let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
-    DEBUG.write().unwrap().activate();
+    //DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std",&wood1, Some("Wood1 (-1)"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output("std",&wood2, Some("Wood2 (-1)"), &wood2.calculate_face_counts());
     DEBUG.write().unwrap().deactivate();
@@ -86,7 +98,7 @@ fn main2() {
     }*/
 
     let mut i = 0;
-    //DEBUG.write().unwrap().activate();
+    DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
     println!("{} operations", seq.len());
     for op in &seq {

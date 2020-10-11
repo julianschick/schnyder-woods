@@ -16,6 +16,7 @@ use core::fmt;
 use crate::util::is_in_cyclic_order;
 use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
+use crate::util::iterators::cyclic::CyclicIterableByElement;
 use rand::{thread_rng, Rng};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle, OpType};
@@ -629,7 +630,7 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn splittable(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> GraphResult<()> {
+    pub fn splittable(&self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> GraphResult<()> {
         self.assemble_split_data(eid, hinge_vid, Some(target_vid))
             .map(|_| ())
     }
@@ -656,6 +657,116 @@ impl<F: Clone> SchnyderMap<F> {
         let split_hinge = self.map.edge(target).get_other(merge_op.hinge_vertex);
         let split_op = self.split(target, split_hinge, resplit_target)?;
         Ok(vec![merge_op, split_op])
+    }
+
+    fn ext_splittable_(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<(VertexI, VertexI, SchnyderColor, SchnyderColor)> {
+
+        let angles = &self.map.face(self.outer_face).angles;
+
+        // the two hinges must be part of the outer face cycle
+        if !angles.contains(&hinge) || !angles.contains(&opposite) {
+            return GraphErr::new_err("The hinges for an external split must lie on the outer face cycle.");;
+        }
+
+        {
+            let between: Vec<_> = angles.cycle_by_element(&hinge, false).skip(1).take_while(|&&v| v != opposite).collect();
+
+            // there must not be a suspension vertex between the two hinges
+            if between.iter().any(|v| match self.map.vertex(**v).weight { Suspension(_) => true, _ => false }) {
+                return GraphErr::new_err("The hinges for an must not enclose a suspension vertex.");
+            }
+
+            if let (Some(&hinge_other), Some(&opposite_other)) = (between.first(), between.last()) {
+                let hinge_orientation = self.get_color(hinge, *hinge_other);
+                let opposite_orientation = self.get_color(opposite, *opposite_other);
+
+                return if let (Bicolored(hinge_color, hinge_color_bwd),  Bicolored(opposite_color, opposite_color_bwd)) = (hinge_orientation, opposite_orientation) {
+                    if hinge_color != opposite_color || hinge_color_bwd != opposite_color || opposite_color_bwd != hinge_color {
+                        Ok((*hinge_other, *opposite_other, hinge_color, opposite_color))
+                    } else {
+                        panic!("Invalid Schnyder wood detected: External split of strangely colored edges.");
+                    }
+                } else {
+                    GraphErr::new_err("Both split edges for an external split must be bicolored.")
+                }
+            } else {
+                return GraphErr::new_err("The hinges for an external split must enclose more than one edge.");
+            }
+        }
+    }
+
+    pub fn ext_split(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+        let (hinge_other, opposite_other, hinge_color, opposite_color) = self.ext_splittable_(hinge, opposite)?;
+        let new_edge = self.map.add_embedded_edge(hinge, opposite, Bicolored(hinge_color, opposite_color), self.outer_face);
+
+        let (e1, signum1) = self.map.get_edge_with_signum(hinge_other, hinge);
+        self.map.edge_mut(e1).weight = Unicolored(opposite_color, signum1);
+        let (e2, signum2) = self.map.get_edge_with_signum(opposite_other, opposite);
+        self.map.edge_mut(e2).weight = Unicolored(hinge_color, signum2);
+
+        self.outer_face = self.map.edge(new_edge).left_face.unwrap();
+
+        Ok(())
+    }
+
+    fn ext_mergeable_(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<(SchnyderColor, SchnyderColor, VertexI, VertexI)> {
+
+        let angles = &self.map.face(self.outer_face).angles;
+
+        // the two hinges must be part of the outer face cycle
+        if !angles.contains(&hinge) || !angles.contains(&opposite) {
+            return GraphErr::new_err("The hinges for an external merge must lie on the outer face cycle.");;
+        }
+
+        match angles.cycle_by_element(&hinge, false).nth(1) {
+            Some(v) if *v == opposite => {
+                if let Bicolored(fwd, bwd) = self.get_color(hinge, opposite) {
+                    let hinge_target_nb = self.map.next_nb(hinge, opposite, CW)?;
+                    let opposite_target_nb = self.map.next_nb(opposite, hinge, CCW)?;
+
+                    if let (
+                        Unicolored(hinge_color, Backward),
+                        Unicolored(opposite_color, Backward)
+                    ) = (
+                        self.get_color(hinge, hinge_target_nb),
+                        self.get_color(opposite, opposite_target_nb)
+                    ) {
+                        return if hinge_color == bwd && opposite_color == fwd {
+                            Ok((fwd, bwd, hinge_target_nb, opposite_target_nb))
+                        } else {
+                            GraphErr::new_err("Target edges do not have the right colors for an external merge.")
+                        }
+                    } else {
+                        GraphErr::new_err("Target edges do not have the right colors for an external merge.")
+                    }
+
+                } else {
+                    return GraphErr::new_err("Unidirected edges cannot be subject to an external merge.");
+                }
+            }
+            _ => return GraphErr::new_err("The hinges for an external merge must be neighbors.")
+        }
+    }
+
+    fn ext_mergeable(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+        self.ext_mergeable_(hinge, opposite).map(|_| ())
+    }
+
+    pub fn ext_merge(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+        let (color1, color2, vertex1, vertex2) = self.ext_mergeable_(hinge, opposite)?;
+
+        let (_, new_face) = self.map.remove_embedded_edge(hinge, opposite, &|a, b| a)?;
+        self.outer_face = new_face;
+
+        let (e1, signum1) = self.map.get_edge_with_signum(hinge, vertex1);
+        let e1_new_colors = self.replace_color(self.map.edge(e1), color1, signum1);
+        let (e2, signum2) = self.map.get_edge_with_signum(opposite, vertex2);
+        let e2_new_colors = self.replace_color(self.map.edge(e2), color2, signum2);
+
+        self.map.edge_mut(e1).weight = e1_new_colors;
+        self.map.edge_mut(e2).weight = e2_new_colors;
+
+        Ok(())
     }
 
     pub fn is_schnyder_contractible(&self, eid: EdgeI) -> Result<(), GraphErr> {
@@ -958,7 +1069,7 @@ impl<F: Clone> SchnyderMap<F> {
 
                     if f != self.outer_face {
                         let start_vertex = face_to_vertex.get(&f).unwrap();
-                        counts[color.index()] = dual.connected_component(start_vertex, &dual_no_cross_edges).len();
+                        counts[color.index()] = dual.connected_component(start_vertex, &dual_no_cross_edges).unwrap().len(); //TODO
                     } else {
                         counts[color.index()] = 0;
                     }

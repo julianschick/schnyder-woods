@@ -9,7 +9,7 @@ use crate::DEBUG;
 use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI, Side, FaceI};
 use crate::graph::ClockDirection::{CCW, CW};
 use crate::graph::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType, SchnyderEdge, SchnyderEdgeDirection};
-use crate::graph::schnyder::algorithm::OpType::{Merge, Split};
+use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::schnyder::IndexedEnum;
 use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
@@ -26,7 +26,7 @@ use bimap::BiMap;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
-    Split, Merge
+    Split, Merge, ExtSplit, ExtMerge
 }
 
 #[derive(Copy, Clone)]
@@ -77,7 +77,7 @@ impl Operation {
             hinge_vertex: self.hinge_vertex,
             source_vertex: self.target_vertex,
             target_vertex: self.source_vertex,
-            operation_type: match &self.operation_type { Merge => Split, Split => Merge}
+            operation_type: match &self.operation_type { Merge => Split, Split => Merge, ExtMerge => ExtSplit, ExtSplit => ExtMerge}
         }
     }
 
@@ -115,24 +115,30 @@ impl<F: Clone> SchnyderMap<F> {
                 let src = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
                 let tgt = self.map.get_edge(op.hinge_vertex, op.target_vertex)?;
                 self.merge(src, tgt);
-            }
+            },
             Split => {
                 let e = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
                 self.split(e, op.hinge_vertex, Some(op.target_vertex))?;
+            },
+            ExtMerge => {
+
+            },
+            ExtSplit => {
+
             }
         }
         Ok(())
     }
 
     pub fn get_operation_direction(&self, op: &Operation) -> GraphResult<ClockDirection> {
-        Ok(match op.operation_type {
+        match op.operation_type {
             Split => {
                 let (fwd_c, bwd_c) = self.get_bidirected_colors(&op.hinge_vertex, &op.source_vertex);
 
                 if bwd_c.prev() == fwd_c {
-                    CW
+                    Ok(CW)
                 } else if bwd_c.next() == fwd_c {
-                    CCW
+                    Ok(CCW)
                 } else {
                     panic!("Assertion failed");
                 }
@@ -142,14 +148,17 @@ impl<F: Clone> SchnyderMap<F> {
                 let source_color = self.get_unidirected_color(&op.hinge_vertex, &op.source_vertex);
 
                 if target_color.prev() == source_color {
-                    CCW
+                    Ok(CCW)
                 } else if target_color.next() == source_color {
-                    CW
+                    Ok(CW)
                 } else {
                     panic!("Assertion failed");
                 }
+            },
+            ExtSplit | ExtMerge => {
+                GraphErr::new_err("External merges or splits do not have a direction")
             }
-        })
+        }
     }
 
     pub fn get_affected_face(&self, op: &Operation) -> FaceI {
