@@ -25,6 +25,14 @@ use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
 use std::convert::TryFrom;
 use petgraph::algo::{connected_components, has_path_connecting};
+use take_until::TakeUntilExt;
+
+static INVALID_WOOD : &str = "Assertion failed, invalid Schnyder wood detected.";
+
+#[macro_export]
+macro_rules! invalid_wood {
+    () => { panic!(INVALID_WOOD) };
+}
 
 pub mod algorithm;
 
@@ -51,7 +59,7 @@ impl IndexedEnum<SchnyderColor> for SchnyderColor {
 
     fn from_index(index: usize) -> Self {
         match index {
-            0 => Red, 1 => Green, 2 => Blue, _ => panic!("invalid index")
+            0 => Red, 1 => Green, 2 => Blue, _ => panic!("Invalid index given for IndexedEnum<SchnyderColor>")
         }
     }
 
@@ -449,14 +457,42 @@ impl<F: Clone> SchnyderMap<F> {
             .position(|nb| match self.outgoing_color(nb) { Some(cc) if cc == c => true, _ => false })
     }
 
-    fn get_incoming_sector(&self, vid: &VertexI, color: SchnyderColor) -> Vec<EdgeI> {
-        let v = self.map.vertex(*vid);
-        let before_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.next())).unwrap();
-        let after_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.prev())).unwrap();
+    fn get_incoming_sector_as_nb(&self, vid: &VertexI, color: SchnyderColor, with_bicolored: bool) -> Vec<&NbVertex> {
+        match self.map.vertex_weight(vid) {
+            Ok(Suspension(c)) if *c != color => return vec![],
+            _ => ()
+        }
 
-        return v.nb_sector_between(before_out, after_out, CW).iter()
-            .map(|nb| nb.edge)
-            .collect();
+        let v = self.map.vertex(*vid); //TODO vid check
+        let before_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.next())).expect("TODO");
+        let after_out = v.neighbors.iter().find(|nb| self.outgoing_color(nb) == Some(color.prev())).expect("TODO");
+
+        return if !with_bicolored {
+            v.nb_sector_between(before_out, after_out, CW)
+        } else {
+            let mut tmp = v.nb_sector_including(before_out, after_out, CW);
+            assert!(tmp.len() >= 2);
+
+            if self.incoming_color(tmp[0]) != Some(color) {
+                tmp.remove(0);
+            }
+
+            if self.incoming_color(tmp.last().unwrap()) != Some(color) {
+                tmp.pop();
+            }
+
+            tmp
+        }
+
+
+    }
+
+    fn get_incoming_sector_as_edges(&self, vid: &VertexI, color: SchnyderColor, with_bicolored: bool) -> Vec<EdgeI> {
+        self.get_incoming_sector_as_nb(vid, color, with_bicolored).iter().map(|nb| nb.edge).collect()
+    }
+
+    pub fn get_incoming_sector(&self, vid: &VertexI, color: SchnyderColor, with_bicolored: bool) -> Vec<VertexI> {
+        self.get_incoming_sector_as_nb(vid, color, with_bicolored).iter().map(|nb| nb.other).collect()
     }
 
     pub fn outgoing_color(&self, nb: &NbVertex) -> Option<SchnyderColor> {
@@ -592,8 +628,8 @@ impl<F: Clone> SchnyderMap<F> {
             } else if tail_color.prev() == head_color {
                 self.map.edge(eid).left_face
             } else {
-                assert_ne!(tail_color, head_color);
-                panic!("bugu")
+                panic!("TODO");
+
             }.unwrap();
 
             if target_face == self.outer_face {
@@ -630,12 +666,12 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn splittable(&self, eid: EdgeI, hinge_vid: VertexI, target_vid: VertexI) -> GraphResult<()> {
-        self.assemble_split_data(eid, hinge_vid, Some(target_vid))
+    pub fn splittable(&self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<()> {
+        self.assemble_split_data(eid, hinge_vid, target_vid)
             .map(|_| ())
     }
 
-    pub fn find_split_target(&mut self, eid: EdgeI, hinge_vid: VertexI) -> GraphResult<Vec<VertexI>> {
+    pub fn find_split_target(&self, eid: EdgeI, hinge_vid: VertexI) -> GraphResult<Vec<VertexI>> {
         self.assemble_split_data(eid, hinge_vid, None)
             .map(|data| data.target_vids)
     }
@@ -695,7 +731,11 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn ext_split(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+    pub fn ext_splittable(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+        self.ext_splittable_(hinge, opposite).map(|_| ())
+    }
+
+    pub fn ext_split(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<Operation> {
         let (hinge_other, opposite_other, hinge_color, opposite_color) = self.ext_splittable_(hinge, opposite)?;
         let new_edge = self.map.add_embedded_edge(hinge, opposite, Bicolored(hinge_color, opposite_color), self.outer_face);
 
@@ -706,16 +746,20 @@ impl<F: Clone> SchnyderMap<F> {
 
         self.outer_face = self.map.edge(new_edge).left_face.unwrap();
 
-        Ok(())
+        Ok(Operation::ext_split(hinge, opposite))
     }
 
     fn ext_mergeable_(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<(SchnyderColor, SchnyderColor, VertexI, VertexI)> {
+
+        if hinge == opposite {
+            return GraphErr::new_err("The hinges must be distinct.");
+        }
 
         let angles = &self.map.face(self.outer_face).angles;
 
         // the two hinges must be part of the outer face cycle
         if !angles.contains(&hinge) || !angles.contains(&opposite) {
-            return GraphErr::new_err("The hinges for an external merge must lie on the outer face cycle.");;
+            return GraphErr::new_err("The hinges for an external merge must lie on the outer face cycle.");
         }
 
         match angles.cycle_by_element(&hinge, false).nth(1) {
@@ -748,11 +792,11 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    fn ext_mergeable(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+    pub fn ext_mergeable(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
         self.ext_mergeable_(hinge, opposite).map(|_| ())
     }
 
-    pub fn ext_merge(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<()> {
+    pub fn ext_merge(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<Operation> {
         let (color1, color2, vertex1, vertex2) = self.ext_mergeable_(hinge, opposite)?;
 
         let (_, new_face) = self.map.remove_embedded_edge(hinge, opposite, &|a, b| a)?;
@@ -766,8 +810,66 @@ impl<F: Clone> SchnyderMap<F> {
         self.map.edge_mut(e1).weight = e1_new_colors;
         self.map.edge_mut(e2).weight = e2_new_colors;
 
-        Ok(())
+        Ok(Operation::ext_merge(hinge, opposite))
     }
+
+    pub fn get_admissible_ops(&self) -> GraphResult<Vec<Operation>> {
+
+        let mut result = Vec::new();
+        let mut outer_cycle : Vec<_> = self.map.face(self.outer_face).angles.iter().cloned().collect();
+
+        for v in self.map.vertices.get_map().values().sorted_by_key(|v| v.id.0) {
+
+            if let Normal(_) = v.weight {
+
+                // collect all splits and merges at v
+                for c in &[Red, Green, Blue] {
+                    let source = self.find_outgoing_nb(v.id, *c)?;
+
+                    let w = self.map.edge_weight(&source.edge);
+                    if let Some(Unicolored(_, _)) = w {
+                        let target1 = self.map.vertex(v.id).next(source, CW);
+                        let target2 = self.map.vertex(v.id).next(source, CCW);
+
+                        if self.mergeable(source.edge, target1.edge).is_ok() {
+                            result.push(Operation::merge_by_vertices(v.id, source.other, target1.other));
+                        }
+                        if self.mergeable(source.edge, target2.edge).is_ok() {
+                            result.push(Operation::merge_by_vertices(v.id, source.other, target2.other));
+                        }
+                    } else if let Some(Bicolored(_, _)) = w {
+                        if let Ok(targets) = self.find_split_target(source.edge, v.id) {
+                            for target in targets {
+                                result.push(Operation::split(v.id, source.other, target));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for c in &[Red, Green, Blue] {
+            let begin = &self.get_suspension_vertex(*c);
+            let end = &self.get_suspension_vertex(c.next());
+            let mut sector = outer_cycle.cycle_by_element(begin, false).take_until(|v| *v == end).collect_vec();
+
+            for x in 0..sector.len() {
+                for y in (x+1)..sector.len() {
+                    if self.ext_mergeable(*sector[x], *sector[y]).is_ok() {
+                        result.push(Operation::ext_merge(*sector[x], *sector[y]));
+                    }
+
+                    if self.ext_splittable(*sector[x], *sector[y]).is_ok() {
+                        result.push(Operation::ext_split(*sector[x], *sector[y]));
+                    }
+                }
+            }
+        }
+
+
+        return Ok(result);
+    }
+
 
     pub fn is_schnyder_contractible(&self, eid: EdgeI) -> Result<(), GraphErr> {
         if !self.is_inner_edge(&eid)? {
@@ -904,7 +1006,7 @@ impl<F: Clone> SchnyderMap<F> {
             // colors referring to the example with the pivot edge being red
             //
             // incoming red edges at tail over to head
-            for tail_incoming_red in self.get_incoming_sector(&tail, color) {
+            for tail_incoming_red in self.get_incoming_sector_as_edges(&tail, color, false) {
 
                 let source = self.find_outgoing_edge(tail, color.next()).unwrap();
                 let target = tail_incoming_red;
@@ -919,7 +1021,7 @@ impl<F: Clone> SchnyderMap<F> {
             //DEBUG.write().unwrap().output("std", &self, Some("Blue down"), &self.calculate_face_counts());
 
             // incoming green edges at head over to tail
-            for head_incoming_green in self.get_incoming_sector(&head, color.next()) {
+            for head_incoming_green in self.get_incoming_sector_as_edges(&head, color.next(), false) {
                 let target = self.find_outgoing_edge(tail, color).unwrap();
                 let source = head_incoming_green;
 
@@ -937,7 +1039,7 @@ impl<F: Clone> SchnyderMap<F> {
             }
 
             // incoming blue edges at head over to tail
-            for blue_incoming_edge in self.get_incoming_sector(&head, color.prev()) {
+            for blue_incoming_edge in self.get_incoming_sector_as_edges(&head, color.prev(), false) {
                 let source = self.find_outgoing_edge(head, color).unwrap();
                 let target = blue_incoming_edge;
 

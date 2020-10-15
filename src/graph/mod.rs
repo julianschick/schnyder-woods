@@ -19,6 +19,7 @@ use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::Side::{Left, Right};
 use crate::util::errors::{GraphResult, GraphErr};
+use std::cmp::Ordering;
 
 #[macro_export]
 macro_rules! mat {
@@ -28,6 +29,11 @@ macro_rules! mat {
 #[macro_export]
 macro_rules! mats {
     ($map:expr, $thing:expr) => { crate::graph::Materialize::materialize_safely($thing, $map) };
+}
+
+#[macro_export]
+macro_rules! invalid_graph {
+    () => { panic!("Assertion failed, referential integrity of graph obstructed.") };
 }
 
 pub mod schnyder;
@@ -290,8 +296,8 @@ impl<N> Vertex<N> {
     }
 
     /// does contain start_index at the end (wraps around), if condition is always true
-    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection, include_start_index: bool) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
-        let mut iter = self.neighbors.cycle(start_index, true);
+    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection, include_start_index: bool, wrap: bool) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
+        let mut iter = self.neighbors.cycle(start_index, wrap);
         let skip = if include_start_index { 0 } else { 1 };
         match direction {
             CW => Box::new(iter.skip(skip)),
@@ -301,11 +307,15 @@ impl<N> Vertex<N> {
 
     fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
         let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction, false).next().unwrap()
+        self.get_iterator(nb.index, direction, false, true).next().unwrap()
+    }
+
+    fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
+        self.get_iterator(nb.index, direction, false, true).next().unwrap()
     }
 
     fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
-        self.get_iterator(start_index, direction, include_start_index).take_while(condition_while).collect_vec()
+        self.get_iterator(start_index, direction, include_start_index, true).take_while(condition_while).collect_vec()
     }
 
     /// does not include the edges to v1 and v2 respectively
@@ -319,6 +329,27 @@ impl<N> Vertex<N> {
 
     fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
         return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
+    }
+
+    fn sector_including(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
+            return self.nb_sector_including(nb1, nb2, direction);
+        } else {
+            panic!("v1/v2 invalid");
+        }
+    }
+
+    fn nb_sector_including(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+        let mut result = Vec::new();
+        let mut start = true;
+        for nb in self.get_iterator(nb1.index, direction, true, true) {
+            result.push(nb);
+            if nb.other == nb2.other && !start {
+                break;
+            }
+            start = false;
+        }
+        return result;
     }
 
 }
@@ -364,8 +395,8 @@ impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> From<Graph<N, E,
 }
 
 impl<N: Clone, E: Clone, F: Clone> /*Into<(Graph<N, E, Ty, Ix>, HashMap<VertexI, NodeIndex<Ix>>)> for*/ PlanarMap<N, E, F> {
-    fn into_petgraph(&self) -> (Graph<N, E, Undirected, u32>, HashMap<VertexI, NodeIndex<u32>>) {
-        let mut g: Graph<N, E, _, u32> = Graph::new_undirected();
+    pub fn into_petgraph(&self) -> (Graph<N, E, Undirected, u32>, HashMap<VertexI, NodeIndex<u32>>) {
+        let mut g: Graph<N, E, Undirected, u32> = Graph::new_undirected();
 
         let mut node_map = HashMap::new();
         for v in self.vertices.get_map().values() {
@@ -525,7 +556,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn next_nb(&self, v: VertexI, nb: VertexI, direction: ClockDirection) -> GraphResult<VertexI> {
         let v = self.try_vertex(v)?;
         if let Some(nb) = v.neighbors.iter().find(|&&n| n.other == nb) {
-            Ok(v.get_iterator(nb.index, direction, false).next().unwrap().other)
+            Ok(v.get_iterator(nb.index, direction, false, true).next().unwrap().other)
         } else {
             GraphErr::new_err(&format!("{:?} is not a neighbor of {:?}", nb, v))
         }
@@ -1457,7 +1488,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn get_dual(&self, enforce_simple: bool) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {
 
         let mut dual_map = PlanarMap::new();
-        dual_map.enforce_simple = self.enforce_simple;
+        //dual_map.enforce_simple = self.enforce_simple;
+        dual_map.enforce_simple = false;
 
         let mut primal_vertex_to_dual_face = HashMap::new();
         let mut primal_face_to_dual_vertex = HashMap::new();
@@ -1726,5 +1758,65 @@ mod tests {
         assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[8]]);
         assert_eq!(g.vertex(ctr).sector_between(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
         assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[9], outer_rim[0], CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[0], CW).iter().map(|nb|nb.other).collect_vec(), outer_rim.iter().cloned().skip(1).collect_vec());
+        assert_eq!(g.vertex(ctr).sector_between(outer_rim[0], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), outer_rim.iter().cloned().skip(1).rev().collect_vec());
+
+
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[0], outer_rim[3], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[0], outer_rim[1], outer_rim[2], outer_rim[3]]);
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[0], outer_rim[7], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[0], outer_rim[9], outer_rim[8], outer_rim[7]]);
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[1], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[1], outer_rim[0]]);
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[0], outer_rim[1], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[0], outer_rim[1]]);
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[9], outer_rim[0], CW).iter().map(|nb|nb.other).collect_vec(), vec![outer_rim[9], outer_rim[0]]);
+
+        let mut fwd = outer_rim.iter().cloned().collect_vec(); fwd.push(outer_rim[0]);
+        let mut bwd = outer_rim.iter().rev().cloned().collect_vec(); bwd.insert(0,outer_rim[0]);
+
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[0], outer_rim[0], CW).iter().map(|nb|nb.other).collect_vec(), fwd);
+        assert_eq!(g.vertex(ctr).sector_including(outer_rim[0], outer_rim[0], CCW).iter().map(|nb|nb.other).collect_vec(), bwd);
+
+        let mut h = PlanarMap::new();
+
+        let a = h.add_vertex(0);
+        let b = h.add_vertex(1);
+
+        let e = h.add_edge(a, b, 0);
+
+        h.set_embedding(vec![
+            (vec![a, b], 0)
+        ]).expect("test");
+
+        assert_eq!(h.vertex(a).sector_between(b, b, CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(h.vertex(a).sector_between(b, b, CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(h.vertex(b).sector_between(a, a, CW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+        assert_eq!(h.vertex(b).sector_between(a, a, CCW).iter().map(|nb|nb.other).collect_vec(), vec![]);
+
+        assert_eq!(h.vertex(a).sector_including(b, b, CW).iter().map(|nb|nb.other).collect_vec(), vec![b, b]);
+        assert_eq!(h.vertex(a).sector_including(b, b, CCW).iter().map(|nb|nb.other).collect_vec(), vec![b, b]);
+        assert_eq!(h.vertex(b).sector_including(a, a, CW).iter().map(|nb|nb.other).collect_vec(), vec![a, a]);
+        assert_eq!(h.vertex(b).sector_including(a, a, CCW).iter().map(|nb|nb.other).collect_vec(), vec![a, a]);
+
+        let mut j = PlanarMap::new();
+
+        let a = j.add_vertex(0);
+        let b = j.add_vertex(1);
+        let c = j.add_vertex(2);
+
+        let e1 = j.add_edge(a, b, 0);
+        let e2 = j.add_edge(a, c, 0);
+
+        j.set_embedding(vec![
+            (vec![a, b, a, c], 0)
+        ]).expect("test");
+
+        assert_eq!(j.vertex(a).sector_between(b, b, CW).iter().map(|nb|nb.other).collect_vec(), vec![c]);
+        assert_eq!(j.vertex(a).sector_between(b, b, CCW).iter().map(|nb|nb.other).collect_vec(), vec![c]);
+
+        assert_eq!(j.vertex(a).sector_including(b, b, CW).iter().map(|nb|nb.other).collect_vec(), vec![b, c, b]);
+        assert_eq!(j.vertex(a).sector_including(b, b, CCW).iter().map(|nb|nb.other).collect_vec(), vec![b, c, b]);
+
+
+
     }
 }

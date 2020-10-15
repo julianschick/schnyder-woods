@@ -183,7 +183,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, true, face_counts);
+            let tikz_string = wood.generate_tikz(title, false, face_counts);
             if !self.counters.contains_key(context) {
                 self.counters.insert(context.to_string(), 0);
             }
@@ -208,11 +208,24 @@ pub mod debug {
             f.write_all(tikz_string.as_bytes()).expect("Unable to write data");
 
             Command::new("xelatex").current_dir(format!("{}/{}", basedir, context)).arg(format!("{}.tex", name)).output();
-            Command::new("pdftoppm").current_dir(format!("{}/{}", basedir, context))
+            /*Command::new("pdftoppm").current_dir(format!("{}/{}", basedir, context))
                 .arg(format!("{}.pdf", name))
                 .arg(format!("{}/{}", outputdir, name))
-                .arg("-png").arg("-singlefile").output();
+                .arg("-png").arg("-singlefile").output();*/
+            let s = String::from_utf8(Command::new("convert")
+                .current_dir(format!("{}/{}", basedir, context))
+                .arg("-density")
+                .arg("300")
+                .arg("-background")
+                .arg("#FFFFFF")
+                .arg("-flatten")
+                .arg(format!("{}.pdf", name))
+                .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);
+
+            //println!("{}", s.unwrap());
         }
+
+
     }
 
 }
@@ -238,8 +251,13 @@ pub mod errors {
     impl GraphErr {
 
         pub fn new(problem: &str) -> Self {
+            let mut problem = problem.to_string();
+            if !(problem.ends_with(".") || problem.ends_with("!") || problem.ends_with("?")) {
+                problem.push('.');
+            }
+
             GraphErr {
-                problem: problem.to_string(),
+                problem,
                 kind: GraphErrKind::Generic
             }
         }

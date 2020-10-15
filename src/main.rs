@@ -6,7 +6,7 @@ use crate::graph::{PlanarMap, VertexI, Side};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored, Black};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap, SchnyderEdge};
+use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap, SchnyderEdge, SchnyderColor};
 use crate::graph::Signum::Forward;
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::debug::Debug;
@@ -18,11 +18,12 @@ use std::io::Read;
 use std::process::Command;
 use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
 use crate::graph::io::{read_plantri_planar_code};
-use crate::graph::schnyder::algorithm::{make_contractible, make_inner_edge};
+use crate::graph::schnyder::algorithm::{make_contractible, make_inner_edge, full_pizza_lemma, OpType};
 use chrono::Utc;
 use petgraph::graph::Edge;
-use crate::algorithm::{compute_contraction_candidates, find_sequence};
+use crate::algorithm::{compute_contraction_candidates, find_sequence, to_canonical_form, find_sequence_2};
 use crate::graph::EdgeEnd::{Tail, Head};
+use petgraph::algo::is_isomorphic;
 
 #[macro_use]
 extern crate lazy_static;
@@ -36,7 +37,52 @@ lazy_static! {
 }
 
 fn main() {
-    main3();
+    main4();
+}
+
+fn main4() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+    let map = &maps[0];
+
+
+    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+    //let fc = &wood.calculate_face_counts();
+    //wood.ext_merge(VertexI(3), VertexI(0)).expect("?");
+
+    DEBUG.write().unwrap().activate();
+    DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
+
+    loop {
+        let admissible_ops = wood.get_admissible_ops().expect("?");
+
+        //for op in admissible_ops {
+        //    println!("{:?}", op);
+        //}
+
+        if let Some(op) = admissible_ops.iter().find(|op| match op.operation_type {
+            OpType::Merge | OpType::ExtMerge => true,
+            _ => false
+        }) {
+            let (before,_) = wood.map.into_petgraph();
+
+            wood.do_operation(op);
+            DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
+
+            let (afterwards, _) = wood.map.into_petgraph();
+
+            eprintln!("is_isomorphic(&before, &afterwards); = {:?}", is_isomorphic(&before, &afterwards));
+        } else {
+            break;
+        }
+    }
+
+
+
+
 }
 
 fn main3() {
@@ -46,14 +92,28 @@ fn main3() {
 
     let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
 
-    let map = &maps[256];
-    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+    let map1 = &maps[256];
+    let map2 = &maps[42];
+    let mut wood1 = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+    let mut wood2 = SchnyderMap::build_on_triangulation(map2, map2.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
     DEBUG.write().unwrap().activate();
-    let fc = wood.calculate_face_counts();
-    DEBUG.write().unwrap().output("std", &wood, Some("The Wood"), &wood.calculate_face_counts());
+    DEBUG.write().unwrap().output("std", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("std", &wood2, Some("Wood2"), &wood2.calculate_face_counts());
 
-    wood.ext_merge(VertexI(1), VertexI(7));
+    let ops = find_sequence_2(&mut wood1, &mut wood2, Blue);
+
+    println!("{} ops", ops.len());
+
+    let mut wood = SchnyderMap::build_on_triangulation(map1, map1.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+    DEBUG.write().unwrap().output("ops", &wood, Some("Start"), &wood.calculate_face_counts());
+    for op in ops {
+        eprintln!("op = {:?}", op);
+        wood.do_operation(&op).expect("TODO");
+        DEBUG.write().unwrap().output("ops", &wood, Some("Step"), &wood.calculate_face_counts());
+    }
+
+    /*wood.ext_merge(VertexI(1), VertexI(7));
     wood.ext_merge(VertexI(0), VertexI(1));
     wood.ext_merge(VertexI(7), VertexI(0));
     wood.ext_merge(VertexI(2), VertexI(1));
@@ -63,7 +123,7 @@ fn main3() {
 
     wood.ext_split(VertexI(1), VertexI(7));
 
-    DEBUG.write().unwrap().output("std", &wood, Some("Resplit"), &wood.calculate_face_counts());
+    DEBUG.write().unwrap().output("std", &wood, Some("Resplit"), &wood.calculate_face_counts());*/
 }
 
 fn main2() {

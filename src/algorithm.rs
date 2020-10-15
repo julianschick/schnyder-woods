@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use itertools::Itertools;
 
 use crate::graph::EdgeEnd::{Tail, Head};
-use crate::graph::schnyder::algorithm::{Operation, make_inner_edge, make_contractible, Contraction};
+use crate::graph::schnyder::algorithm::{Operation, make_inner_edge, make_contractible, Contraction, full_pizza_lemma};
 use crate::graph::schnyder::SchnyderColor::{Blue, Green, Red};
 use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
 use crate::graph::schnyder::{SchnyderMap, SchnyderColor, IndexedEnum};
@@ -10,11 +10,55 @@ use crate::graph::schnyder::SchnyderVertexType::Normal;
 use crate::graph::{EdgeI, VertexI, PlanarMap, ClockDirection};
 
 use crate::DEBUG;
-use crate::util::errors::GraphResult;
+use crate::util::errors::{GraphResult, GraphErr};
 use crate::graph::ClockDirection::{CW, CCW};
 use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
+
+pub fn get_vertex_map<F: Clone>(wood1: &SchnyderMap<F>, wood2: &SchnyderMap<F>) -> GraphResult<BiMap<VertexI, VertexI>> {
+    if wood1.map.vertex_count() != wood2.map.vertex_count() {
+        return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
+    }
+
+    DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
+
+    let vertices1 = get_vertices_in_bfs_order(&wood1, Red, CW);
+    let vertices2 = get_vertices_in_bfs_order(&wood2, Red, CW);
+    let mut result = BiMap::new();
+    
+    for i in 0..vertices1.len() {
+        result.insert(vertices1[i], vertices2[i]);
+    }
+
+    eprintln!("result = {:?}", result);
+
+    return Ok(result)
+}
+
+fn get_vertices_in_bfs_order<F: Clone>(wood: &SchnyderMap<F>, color: SchnyderColor, direction: ClockDirection) -> Vec<VertexI> {
+    let mut queue = VecDeque::new();
+    queue.push_back(wood.get_suspension_vertex(color));
+    let mut result = Vec::new();
+
+    while let Some(first) = queue.pop_front() {
+
+        eprintln!("first = {:?}", first);
+        eprintln!("wood.get_incoming_sector(&first, color) = {:?}", wood.get_incoming_sector(&first, color, true));
+        result.push(first);
+        match direction {
+            CW => queue.extend( wood.get_incoming_sector(&first, color, true).into_iter()),
+            CCW => queue.extend( wood.get_incoming_sector(&first, color, true).into_iter().rev()),
+        }
+    }
+
+    return result;
+}
+
+//
+//
+//
 
 pub fn find_sequence<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>) -> Vec<Operation> {
     let (vm, seq) = find_sequence_(wood1, wood2, 0);
@@ -321,8 +365,51 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
         lifted_seq.splice(0..0, prep_seq1);
         //seq.extend(swap_seq);
         lifted_seq.extend(prep_seq2.iter().rev()
-            .map(|op| op.inverted().mapped_vertices(&vertex_map)));
+            .map(|op| op.inverted().mapped_vertices_by_left(&vertex_map)));
 
         return (vertex_map, lifted_seq);
     }
+}
+
+//
+//
+//
+
+pub fn find_sequence_2<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+
+    //TODO triangulate
+    if !wood1.map.is_triangulation() || !wood2.map.is_triangulation() {
+        panic!("must be triangulations!");
+    }
+
+    let mut seq1 = to_canonical_form(wood1, color);
+    let seq2 = to_canonical_form(wood2, color);
+
+    DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts());
+
+    let vertex_map = get_vertex_map(wood1, wood2).expect("TODO");
+
+    for op in seq2.iter().rev() {
+        seq1.push(op.mapped_vertices_by_right(&vertex_map).inverted());
+    }
+    return seq1;
+}
+
+pub fn to_canonical_form<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+
+    let mut pivot = wood.get_suspension_vertex(color);
+    let mut seq = Vec::new();
+
+    while let Some(_) = wood.get_incoming_sector(&pivot, color, false).first() {
+        seq.extend(full_pizza_lemma(wood, pivot, color).expect("TODO"));
+
+        if let Some(v) = wood.get_incoming_sector(&pivot, color, false).first() {
+            pivot = *v;
+        } else {
+            panic!("Invalid thingy!");
+        }
+    }
+
+    return seq;
 }

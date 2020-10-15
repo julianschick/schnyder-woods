@@ -72,6 +72,33 @@ impl Operation {
         }
     }
 
+    pub fn merge_by_vertices(hinge: VertexI, source: VertexI, target: VertexI) -> Operation {
+        Operation {
+            hinge_vertex: hinge,
+            source_vertex: source,
+            target_vertex: target,
+            operation_type: Merge
+        }
+    }
+
+    pub fn ext_split(hinge1: VertexI, hinge2: VertexI) -> Operation {
+        Operation {
+            hinge_vertex: hinge1,
+            source_vertex: hinge2,
+            target_vertex: hinge2,
+            operation_type: ExtSplit
+        }
+    }
+
+    pub fn ext_merge(hinge1: VertexI, hinge2: VertexI) -> Operation {
+        Operation {
+            hinge_vertex: hinge1,
+            source_vertex: hinge2,
+            target_vertex: hinge2,
+            operation_type: ExtMerge
+        }
+    }
+
     pub fn inverted(&self) -> Self {
         Operation {
             hinge_vertex: self.hinge_vertex,
@@ -90,11 +117,20 @@ impl Operation {
         }
     }
 
-    pub fn mapped_vertices(&self, map: &BiMap<VertexI, VertexI>) -> Self {
+    pub fn mapped_vertices_by_left(&self, map: &BiMap<VertexI, VertexI>) -> Self {
         Operation {
             hinge_vertex: *map.get_by_left(&self.hinge_vertex).unwrap(),
             source_vertex: *map.get_by_left(&self.source_vertex).unwrap(),
             target_vertex: *map.get_by_left(&self.target_vertex).unwrap(),
+            operation_type: self.operation_type
+        }
+    }
+
+    pub fn mapped_vertices_by_right(&self, map: &BiMap<VertexI, VertexI>) -> Self {
+        Operation {
+            hinge_vertex: *map.get_by_right(&self.hinge_vertex).unwrap(),
+            source_vertex: *map.get_by_right(&self.source_vertex).unwrap(),
+            target_vertex: *map.get_by_right(&self.target_vertex).unwrap(),
             operation_type: self.operation_type
         }
     }
@@ -121,10 +157,10 @@ impl<F: Clone> SchnyderMap<F> {
                 self.split(e, op.hinge_vertex, Some(op.target_vertex))?;
             },
             ExtMerge => {
-
+                self.ext_merge(op.hinge_vertex, op.target_vertex)?;
             },
             ExtSplit => {
-
+                self.ext_split(op.hinge_vertex, op.target_vertex)?;
             }
         }
         Ok(())
@@ -195,11 +231,9 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
         let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_op.hinge_vertex);
         let split_edge = merge_target_edge;
 
-        //DEBUG.write().unwrap().output(wood, Some("merge"), face_counts);
-
         let split_op = wood.split(merge_target_edge, split_hinge, None).unwrap();
         result.push(split_op);
-        //DEBUG.write().unwrap().output(wood, Some("split"), face_counts);
+
         flip_edges.pop();
     }
     return result;
@@ -287,6 +321,36 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Gra
     }*/
 
     return Ok(result);
+}
+
+pub fn full_pizza_lemma<F: Clone>(wood: &mut SchnyderMap<F>, v: VertexI, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
+    if !wood.map.is_triangulation() {
+        return GraphErr::new_err("Map needs to be triangulation for exploiting the pizza lemma");
+    }
+
+    let mut result = Vec::new();
+    let mut incoming = wood.get_incoming_sector(&v, color, false);
+    while incoming.len() > 1 {
+
+        let target_edge = wood.map.get_edge(incoming[0], incoming[1])?;
+
+        match wood.get_color(incoming[0], incoming[1]) {
+            Unicolored(_, Forward) => {
+                let source_edge = wood.map.get_edge(v, incoming[1])?;
+                incoming.remove(1);
+                result.extend(wood.merge_and_resplit(source_edge, target_edge, None)?);
+            }
+            Unicolored(_, Backward) => {
+                let source_edge = wood.map.get_edge(v, incoming[0])?;
+                incoming.remove(0);
+                result.extend(wood.merge_and_resplit(source_edge, target_edge, None)?);
+            }
+            _ => panic!("Invalid Schnyder wood detected: Bicolored edges in triangulation")
+        }
+    }
+
+    return Ok(result);
+
 }
 
 pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
