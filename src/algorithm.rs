@@ -16,50 +16,6 @@ use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit
 use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
 
-pub fn get_vertex_map<F: Clone>(wood1: &SchnyderMap<F>, wood2: &SchnyderMap<F>) -> GraphResult<BiMap<VertexI, VertexI>> {
-    if wood1.map.vertex_count() != wood2.map.vertex_count() {
-        return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
-    }
-
-    DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
-    DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
-
-    let vertices1 = get_vertices_in_bfs_order(&wood1, Red, CW);
-    let vertices2 = get_vertices_in_bfs_order(&wood2, Red, CW);
-    let mut result = BiMap::new();
-    
-    for i in 0..vertices1.len() {
-        result.insert(vertices1[i], vertices2[i]);
-    }
-
-    eprintln!("result = {:?}", result);
-
-    return Ok(result)
-}
-
-fn get_vertices_in_bfs_order<F: Clone>(wood: &SchnyderMap<F>, color: SchnyderColor, direction: ClockDirection) -> Vec<VertexI> {
-    let mut queue = VecDeque::new();
-    queue.push_back(wood.get_suspension_vertex(color));
-    let mut result = Vec::new();
-
-    while let Some(first) = queue.pop_front() {
-
-        eprintln!("first = {:?}", first);
-        eprintln!("wood.get_incoming_sector(&first, color) = {:?}", wood.get_incoming_sector(&first, color, true));
-        result.push(first);
-        match direction {
-            CW => queue.extend( wood.get_incoming_sector(&first, color, true).into_iter()),
-            CCW => queue.extend( wood.get_incoming_sector(&first, color, true).into_iter().rev()),
-        }
-    }
-
-    return result;
-}
-
-//
-//
-//
-
 pub fn find_sequence<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>) -> Vec<Operation> {
     let (vm, seq) = find_sequence_(wood1, wood2, 0);
     println!("outer vertex map = {:?}", vm);
@@ -388,7 +344,7 @@ pub fn find_sequence_2<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut Schnyde
     DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts());
 
-    let vertex_map = get_vertex_map(wood1, wood2).expect("TODO");
+    let vertex_map = wood1.get_vertex_map(wood2).expect("TODO");
 
     for op in seq2.iter().rev() {
         seq1.push(op.mapped_vertices_by_right(&vertex_map).inverted());

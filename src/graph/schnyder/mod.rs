@@ -5,7 +5,7 @@ use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored, Black};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::graph::Signum::{Forward, Backward};
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, VecDeque};
 use array_tool::vec::Intersect;
 use crate::graph::ClockDirection::{CCW, CW};
 use std::io::{Split, empty};
@@ -26,6 +26,7 @@ use petgraph::graph::{NodeIndex, EdgeIndex};
 use std::convert::TryFrom;
 use petgraph::algo::{connected_components, has_path_connecting};
 use take_until::TakeUntilExt;
+use bimap::BiMap;
 
 static INVALID_WOOD : &str = "Assertion failed, invalid Schnyder wood detected.";
 
@@ -243,17 +244,9 @@ impl<F: Clone> SchnyderMap<F> {
         let mut suspension_vertices = smap.face(outer_face).angles.iter()
             .sorted_by_key(|vid| vid.0);
 
-        // TODO: remove!!!
-        let (r, g, b) = {
-            let r = *suspension_vertices.next().unwrap();
-            let g = *suspension_vertices.next().unwrap();
-            let b = *suspension_vertices.next().unwrap();
-
-            match mode {
-                SchnyderBuildMode::LeftMost | SchnyderBuildMode::Random => (r, g, b),
-                SchnyderBuildMode::RightMost => (g, b, r)
-            }
-        };
+        let r = *suspension_vertices.next().unwrap();
+        let g = *suspension_vertices.next().unwrap();
+        let b = *suspension_vertices.next().unwrap();
 
         // Color the suspension vertices
         smap.vertex_mut(r).weight = Suspension(Red);
@@ -281,15 +274,6 @@ impl<F: Clone> SchnyderMap<F> {
             smap.edge_mut(eid).weight = Unicolored(Red, signum);
         }
 
-        /*for (&a,&b,&c) in  [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
-            if smap.get_edge(a, b).is_none() {
-                println!("{:?}-{:?} ab not existent", a, b);
-            }
-            if smap.get_edge(b, c).is_none() {
-                println!("{:?}-{:?} bc not existent", a, b);
-            }
-        }*/
-
         //
         // execute the main part of the algorithm which moves the 'frontier' line away from the
         // red suspension vertex until no vertices are left 'beyond' the frontier.
@@ -303,14 +287,6 @@ impl<F: Clone> SchnyderMap<F> {
         let mut rand = thread_rng();
 
         while frontier.len() > 0 {
-            /*for (&a,&b,&c) in [b].iter().chain(frontier.iter()).chain([g].iter()).tuple_windows() {
-                if smap.get_edge(a, b).is_none() {
-                    println!("{:?}-{:?} ab in loop not existent", a, b);
-                }
-                if smap.get_edge(b, c).is_none() {
-                    println!("{:?}-{:?} bc in loop  not existent", a, b);
-                }
-            }*/
 
             // find a pivot vertex at which the frontier can be pushed further
             let (pos, (&left_neighbour, &pivot, &right_neighbour)) = {
@@ -346,25 +322,6 @@ impl<F: Clone> SchnyderMap<F> {
                 smap.edge_mut(eid).weight = Unicolored(Red, signum);
             }
 
-            /*let check_v = smap.vertex(pivot)
-                .sector_between(left_neighbour, right_neighbour, CCW)
-                .iter().map(|nb| nb.other).collect_vec();
-
-            if check_v.len() > 0 {
-                if smap.get_edge(left_neighbour, check_v[0]).is_none() {
-                    println!("first problem");
-                }
-                if smap.get_edge(check_v[check_v.len() -1 ], right_neighbour).is_none() {
-                    println!("last problem");
-                }
-
-                for (&a, &b) in check_v.iter().tuple_windows() {
-                    if smap.get_edge(a,b).is_none() {
-                        println!("mid problem");
-                    }
-                }
-            }*/
-
             // alter the frontier (remove the pivot vertex and add its neighbors beyond the old frontier)
             frontier.remove(pos);
             frontier.splice(pos..pos, smap.vertex(pivot)
@@ -383,6 +340,72 @@ impl<F: Clone> SchnyderMap<F> {
             green_vertex: self.green_vertex,
             blue_vertex: self.blue_vertex
         }
+    }
+
+    pub fn clone(&self) -> Self {
+        self.clone_with_maps(Some(|face_weight| face_weight.clone()))
+    }
+
+    pub fn get_vertex_map(&self, wood2: &SchnyderMap<F>) -> GraphResult<BiMap<VertexI, VertexI>> {
+        let wood1 = self;
+        if wood1.map.vertex_count() != wood2.map.vertex_count() {
+            return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
+        }
+
+        DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
+
+        let vertices1 = wood1.get_vertices_in_bfs_order(Red, CW);
+        let vertices2 = wood2.get_vertices_in_bfs_order(Red, CW);
+        let mut result = BiMap::new();
+
+        for i in 0..vertices1.len() {
+            result.insert(vertices1[i], vertices2[i]);
+        }
+
+        eprintln!("result = {:?}", result);
+
+        return Ok(result)
+    }
+
+    fn get_vertices_in_bfs_order(&self, color: SchnyderColor, direction: ClockDirection) -> Vec<VertexI> {
+        let mut queue = VecDeque::new();
+        queue.push_back(self.get_suspension_vertex(color));
+        let mut result = Vec::new();
+
+        while let Some(first) = queue.pop_front() {
+            result.push(first);
+            match direction {
+                CW => queue.extend( self.get_incoming_sector(&first, color, true).into_iter()),
+                CCW => queue.extend( self.get_incoming_sector(&first, color, true).into_iter().rev()),
+            }
+        }
+
+        return result;
+    }
+
+    pub fn compute_identification_vector(&self) -> Vec<u8> {
+        if self.map.vertex_count() > 255 {
+            panic!("geht nicht");
+        }
+
+        let mut result = Vec::with_capacity(self.map.vertex_count() * 3);
+
+        let vertices = self.get_vertices_in_bfs_order(Red, CW);
+        let index_map: HashMap<_, _> = vertices.iter().enumerate().map(|(index, v)| (v, index + 1)).collect();
+
+        for c in &[Red, Green, Blue] {
+            for v in &vertices {
+                let parent = if let Ok(parent_vertex) = self.find_outgoing_endvertex(*v, *c) {
+                    *index_map.get(&parent_vertex).unwrap() as u8
+                } else {
+                    0u8
+                };
+                result.push(parent);
+            }
+        }
+
+        return result;
     }
 
     pub fn debug(&self) {
@@ -1296,12 +1319,12 @@ impl<F: Clone> SchnyderMap<F> {
         if self.map.edges.get_map().values()
             .any(|nb| match nb.weight
                 { Bicolored(a, b) if a == b => true, _ => false}) {
-            return return GraphErr::new_err("Every bicolored edge has to have two distinct colors");
+            return GraphErr::new_err("Every bicolored edge has to have two distinct colors");
         }
 
         // check no black edges
         if self.map.edges.get_map().values().any(|nb|match nb.weight { Black => true, _ => false}) {
-            return return GraphErr::new_err("No black edges allowed");;
+            return GraphErr::new_err("No black edges allowed");;
         }
 
         // check vertex rule
@@ -1420,4 +1443,14 @@ impl<F: Clone> TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>> 
 
         return result.with_initialized_wood();
     }
+}
+
+impl<F: Clone> PartialEq for SchnyderMap<F> {
+    fn eq(&self, other: &Self) -> bool {
+        self.compute_identification_vector() == other.compute_identification_vector()
+    }
+}
+
+impl<F: Clone> Eq for SchnyderMap<F> {
+    // an equivalence relation it is
 }

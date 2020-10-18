@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::cmp::Ordering;
 use itertools::Itertools;
 
@@ -19,11 +19,14 @@ use std::process::Command;
 use crate::graph::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
 use crate::graph::io::{read_plantri_planar_code};
 use crate::graph::schnyder::algorithm::{make_contractible, make_inner_edge, full_pizza_lemma, OpType};
-use chrono::Utc;
-use petgraph::graph::Edge;
 use crate::algorithm::{compute_contraction_candidates, find_sequence, to_canonical_form, find_sequence_2};
 use crate::graph::EdgeEnd::{Tail, Head};
-use petgraph::algo::is_isomorphic;
+
+use petgraph::algo::{is_isomorphic, bellman_ford};
+use petgraph::prelude::*;
+use petgraph::Graph;
+use crate::petgraph_ext::to_sparse6;
+use std::time::Instant;
 
 #[macro_use]
 extern crate lazy_static;
@@ -31,13 +34,113 @@ extern crate lazy_static;
 mod graph;
 mod util;
 mod algorithm;
+mod petgraph_ext;
 
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
 }
 
 fn main() {
-    main4();
+    main5();
+}
+
+fn main5() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
+    let map = &maps[0];
+    let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+
+    let n = wood.map.vertex_count();
+
+    // now explore and log
+    let mut g = Graph::new_undirected();
+
+    let root_node_index = g.add_node(0);
+    //DEBUG.write().unwrap().activate();
+    DEBUG.write().unwrap().output("std", &wood, Some(&format!("{}", root_node_index.index())), &wood.calculate_face_counts());
+
+    let mut known = HashMap::new();
+    let mut inspected = HashSet::new();
+    known.insert(wood.compute_identification_vector(), root_node_index);
+
+    let mut stack = vec![wood];
+    let mut last_print = Instant::now();
+
+    while let Some(current) = stack.pop() {
+
+        let current_node_index = *known.get(&current.compute_identification_vector()).expect("TODO");
+
+        let admissible_ops = current.get_admissible_ops().expect("TODO");
+
+        let min = admissible_ops.iter().filter(|op| match op.operation_type {
+            OpType::Merge | OpType::ExtMerge => true,
+            _ => false
+        }).count() == 0;
+
+        /*if min {
+            println!("min with {} edges", current.map.edge_count());
+            DEBUG.write().unwrap().output("std", &current, Some(&format!("{} (edges = {})", current_node_index.index(), current.map.edge_count())), &current.calculate_face_counts());
+        }*/
+
+        for op in admissible_ops {
+
+            let mut neighbor = current.clone();
+            neighbor.do_operation(&op);
+            let nb_id = neighbor.compute_identification_vector();
+
+            if let Some(nb_node_index) = known.get(&nb_id) {
+                if !inspected.contains(nb_node_index) {
+                    g.add_edge(current_node_index, *nb_node_index, 1.0);
+                }
+            } else {
+                let nb_node_index = g.add_node(neighbor.map.edge_count());
+                DEBUG.write().unwrap().output("std", &neighbor, Some(&format!("{} (edges = {})", nb_node_index.index(), neighbor.map.edge_count())), &neighbor.calculate_face_counts());
+
+                g.add_edge(current_node_index, nb_node_index, 1.0f32);
+                known.insert(nb_id, nb_node_index);
+
+                stack.push(neighbor);
+            }
+        }
+
+        inspected.insert(current_node_index);
+
+        if last_print.elapsed().as_secs() > 5 {
+            let number_of_keys = known.keys().len();
+            let size_of_key = known.keys().next().unwrap().len();
+            let memory = (number_of_keys * size_of_key) as f64 / (1024f64 * 1024f64);
+            println!("Inspected nodes = {}, Memory = {:.2} MiB, stack size = {}", inspected.len(), memory, stack.len());
+            last_print = Instant::now();
+        }
+
+    }
+
+    let degrees = g.node_indices().map(|idx| g.neighbors(idx).count()).collect_vec();
+    let min_degree = degrees.iter().min().unwrap();
+    let max_degree = degrees.iter().max().unwrap();
+    let avg_degree = degrees.iter().sum::<usize>() as f64 / degrees.len() as f64;
+
+    eprintln!("g.node_count() = {:?}", g.node_count());
+    eprintln!("g.edge_count() = {:?}", g.edge_count());
+
+    eprintln!("lower bound = {:?}", (3*n - 9) as f64 /2.0);
+    eprintln!("upper bound = {:?}", n*n - 4*n + 4);
+
+    eprintln!("min_degree = {:?}", min_degree);
+    eprintln!("max_degree = {:?}", max_degree);
+    eprintln!("avg_degree = {:?}", avg_degree);
+
+
+
+    let sparse6 = to_sparse6(&g);
+    {
+        let mut file = File::create("/tmp/test.g6").expect("TODO");
+        file.write_all(&sparse6).expect("TODO");
+    }
+
 }
 
 fn main4() {
@@ -56,6 +159,8 @@ fn main4() {
     DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
+    eprintln!("wood.compute_identification_vector() = {:?}", wood.compute_identification_vector());
+
     loop {
         let admissible_ops = wood.get_admissible_ops().expect("?");
 
@@ -69,7 +174,9 @@ fn main4() {
         }) {
             let (before,_) = wood.map.into_petgraph();
 
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_identification_vector());
             wood.do_operation(op);
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_identification_vector());
             DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
             let (afterwards, _) = wood.map.into_petgraph();
