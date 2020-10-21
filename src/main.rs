@@ -12,7 +12,7 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::debug::Debug;
 use crate::graph::ClockDirection::{CCW, CW};
 use std::fs::File;
-use std::sync::RwLock;
+use std::sync::{RwLock, Arc, Mutex};
 use std::io::Write;
 use std::io::Read;
 use std::process::Command;
@@ -26,7 +26,10 @@ use petgraph::algo::{is_isomorphic, bellman_ford};
 use petgraph::prelude::*;
 use petgraph::Graph;
 use crate::petgraph_ext::to_sparse6;
-use std::time::Instant;
+use std::time::{Instant, Duration};
+use std::thread;
+use std::thread::sleep;
+use rand::{thread_rng, Rng};
 
 #[macro_use]
 extern crate lazy_static;
@@ -41,7 +44,172 @@ lazy_static! {
 }
 
 fn main() {
-    main5();
+    main6();
+}
+
+fn main6() {
+    let mut file = File::open("/tmp/test.tri").unwrap();
+    let mut data = Vec::new();
+    file.read_to_end(&mut data);
+
+    let mut g = Arc::new(Mutex::new(Graph::new_undirected()));
+    let mut known = Arc::new(Mutex::new(HashMap::new()));
+    let mut stack = Arc::new(Mutex::new(Vec::new()));
+
+    let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
+
+    for map in maps {
+        let mut wood1 = SchnyderMap::build_on_triangulation(&map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+        //let mut wood2 = wood1.clone();
+
+        /*loop {
+            let admissible = wood2.get_admissible_ops().unwrap().into_iter().filter(|op| match op.operation_type { OpType::Merge | OpType::ExtMerge => true, _ => false}).collect_vec();
+            if admissible.is_empty() { break };
+
+            wood2.do_operation(&admissible[0]);
+        }*/
+
+        let root_node_index1 = g.lock().unwrap().add_node(wood1.map.edge_count());
+        //let root_node_index2 = g.lock().unwrap().add_node(wood2.map.edge_count());
+
+        known.lock().unwrap().insert(wood1.compute_identification_vector(), root_node_index1);
+        //known.lock().unwrap().insert(wood2.compute_identification_vector(), root_node_index2);
+
+        stack.lock().unwrap().push(wood1);
+        //stack.lock().unwrap().push(wood2);
+    }
+
+    let n = stack.lock().unwrap()[0].map.vertex_count();
+
+    //DEBUG.write().unwrap().activate();
+    //DEBUG.write().unwrap().output("std", &wood, Some(&format!("{}", root_node_index.index())), &wood.calculate_face_counts());
+    //let mut inspected = Arc::new(Mutex::new(HashSet::new()));
+
+    let mut handles = Vec::new();
+
+    let num_threads = if let Some(Ok(num)) = std::env::args().nth(1).map(|str| str.parse()) {
+        num
+    } else { 1 };
+
+    println!("Using {} threads.", num_threads);
+
+    for i in 0..num_threads {
+        let stack = Arc::clone(&stack);
+        let g = Arc::clone(&g);
+        let known = Arc::clone(&known);
+        //let inspected = Arc::clone(&inspected);
+
+        let mut last_print = Instant::now();
+        let mut nr_inspected = 0;
+
+        let handle = thread::spawn(move || {
+            let mut rnd = thread_rng();
+
+            loop {
+                let mut stack_ = stack.lock().unwrap();
+
+                let len = stack_.len();
+                let current_optional = stack_.pop();
+                drop(stack_);
+
+                if current_optional.is_none() {
+                    break;
+                }
+                let current = current_optional.unwrap();
+                nr_inspected += 1;
+
+                let admissible_ops = current.get_admissible_ops().expect("TODO");
+
+                let neighbors = admissible_ops.iter().map(|op| {
+                    let mut neighbor = current.clone();
+                    neighbor.do_operation(&op);
+                    let nb_id = neighbor.compute_identification_vector();
+                    return (nb_id, neighbor);
+                }).collect_vec();
+
+                for (nb_id, neighbor) in neighbors {
+                    let mut known = known.lock().unwrap();
+                    let mut g = g.lock().unwrap();
+
+                    let current_node_index = known.get(&current.compute_identification_vector()).expect("TODO");
+
+                    if let Some(nb_node_index) = known.get(&nb_id) {
+                        if !g.contains_edge(*current_node_index, *nb_node_index) {
+                            g.add_edge(*current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(*current_node_index, nb_node_index, 1.0f32);
+                        DEBUG.write().unwrap().output("std", &neighbor, Some(&format!("{} (edges = {})", nb_node_index.index(), neighbor.map.edge_count())), &neighbor.calculate_face_counts());
+
+                        known.insert(nb_id, nb_node_index);
+                        stack.lock().unwrap().push(neighbor);
+                    }
+                }
+
+                //inspected.lock().unwrap().insert(current_node_index);
+
+                if last_print.elapsed().as_secs() > 5 {
+                    /*let number_of_keys = known.lock().unwrap().keys().len();
+                    let size_of_key = known.lock().unwrap().keys().next().unwrap().len();
+                    let memory = (number_of_keys * size_of_key) as f64 / (1024f64 * 1024f64);
+                    println!("{} Inspected nodes = {}, Memory = {:.2} MiB, stack size = {}", i, inspected.lock().unwrap().len(), memory, stack.lock().unwrap().len());*/
+
+                    println!("{}: inspected {}", i, nr_inspected);
+                    last_print = Instant::now();
+                }
+            }
+        });
+        handles.push(handle);
+        //sleep(Duration::new(0, 300000));
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let g = g.lock().unwrap();
+
+    let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
+
+    print_header();
+    print_statistics("ALL", g.node_indices().collect(), &*g);
+    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| **level) {
+        print_statistics(&format!("Level {}", level), indices, &*g);
+    }
+
+    eprintln!("NODES = {:?}", g.node_count());
+    eprintln!("EDGES = {:?}", g.edge_count());
+
+    /*let sparse6 = to_sparse6(&*g);
+    {
+        let mut file = File::create("/tmp/test.g6").expect("TODO");
+        file.write_all(&sparse6).expect("TODO");
+    }*/
+}
+
+fn print_statistics<Y>(name: &str, nodes: Vec<NodeIndex>, g: &Graph<usize,Y, Undirected>) {
+
+    let degrees = nodes.iter().map(|idx| g.neighbors(*idx).count()).collect_vec();
+    let down_degrees = nodes.iter().map(|idx| g.neighbors(*idx).filter(|nb| g.node_weight(*nb) < g.node_weight(*idx)).count()).collect_vec();
+    let up_degrees = nodes.iter().map(|idx| g.neighbors(*idx).filter(|nb| g.node_weight(*nb) > g.node_weight(*idx)).count()).collect_vec();
+
+    let min_degree = degrees.iter().min().unwrap();
+    let max_degree = degrees.iter().max().unwrap();
+
+    let minimums = nodes.iter().filter(|idx| g.neighbors(**idx).filter(|nb| g.node_weight(*nb) < g.node_weight(**idx)).count() == 0).collect_vec();
+
+    let min_up_degree = up_degrees.iter().min().unwrap();
+    let max_up_degree = up_degrees.iter().max().unwrap();
+    let min_down_degree = down_degrees.iter().min().unwrap();
+    let max_down_degree = down_degrees.iter().max().unwrap();
+    let avg_degree = degrees.iter().sum::<usize>() as f64 / degrees.len() as f64;
+
+    println!("{:<10} {:>10} {:>10} {:>10.2} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", name, nodes.len(), min_degree, avg_degree, max_degree, min_up_degree, max_up_degree, min_down_degree, max_down_degree, minimums.len());
+}
+
+fn print_header() {
+    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "Subset", "Card", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "Minima");
 }
 
 fn main5() {
@@ -75,10 +243,10 @@ fn main5() {
 
         let admissible_ops = current.get_admissible_ops().expect("TODO");
 
-        let min = admissible_ops.iter().filter(|op| match op.operation_type {
+        /*let min = admissible_ops.iter().filter(|op| match op.operation_type {
             OpType::Merge | OpType::ExtMerge => true,
             _ => false
-        }).count() == 0;
+        }).count() == 0;*/
 
         /*if min {
             println!("min with {} edges", current.map.edge_count());
@@ -132,8 +300,6 @@ fn main5() {
     eprintln!("min_degree = {:?}", min_degree);
     eprintln!("max_degree = {:?}", max_degree);
     eprintln!("avg_degree = {:?}", avg_degree);
-
-
 
     let sparse6 = to_sparse6(&g);
     {

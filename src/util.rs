@@ -207,12 +207,12 @@ pub mod debug {
             let mut f = File::create(format!("{}/{}/{}.tex", basedir, context, name)).expect("Unable to create file");
             f.write_all(tikz_string.as_bytes()).expect("Unable to write data");
 
-            Command::new("xelatex").current_dir(format!("{}/{}", basedir, context)).arg(format!("{}.tex", name)).output();
+            //Command::new("xelatex").current_dir(format!("{}/{}", basedir, context)).arg(format!("{}.tex", name)).output();
             /*Command::new("pdftoppm").current_dir(format!("{}/{}", basedir, context))
                 .arg(format!("{}.pdf", name))
                 .arg(format!("{}/{}", outputdir, name))
                 .arg("-png").arg("-singlefile").output();*/
-            let s = String::from_utf8(Command::new("convert")
+            /*let s = String::from_utf8(Command::new("convert")
                 .current_dir(format!("{}/{}", basedir, context))
                 .arg("-density")
                 .arg("300")
@@ -220,7 +220,7 @@ pub mod debug {
                 .arg("#FFFFFF")
                 .arg("-flatten")
                 .arg(format!("{}.pdf", name))
-                .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);
+                .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);*/
 
             //println!("{}", s.unwrap());
         }
