@@ -4,17 +4,29 @@ use std::collections::{HashSet, HashMap};
 use itertools::Itertools;
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::IndexType;
+use petgraph::visit::NodeRef;
 
 pub fn to_edge_list<N, E, Ty: EdgeType, Ix: IndexType>(g: &Graph<N, E, Ty, Ix>) -> Vec<u8> {
     let mut result = Vec::with_capacity((g.edge_count()+1) * 8 * 2);
     let n = g.edge_count();
     result.extend(&n.to_le_bytes());
+    let map :HashMap<_, _> =  g.node_indices().enumerate().map(|(i, index)| (index, i)).collect();
 
     for edge in g.edge_indices() {
         let (a, b) = g.edge_endpoints(edge).unwrap();
 
-        result.extend(&a.index().to_le_bytes());
-        result.extend(&b.index().to_le_bytes());
+        result.extend(&map.get(&a).unwrap().to_le_bytes());
+        result.extend(&map.get(&b).unwrap().to_le_bytes());
+    }
+
+    return result;
+}
+
+pub fn to_level_list<E, Ty: EdgeType, Ix: IndexType>(g: &Graph<usize, E, Ty, Ix>) -> Vec<u8> {
+    let mut result = Vec::with_capacity(g.node_count());
+
+    for node in g.node_indices() {
+        result.push(*g.node_weight(node).unwrap() as u8);
     }
 
     return result;

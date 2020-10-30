@@ -25,7 +25,7 @@ use crate::graph::EdgeEnd::{Tail, Head};
 use petgraph::algo::{is_isomorphic, bellman_ford};
 use petgraph::prelude::*;
 use petgraph::Graph;
-use crate::petgraph_ext::{to_sparse6, to_edge_list};
+use crate::petgraph_ext::{to_sparse6, to_edge_list, to_level_list};
 use std::time::{Instant, Duration};
 use std::thread;
 use std::thread::sleep;
@@ -199,9 +199,13 @@ fn main6() {
     }*/
     let edge_list = to_edge_list(&g);
     {
-        let mut file = File::create("/tmp/test.plc").expect("TODO");
-        //file.write_all(">>planar_code<<".as_bytes());
+        let mut file = File::create("/tmp/test.els").expect("TODO");
         file.write_all(&edge_list).expect("TODO");
+    }
+    let level_list = to_level_list(&g);
+    {
+        let mut file = File::create("/tmp/test.lls").expect("TODO");
+        file.write_all(&level_list).expect("TODO");
     }
 }
 
