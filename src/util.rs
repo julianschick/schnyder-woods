@@ -146,6 +146,8 @@ pub mod debug {
             self.active = false;
         }
 
+        pub fn is_active(&self) -> bool { self.active }
+
         fn delete_all_files(dir: &str) {
             for entry in read_dir(dir).unwrap() {
                 let p = entry.unwrap().path();

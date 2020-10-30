@@ -25,7 +25,7 @@ use crate::graph::EdgeEnd::{Tail, Head};
 use petgraph::algo::{is_isomorphic, bellman_ford};
 use petgraph::prelude::*;
 use petgraph::Graph;
-use crate::petgraph_ext::to_sparse6;
+use crate::petgraph_ext::{to_sparse6, to_edge_list};
 use std::time::{Instant, Duration};
 use std::thread;
 use std::thread::sleep;
@@ -57,33 +57,38 @@ fn main6() {
     let mut stack = Arc::new(Mutex::new(Vec::new()));
 
     let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
+    let n = maps[0].vertex_count();
+    DEBUG.write().unwrap().activate();
 
-    for map in maps {
-        let mut wood1 = SchnyderMap::build_on_triangulation(&map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
-        //let mut wood2 = wood1.clone();
+    {
+        let mut g = g.lock().unwrap();
+        let mut known = known.lock().unwrap();
+        let mut stack = stack.lock().unwrap();
 
-        /*loop {
-            let admissible = wood2.get_admissible_ops().unwrap().into_iter().filter(|op| match op.operation_type { OpType::Merge | OpType::ExtMerge => true, _ => false}).collect_vec();
-            if admissible.is_empty() { break };
+        for map in maps {
+            let mut wood1 = SchnyderMap::build_on_triangulation(&map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
+            let mut wood2 = wood1.clone();
 
-            wood2.do_operation(&admissible[0]);
-        }*/
+            loop {
+                let admissible = wood2.get_admissible_ops().unwrap().into_iter().filter(|op| match op.operation_type { OpType::Merge | OpType::ExtMerge => true, _ => false}).collect_vec();
+                if admissible.is_empty() { break };
+                wood2.do_operation(&admissible[0]);
+            }
 
-        let root_node_index1 = g.lock().unwrap().add_node(wood1.map.edge_count());
-        //let root_node_index2 = g.lock().unwrap().add_node(wood2.map.edge_count());
+            let root_node_index1 = g.add_node(wood1.map.edge_count());
+            known.insert(wood1.compute_identification_vector(), root_node_index1);
+            //debug_wood(&wood1, root_node_index1);
+            stack.push(wood1);
 
-        known.lock().unwrap().insert(wood1.compute_identification_vector(), root_node_index1);
-        //known.lock().unwrap().insert(wood2.compute_identification_vector(), root_node_index2);
-
-        stack.lock().unwrap().push(wood1);
-        //stack.lock().unwrap().push(wood2);
+            let id2 = wood2.compute_identification_vector();
+            if !known.contains_key(&id2) {
+                let root_node_index2 = g.add_node(wood2.map.edge_count());
+                known.insert(id2, root_node_index2);
+                //debug_wood(&wood2, root_node_index2);
+                stack.push(wood2);
+            }
+        }
     }
-
-    let n = stack.lock().unwrap()[0].map.vertex_count();
-
-    //DEBUG.write().unwrap().activate();
-    //DEBUG.write().unwrap().output("std", &wood, Some(&format!("{}", root_node_index.index())), &wood.calculate_face_counts());
-    //let mut inspected = Arc::new(Mutex::new(HashSet::new()));
 
     let mut handles = Vec::new();
 
@@ -140,7 +145,13 @@ fn main6() {
                     } else {
                         let nb_node_index = g.add_node(neighbor.map.edge_count());
                         g.add_edge(*current_node_index, nb_node_index, 1.0f32);
-                        DEBUG.write().unwrap().output("std", &neighbor, Some(&format!("{} (edges = {})", nb_node_index.index(), neighbor.map.edge_count())), &neighbor.calculate_face_counts());
+
+                        let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        if cond1 && cond2 {
+                            debug_wood(&neighbor, nb_node_index);
+                        }
 
                         known.insert(nb_id, nb_node_index);
                         stack.lock().unwrap().push(neighbor);
@@ -186,6 +197,23 @@ fn main6() {
         let mut file = File::create("/tmp/test.g6").expect("TODO");
         file.write_all(&sparse6).expect("TODO");
     }*/
+    let edge_list = to_edge_list(&g);
+    {
+        let mut file = File::create("/tmp/test.plc").expect("TODO");
+        //file.write_all(">>planar_code<<".as_bytes());
+        file.write_all(&edge_list).expect("TODO");
+    }
+}
+
+fn debug_wood<F: Clone>(wood: &SchnyderMap<F>, index: NodeIndex) {
+
+    if (DEBUG.read().unwrap().is_active()) {
+        let minimum = !wood.get_admissible_ops().unwrap().iter().any(|op| match op.operation_type {
+            OpType::Merge | OpType::ExtMerge => true,
+            _ => false
+        });
+        DEBUG.write().unwrap().output("nodes", &wood, Some(&format!("{} (level {}, minimum = {})", index.index(), wood.map.edge_count(), minimum)), &wood.calculate_face_counts());
+    }
 }
 
 fn print_statistics<Y>(name: &str, nodes: Vec<NodeIndex>, g: &Graph<usize,Y, Undirected>) {
