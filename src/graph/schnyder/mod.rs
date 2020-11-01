@@ -216,6 +216,60 @@ pub enum SchnyderBuildMode {
     LeftMost, Random, RightMost
 }
 
+impl SchnyderMap<()> {
+    pub fn build_apollonian_path(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap<()>> {
+        if vertex_count < 3 {
+            return GraphErr::new_err("Apollonian paths can not be constructed less than 3 vertices.");
+        }
+
+        let mut map = PlanarMap::new();
+
+        let r = map.add_vertex(Suspension(Red));
+        let g = map.add_vertex(Suspension(Green));
+        let b = map.add_vertex(Suspension(Blue));
+
+        map.add_edge(r, g, Bicolored(Green, Red));
+        map.add_edge(g, b, Bicolored(Blue, Green));
+        map.add_edge(b, r, Bicolored(Red, Blue));
+
+        let mut susp = HashMap::new();
+        susp.insert(Red, r);
+        susp.insert(Green, g);
+        susp.insert(Blue, b);
+
+        let mut faces = Vec::with_capacity(2 * vertex_count - 4);
+        faces.push((vec![r, g, b], ())); // outer face
+
+        let mut path = Vec::with_capacity(vertex_count - 2);
+        path.push(*susp.get(&color).unwrap());
+        for _ in 0..vertex_count-3 {
+            path.push(map.add_vertex(Normal(0)))
+        }
+
+        for (a, b) in path.iter().tuple_windows() {
+            map.add_edge(*b, *a, Unicolored(color, Forward));
+
+            // left and right edge
+            map.add_edge(*b,  *susp.get(&color.prev()).unwrap(), Unicolored(color.prev(), Forward));
+            map.add_edge(*b,  *susp.get(&color.next()).unwrap(), Unicolored(color.next(), Forward));
+
+            faces.push((vec![*b, *a, *susp.get(&color.prev()).unwrap()], ())); // left face
+            faces.push((vec![*a, *b, *susp.get(&color.next()).unwrap()], ())); // right face
+        }
+
+        // base face
+        faces.push((vec![*susp.get(&color.prev()).unwrap(), *susp.get(&color.next()).unwrap(), *path.last().unwrap()], ()));
+        map.set_embedding(faces)?;
+
+        let outer_face = map.get_face(r, g, Side::Left);
+
+        Ok(SchnyderMap {
+            map, outer_face,
+            red_vertex: r, green_vertex: g, blue_vertex: b
+        })
+    }
+}
+
 impl<F: Clone> SchnyderMap<F> {
 
     /// the suspension vertex with the lowest index gets red, the next one green, and the vertex
@@ -384,17 +438,29 @@ impl<F: Clone> SchnyderMap<F> {
         return result;
     }
 
-    pub fn compute_identification_vector(&self) -> Vec<u8> {
+    pub fn compute_standard_identification_vector(&self) -> Vec<u8> {
+        self.compute_identification_vector(Red, CW)
+    }
+
+    pub fn compute_identification_vector(&self, color: SchnyderColor, direction: ClockDirection) -> Vec<u8> {
         if self.map.vertex_count() > 255 {
             panic!("geht nicht");
         }
 
         let mut result = Vec::with_capacity(self.map.vertex_count() * 3);
 
-        let vertices = self.get_vertices_in_bfs_order(Red, CW);
+        let vertices = self.get_vertices_in_bfs_order(color, direction);
         let index_map: HashMap<_, _> = vertices.iter().enumerate().map(|(index, v)| (v, index + 1)).collect();
 
-        for c in &[Red, Green, Blue] {
+        let cw = [color, color.next(), color.prev()];
+        let ccw = [color, color.prev(), color.next()];
+
+        let order = match direction {
+            CW => &cw,
+            CCW => &ccw
+        };
+
+        for c in order {
             for v in &vertices {
                 let parent = if let Ok(parent_vertex) = self.find_outgoing_endvertex(*v, *c) {
                     *index_map.get(&parent_vertex).unwrap() as u8
@@ -1447,7 +1513,7 @@ impl<F: Clone> TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>> 
 
 impl<F: Clone> PartialEq for SchnyderMap<F> {
     fn eq(&self, other: &Self) -> bool {
-        self.compute_identification_vector() == other.compute_identification_vector()
+        self.compute_standard_identification_vector() == other.compute_standard_identification_vector()
     }
 }
 

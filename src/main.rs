@@ -30,6 +30,7 @@ use std::time::{Instant, Duration};
 use std::thread;
 use std::thread::sleep;
 use rand::{thread_rng, Rng};
+use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
 
 #[macro_use]
 extern crate lazy_static;
@@ -38,13 +39,29 @@ mod graph;
 mod util;
 mod algorithm;
 mod petgraph_ext;
+mod flipgraph;
 
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
 }
 
 fn main() {
-    main6();
+    main7();
+}
+
+fn main7() {
+    let g = build_flipgraph(8, SymmetryBreaking::None, 8);
+
+    let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
+
+    print_header();
+    print_statistics("ALL", g.node_indices().collect(), &g);
+    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| **level) {
+        print_statistics(&format!("Level {}", level), indices, &g);
+    }
+
+    eprintln!("NODES = {:?}", g.node_count());
+    eprintln!("EDGES = {:?}", g.edge_count());
 }
 
 fn main6() {
@@ -56,8 +73,8 @@ fn main6() {
     let mut known = Arc::new(Mutex::new(HashMap::new()));
     let mut stack = Arc::new(Mutex::new(Vec::new()));
 
-    let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
-    let n = maps[0].vertex_count();
+    //let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
+    let n = 6;
     DEBUG.write().unwrap().activate();
 
     {
@@ -65,7 +82,7 @@ fn main6() {
         let mut known = known.lock().unwrap();
         let mut stack = stack.lock().unwrap();
 
-        for map in maps {
+        /*for map in maps {
             let mut wood1 = SchnyderMap::build_on_triangulation(&map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
             let mut wood2 = wood1.clone();
 
@@ -76,18 +93,29 @@ fn main6() {
             }
 
             let root_node_index1 = g.add_node(wood1.map.edge_count());
-            known.insert(wood1.compute_identification_vector(), root_node_index1);
-            //debug_wood(&wood1, root_node_index1);
+            known.insert(wood1.compute_identification_vector(Red), root_node_index1);
+            debug_wood(&wood1, root_node_index1);
             stack.push(wood1);
 
-            let id2 = wood2.compute_identification_vector();
+            let id2 = wood2.compute_identification_vector(Red);
             if !known.contains_key(&id2) {
                 let root_node_index2 = g.add_node(wood2.map.edge_count());
                 known.insert(id2, root_node_index2);
-                //debug_wood(&wood2, root_node_index2);
+                debug_wood(&wood2, root_node_index2);
                 stack.push(wood2);
             }
+        }*/
+
+        let mut wood1 = SchnyderMap::build_apollonian_path(n, Red).expect("TODO");
+        let root_node_index1 = g.add_node(wood1.map.edge_count());
+        for color in &[Red, Green, Blue] {
+            for dir in &[CW, CCW] {
+                known.insert(wood1.compute_identification_vector(*color, *dir), root_node_index1);
+            }
         }
+        debug_wood(&wood1, root_node_index1);
+        stack.push(wood1);
+
     }
 
     let mut handles = Vec::new();
@@ -128,7 +156,15 @@ fn main6() {
                 let neighbors = admissible_ops.iter().map(|op| {
                     let mut neighbor = current.clone();
                     neighbor.do_operation(&op);
-                    let nb_id = neighbor.compute_identification_vector();
+                    let nb_id = (
+                        neighbor.compute_identification_vector(Red, CW),
+                        neighbor.compute_identification_vector(Green, CW),
+                        neighbor.compute_identification_vector(Blue, CW),
+                        neighbor.compute_identification_vector(Red, CCW),
+                        neighbor.compute_identification_vector(Green, CCW),
+                        neighbor.compute_identification_vector(Blue, CCW)
+                    );
+
                     return (nb_id, neighbor);
                 }).collect_vec();
 
@@ -136,26 +172,154 @@ fn main6() {
                     let mut known = known.lock().unwrap();
                     let mut g = g.lock().unwrap();
 
-                    let current_node_index = known.get(&current.compute_identification_vector()).expect("TODO");
+                    let current_node_index = *known.get(&current.compute_standard_identification_vector()).expect("TODO");
 
-                    if let Some(nb_node_index) = known.get(&nb_id) {
-                        if !g.contains_edge(*current_node_index, *nb_node_index) {
-                            g.add_edge(*current_node_index, *nb_node_index, 1.0);
+                    //println!("{} - {:?}", current_node_index.index(), current.compute_standard_identification_vector());
+
+                    if let Some(nb_node_index) = known.get(&nb_id.0) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
                         }
                     } else {
                         let nb_node_index = g.add_node(neighbor.map.edge_count());
-                        g.add_edge(*current_node_index, nb_node_index, 1.0f32);
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
 
-                        let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
-                        let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
 
-                        if cond1 && cond2 {
-                            debug_wood(&neighbor, nb_node_index);
-                        }
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
 
-                        known.insert(nb_id, nb_node_index);
-                        stack.lock().unwrap().push(neighbor);
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
                     }
+
+                    if let Some(nb_node_index) = known.get(&nb_id.1) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
+
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
+
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
+                    }
+
+                    if let Some(nb_node_index) = known.get(&nb_id.2) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
+
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
+
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
+                    }
+
+                    if let Some(nb_node_index) = known.get(&nb_id.3) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
+
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
+
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
+                    }
+
+                    if let Some(nb_node_index) = known.get(&nb_id.4) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
+
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
+
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
+                    }
+
+                    if let Some(nb_node_index) = known.get(&nb_id.5) {
+                        if !g.contains_edge(current_node_index, *nb_node_index) {
+                            g.add_edge(current_node_index, *nb_node_index, 1.0);
+                        }
+                    } else {
+                        let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        g.add_edge(current_node_index, nb_node_index, 1.0f32);
+
+                        //let cond1 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::ExtSplit => true, _ => false}).count() == 1;
+                        //let cond2 = neighbor.get_admissible_ops().unwrap().iter().filter(|op| match op.operation_type { OpType::Split => true, _ => false}).count() == 0;
+
+                        //if cond1 && cond2 {
+                        debug_wood(&neighbor, nb_node_index);
+                        //}
+
+                        known.insert(nb_id.0.clone(), nb_node_index);
+                        known.insert(nb_id.1.clone(), nb_node_index);
+                        known.insert(nb_id.2.clone(), nb_node_index);
+                        known.insert(nb_id.3.clone(), nb_node_index);
+                        known.insert(nb_id.4.clone(), nb_node_index);
+                        known.insert(nb_id.5.clone(), nb_node_index);
+                        stack.lock().unwrap().push(neighbor.clone());
+                    }
+
                 }
 
                 //inspected.lock().unwrap().insert(current_node_index);
@@ -206,6 +370,17 @@ fn main6() {
     {
         let mut file = File::create("/tmp/test.lls").expect("TODO");
         file.write_all(&level_list).expect("TODO");
+    }
+
+    let json = serde_json::to_string(&*g).unwrap();
+    {
+        let mut file = File::create("/tmp/test.json").expect("TODO");
+        file.write_all(json.as_bytes());
+    }
+
+    {
+        let mut file = File::create("/tmp/test.cbor").expect("TODO");
+        serde_cbor::to_writer(file, &*g).expect("TODO");
     }
 }
 
@@ -264,14 +439,14 @@ fn main5() {
 
     let mut known = HashMap::new();
     let mut inspected = HashSet::new();
-    known.insert(wood.compute_identification_vector(), root_node_index);
+    known.insert(wood.compute_standard_identification_vector(), root_node_index);
 
     let mut stack = vec![wood];
     let mut last_print = Instant::now();
 
     while let Some(current) = stack.pop() {
 
-        let current_node_index = *known.get(&current.compute_identification_vector()).expect("TODO");
+        let current_node_index = *known.get(&current.compute_standard_identification_vector()).expect("TODO");
 
         let admissible_ops = current.get_admissible_ops().expect("TODO");
 
@@ -289,7 +464,7 @@ fn main5() {
 
             let mut neighbor = current.clone();
             neighbor.do_operation(&op);
-            let nb_id = neighbor.compute_identification_vector();
+            let nb_id = neighbor.compute_standard_identification_vector();
 
             if let Some(nb_node_index) = known.get(&nb_id) {
                 if !inspected.contains(nb_node_index) {
@@ -357,7 +532,7 @@ fn main4() {
     DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
-    eprintln!("wood.compute_identification_vector() = {:?}", wood.compute_identification_vector());
+    eprintln!("wood.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
 
     loop {
         let admissible_ops = wood.get_admissible_ops().expect("?");
@@ -372,9 +547,9 @@ fn main4() {
         }) {
             let (before,_) = wood.map.into_petgraph();
 
-            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_identification_vector());
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
             wood.do_operation(op);
-            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_identification_vector());
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
             DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
             let (afterwards, _) = wood.map.into_petgraph();
