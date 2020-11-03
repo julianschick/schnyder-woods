@@ -12,6 +12,8 @@ use rand::thread_rng;
 use itertools::Itertools;
 use std::thread::sleep;
 use std::sync::atomic::AtomicBool;
+use std::cmp::Ordering;
+use std::sync::mpsc::channel;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
@@ -33,9 +35,7 @@ impl SymmetryBreaking {
                 }
                 return result;
             }
-
         }
-
     }
 }
 
@@ -58,16 +58,23 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
     }
 
     let mut handles = Vec::new();
+    let (tx, rx) = channel();
 
-    println!("Using {} threads.", thread_count);
+    println!("Traversing the flipgraph in {} threads.", thread_count);
 
     for i in 0..thread_count {
         let stack = Arc::clone(&stack);
         let g = Arc::clone(&g);
         let known = Arc::clone(&known);
 
+        let tx = tx.clone();
+        let mut informed_others = false;
+
         let mut last_print = Instant::now();
-        let mut nr_inspected = 0;
+        let mut nodes_checked = 0usize;
+        let mut last_nodes_checked = 0usize;
+        let mut nodes_added = 0usize;
+        let mut last_nodes_added = 0usize;
 
         let handle = thread::spawn(move || {
 
@@ -79,10 +86,18 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                 drop(stack_);
 
                 if current_optional.is_none() {
+                    if i == 0 && !informed_others {
+                        tx.send(true).expect("Multithreading did not work as expected");
+                    }
                     break;
                 }
                 let current = current_optional.unwrap();
-                nr_inspected += 1;
+
+                nodes_checked += 1;
+
+                if i == 0 && !informed_others && len > thread_count*2 {
+                    tx.send(true);
+                }
 
                 let admissible_ops = current.get_admissible_ops().expect("TODO");
 
@@ -115,6 +130,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                         }
                     } else {
                         let nb_node_index = g.add_node(neighbor.map.edge_count());
+                        nodes_added += 1;
                         g.add_edge(current_node_index, nb_node_index, 1.0f32);
 
                         known.insert(nb_ids.pop_front().unwrap(), nb_node_index);
@@ -123,21 +139,29 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
 
                 }
 
-                //inspected.lock().unwrap().insert(current_node_index);
-
                 if last_print.elapsed().as_secs() > 5 {
-                    /*let number_of_keys = known.lock().unwrap().keys().len();
-                    let size_of_key = known.lock().unwrap().keys().next().unwrap().len();
-                    let memory = (number_of_keys * size_of_key) as f64 / (1024f64 * 1024f64);
-                    println!("{} Inspected nodes = {}, Memory = {:.2} MiB, stack size = {}", i, inspected.lock().unwrap().len(), memory, stack.lock().unwrap().len());*/
 
-                    println!("{}: inspected {}", i, nr_inspected);
+                    if i == 0 {
+                        println!("{:<8}|{:>14}|{:>14}|", "TOTAL", "NODES", "STACKLEN");
+                        println!("{:<8}|{:>14}|{:>14}|", ">>>", g.lock().unwrap().node_count(), stack.lock().unwrap().len());
+                        println!("{:<8}|{:<14}|{:<14}|{:<14}|{:<14}|{:<14}|", "THREAD", "N_CHECK", "N_CHECK/s", "N_ADD", "N_ADD/s", "ADD/CHECK");
+
+                    }
+
+                    let ratio = (nodes_added - last_nodes_added) as f32 /  (nodes_checked - last_nodes_checked) as f32;
+                    println!("{:<8}|{:>14}|{:>14}|{:>14}|{:>14}|{:>14.4}|", i, nodes_checked, (nodes_checked - last_nodes_checked) / 5, nodes_added, (nodes_added - last_nodes_added) / 5, ratio);
+                    last_nodes_added = nodes_added;
+                    last_nodes_checked = nodes_checked;
+
                     last_print = Instant::now();
                 }
             }
         });
         handles.push(handle);
-        sleep(Duration::new(0, 300000));
+
+        if i == 0 {
+            rx.recv().expect("Multithreading did not work as expected");
+        }
     }
 
     for handle in handles {

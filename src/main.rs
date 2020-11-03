@@ -50,7 +50,7 @@ fn main() {
 }
 
 fn main7() {
-    let g = build_flipgraph(8, SymmetryBreaking::None, 8);
+    let g = build_flipgraph(9, SymmetryBreaking::None, 4);
 
     let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
 
