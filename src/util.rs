@@ -180,7 +180,7 @@ pub mod debug {
             return result;
         }
 
-        pub fn output<F: Clone>(&mut self, context: &str, wood: &SchnyderMap<F>, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
+        pub fn output(&mut self, context: &str, wood: &SchnyderMap, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
             if !self.active {
                 return;
             }

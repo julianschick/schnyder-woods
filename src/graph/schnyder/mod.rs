@@ -203,8 +203,8 @@ struct SplitData {
     target_face: FaceI
 }
 
-pub struct SchnyderMap<F: Clone> {
-    pub map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>,
+pub struct SchnyderMap {
+    pub map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>,
     //
     outer_face: FaceI,
     red_vertex: VertexI,
@@ -216,8 +216,9 @@ pub enum SchnyderBuildMode {
     LeftMost, Random, RightMost
 }
 
-impl SchnyderMap<()> {
-    pub fn build_apollonian_path(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap<()>> {
+impl SchnyderMap {
+
+    pub fn build_apollonian_path(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
         if vertex_count < 3 {
             return GraphErr::new_err("Apollonian paths can not be constructed less than 3 vertices.");
         }
@@ -268,17 +269,14 @@ impl SchnyderMap<()> {
             red_vertex: r, green_vertex: g, blue_vertex: b
         })
     }
-}
-
-impl<F: Clone> SchnyderMap<F> {
 
     /// the suspension vertex with the lowest index gets red, the next one green, and the vertex
     /// with the hightest index gets blue.
-    pub fn build_on_triangulation<E, N>(
-        map: &PlanarMap<N, E, F>,
+    pub fn build_on_triangulation<N, E>(
+        map: &PlanarMap<N, E, ()>,
         outer_face: FaceI,
         mode: SchnyderBuildMode
-    ) -> GraphResult<SchnyderMap<F>> {
+    ) -> GraphResult<SchnyderMap> {
 
         if !map.is_embedded() {
             return GraphErr::new_err("Underlying planar map has to be embedded");
@@ -386,9 +384,9 @@ impl<F: Clone> SchnyderMap<F> {
         return SchnyderMap::try_from(smap);
     }
 
-    pub fn clone_with_maps<Ff: Clone>(&self, face_map: Option<fn(&F) -> Ff>) -> SchnyderMap<Ff> {
+    pub fn clone(&self) -> SchnyderMap {
         SchnyderMap {
-            map: self.map.clone_with_maps(|v| *v, |e| *e, face_map),
+            map: self.map.clone_with_maps(|v| *v, |e| *e, Some(|_|())),
             outer_face: self.outer_face,
             red_vertex: self.red_vertex,
             green_vertex: self.green_vertex,
@@ -396,11 +394,7 @@ impl<F: Clone> SchnyderMap<F> {
         }
     }
 
-    pub fn clone(&self) -> Self {
-        self.clone_with_maps(Some(|face_weight| face_weight.clone()))
-    }
-
-    pub fn get_vertex_map(&self, wood2: &SchnyderMap<F>) -> GraphResult<BiMap<VertexI, VertexI>> {
+    pub fn get_vertex_map(&self, wood2: &SchnyderMap) -> GraphResult<BiMap<VertexI, VertexI>> {
         let wood1 = self;
         if wood1.map.vertex_count() != wood2.map.vertex_count() {
             return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
@@ -1494,10 +1488,10 @@ impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
     }
 }
 
-impl<F: Clone> TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>> for SchnyderMap<F> {
+impl TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>> for SchnyderMap {
     type Error = GraphErr;
 
-    fn try_from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>) -> GraphResult<SchnyderMap<F>> {
+    fn try_from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>) -> GraphResult<SchnyderMap> {
 
         let mut result = SchnyderMap {
             map,
@@ -1511,12 +1505,12 @@ impl<F: Clone> TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F>> 
     }
 }
 
-impl<F: Clone> PartialEq for SchnyderMap<F> {
+impl PartialEq for SchnyderMap {
     fn eq(&self, other: &Self) -> bool {
         self.compute_standard_identification_vector() == other.compute_standard_identification_vector()
     }
 }
 
-impl<F: Clone> Eq for SchnyderMap<F> {
+impl Eq for SchnyderMap {
     // an equivalence relation it is
 }

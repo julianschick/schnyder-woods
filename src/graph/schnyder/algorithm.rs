@@ -143,7 +143,7 @@ impl Debug for Operation {
     }
 }
 
-impl<F: Clone> SchnyderMap<F> {
+impl SchnyderMap {
 
     pub fn do_operation(&mut self, op: &Operation) -> GraphResult<()> {
         match op.operation_type {
@@ -220,7 +220,7 @@ impl<F: Clone> SchnyderMap<F> {
 
 }
 
-fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Vec<EdgeI>, debug: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> Vec<Operation> {
+fn flip_over_to_triangle(wood: &mut SchnyderMap, mut flip_edges: Vec<EdgeI>, debug: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> Vec<Operation> {
     let mut result = Vec::new();
     while flip_edges.len() >= 2 {
         let merge_source_edge = flip_edges[flip_edges.len() - 1];
@@ -239,12 +239,12 @@ fn flip_over_to_triangle<F: Clone>(wood: &mut SchnyderMap<F>, mut flip_edges: Ve
     return result;
 }
 
-fn cycle_while_color<F:Clone>(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap<F>, start_index: usize, in_color: SchnyderColor, out_color: SchnyderColor, direction: ClockDirection) -> Vec<EdgeI> {
+fn cycle_while_color(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap, start_index: usize, in_color: SchnyderColor, out_color: SchnyderColor, direction: ClockDirection) -> Vec<EdgeI> {
     v.cycle_while(start_index, &|nb| wood.incoming_color(nb) == Some(in_color) || wood.outgoing_color(nb) == Some(out_color), direction, false)
         .iter().map(|nb| nb.edge).collect()
 }
 
-pub fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
+pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
 
     let (v1, v2, apex1, apex2) = {
         let (tail, head) = {
@@ -275,7 +275,7 @@ pub fn check_triangle<F: Clone>(wood: &SchnyderMap<F>, eid: EdgeI, side: Side) -
     }
 }
 
-pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> GraphResult<Vec<Operation>> {
+pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<Operation>> {
 
     if !wood.is_inner_edge(&eid)? {
         return GraphErr::new_err("Only inner edges can be made contractible");
@@ -323,7 +323,7 @@ pub fn make_contractible<F: Clone>(wood: &mut SchnyderMap<F>, eid: EdgeI) -> Gra
     return Ok(result);
 }
 
-pub fn full_pizza_lemma<F: Clone>(wood: &mut SchnyderMap<F>, v: VertexI, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
+pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
     if !wood.map.is_triangulation() {
         return GraphErr::new_err("Map needs to be triangulation for exploiting the pizza lemma");
     }
@@ -353,7 +353,7 @@ pub fn full_pizza_lemma<F: Clone>(wood: &mut SchnyderMap<F>, v: VertexI, color: 
 
 }
 
-pub fn make_inner_edge<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
+pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
     if !wood.map.is_triangulation() {
         panic!("needs to be a triangulation");
     }

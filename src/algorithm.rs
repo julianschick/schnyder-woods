@@ -16,13 +16,13 @@ use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit
 use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
 
-pub fn find_sequence<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>) -> Vec<Operation> {
+pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> Vec<Operation> {
     let (vm, seq) = find_sequence_(wood1, wood2, 0);
     println!("outer vertex map = {:?}", vm);
     return seq;
 }
 
-pub fn compute_contraction_candidates<F: Clone>(wood: &SchnyderMap<F>) -> HashMap<SchnyderColor, (EdgeI, bool)> {
+pub fn compute_contraction_candidates(wood: &SchnyderMap) -> HashMap<SchnyderColor, (EdgeI, bool)> {
     let tmp = wood.map.edge_indices().map(|&e| (wood.map.edge_weight(&e).unwrap(), e))
         .filter(|(_, e)| wood.is_inner_edge(e).unwrap())
         .filter_map(|(dir,e)|
@@ -51,7 +51,7 @@ fn compute_color_quality(info: Option<&(EdgeI, bool)>) -> usize {
     }
 }
 
-fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<SchnyderColor, (EdgeI, bool)>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Operation>)> {
+fn prepare_wood(wood: &mut SchnyderMap, candidates: &HashMap<SchnyderColor, (EdgeI, bool)>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Operation>)> {
 
     let mut seq = Vec::new();
     let contraction = if let Some((e, contractible)) = candidates.get(&color) {
@@ -76,14 +76,14 @@ fn prepare_wood<F: Clone>(wood: &mut SchnyderMap<F>, candidates: &HashMap<Schnyd
     return Ok((contraction, seq));
 }
 
-fn calc_sector<F: Clone>(wood: &mut SchnyderMap<F>, center: &VertexI, from: &VertexI, to: &VertexI, direction: ClockDirection) -> Vec<VertexI> {
+fn calc_sector(wood: &mut SchnyderMap, center: &VertexI, from: &VertexI, to: &VertexI, direction: ClockDirection) -> Vec<VertexI> {
     wood.map.sector_between(center, from, to, direction)
         .unwrap().iter()
         .map(|(e, v)| *v)
         .collect_vec()
 }
 
-fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap<F>, lvl: usize) -> Vec<Operation> {
+fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap, lvl: usize) -> Vec<Operation> {
 
     let mut result = Vec::new();
     let vr = ctr.retained_vertex;
@@ -221,7 +221,7 @@ fn lift_sequence<F: Clone>(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &m
     return result;
 }
 
-fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Operation>) {
+fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Operation>) {
     if wood1.map.vertex_count() != wood2.map.vertex_count() {
         panic!("vertex count is not equal");
     }
@@ -331,7 +331,7 @@ fn find_sequence_<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<
 //
 //
 
-pub fn find_sequence_2<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {
 
     //TODO triangulate
     if !wood1.map.is_triangulation() || !wood2.map.is_triangulation() {
@@ -352,7 +352,7 @@ pub fn find_sequence_2<F: Clone>(wood1: &mut SchnyderMap<F>, wood2: &mut Schnyde
     return seq1;
 }
 
-pub fn to_canonical_form<F: Clone>(wood: &mut SchnyderMap<F>, color: SchnyderColor) -> Vec<Operation> {
+pub fn to_canonical_form(wood: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {
 
     let mut pivot = wood.get_suspension_vertex(color);
     let mut seq = Vec::new();

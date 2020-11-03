@@ -60,7 +60,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
     let mut handles = Vec::new();
     let (tx, rx) = channel();
 
-    println!("Traversing the flipgraph in {} threads.", thread_count);
+    println!("Traversing the flipgraph for n = {}, using {} threads.", n, thread_count);
 
     for i in 0..thread_count {
         let stack = Arc::clone(&stack);

@@ -50,7 +50,7 @@ fn main() {
 }
 
 fn main7() {
-    let g = build_flipgraph(9, SymmetryBreaking::None, 4);
+    let g = build_flipgraph(8, SymmetryBreaking::None, 4);
 
     let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
 
@@ -384,7 +384,7 @@ fn main6() {
     }
 }
 
-fn debug_wood<F: Clone>(wood: &SchnyderMap<F>, index: NodeIndex) {
+fn debug_wood(wood: &SchnyderMap, index: NodeIndex) {
 
     if (DEBUG.read().unwrap().is_active()) {
         let minimum = !wood.get_admissible_ops().unwrap().iter().any(|op| match op.operation_type {
@@ -424,7 +424,7 @@ fn main5() {
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| ());
     let map = &maps[0];
     let mut wood = SchnyderMap::build_on_triangulation(map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
 
@@ -521,7 +521,7 @@ fn main4() {
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |_| ());
     let map = &maps[0];
 
 
@@ -570,7 +570,7 @@ fn main3() {
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |_| ());
 
     let map1 = &maps[256];
     let map2 = &maps[42];
@@ -611,7 +611,7 @@ fn main2() {
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |_| ());
 
     let map1 = &maps[4];
     let map2 = &maps[8];
@@ -655,7 +655,7 @@ fn main1() {
     let mut data = Vec::new();
     file.read_to_end(&mut data);
 
-    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |i| i.0);
+    let maps = read_plantri_planar_code(&data, Some(1001), |i| i.0, |i| i.0, |_| ());
 
     //let mut i = 0;
     //for m in maps {
