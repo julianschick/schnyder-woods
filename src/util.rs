@@ -250,6 +250,10 @@ pub mod errors {
         kind: GraphErrKind
     }
 
+    pub struct InvalidVertexI {
+        vid: VertexI
+    }
+
     impl GraphErr {
 
         pub fn new(problem: &str) -> Self {
@@ -293,6 +297,12 @@ pub mod errors {
     impl Debug for GraphErr {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             f.write_str(&format!("GraphErr: {}", self.problem))
+        }
+    }
+
+    impl From<InvalidVertexI> for GraphErr {
+        fn from(cause: InvalidVertexI) -> Self {
+            return GraphErr::new(&format!("The index {} that was internally expected to be valid could not be resolved.", cause.vid));
         }
     }
 

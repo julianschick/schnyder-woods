@@ -18,8 +18,9 @@ use crate::graph::guarded_map::{GuardedMap, Ideable, Index};
 use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::graph::Side::{Left, Right};
-use crate::util::errors::{GraphResult, GraphErr};
+use crate::util::errors::{GraphResult, GraphErr, InvalidVertexI};
 use std::cmp::Ordering;
+use std::slice::Iter;
 
 #[macro_export]
 macro_rules! mat {
@@ -48,6 +49,12 @@ trait Materialize<N, E, F: Clone> {
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct VertexI(pub usize);
+
+impl fmt::Display for VertexI {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "VertexI({})", self.0)
+    }
+}
 
 impl<N, E, F: Clone> Materialize<N, E, F> for VertexI {
     type MaterializedType = Vertex<N>;
@@ -564,10 +571,18 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn vertex_count(&self) -> usize { self.vertices.get_map().len() }
 
+    pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
+        self.vertices.get_map().keys()
+    }
+
     pub fn vertex_cycle(&self, vid: VertexI, other: VertexI, wrap: bool, direction: ClockDirection) -> impl Iterator<Item=&NbVertex> {
         let v = self.vertex(vid);//TODO
         let i = v.neighbors.iter().position(|nb| nb.other == other).unwrap();//TODO
         v.neighbors.cycle(i, wrap)
+    }
+
+    pub fn get_neighbors<'a>(&self, v: &VertexI) -> impl Iterator<Item = &VertexI> {
+        self.vertex(*v).neighbors.iter().map(|nb| &nb.other)
     }
 
     pub fn face_count(&self) -> usize {
@@ -1325,6 +1340,13 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             self.embedded = false;
             panic!("Euler is unhappy");
         }
+    }
+
+    fn set_edge_order(&mut self, v: &VertexI, other: &VertexI, index: usize) -> GraphResult<()> {
+        self.vertex_mut(*v).get_nb_mut(*other)
+            .ok_or(GraphErr::new("Neighbor not found"))?
+            .index = index;
+        Ok(())
     }
 
     /// signum -> right face

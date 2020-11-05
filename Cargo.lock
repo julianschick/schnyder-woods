@@ -72,6 +72,11 @@ version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "indexed"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "indexmap"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -230,6 +235,7 @@ dependencies = [
  "serde_cbor 0.11.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.59 (registry+https://github.com/rust-lang/crates.io-index)",
  "take-until 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "trees 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "typed_index_derive 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -307,6 +313,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "trees"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "indexed 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "typed_index_derive"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -367,6 +381,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum funty 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0ba62103ce691c2fd80fbae2213dfdda9ce60804973ac6b6e97de818ea7f52c8"
 "checksum getrandom 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "7abc8dd8451921606d809ba32e95b6111925cd2906060d2dcc29c070220503eb"
 "checksum half 1.6.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d36fab90f82edc3c747f9d438e06cf0a491055896f2a279638bb5beed6c40177"
+"checksum indexed 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "64d9ca77b99ee70a9251b23d3a5167336665b91addfdd52381cf13d3693427e6"
 "checksum indexmap 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c398b2b113b55809ceb9ee3e753fcbac793f1956663f3c36549c1346015c2afe"
 "checksum itertools 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
 "checksum itoa 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "dc6f3ad7b9d11a0c00842ff8de1b60ee58661048eb8049ed33c73594f359d7e6"
@@ -395,6 +410,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum take-until 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b4e17d8598067a8c134af59cd33c1c263470e089924a11ab61cf61690919fe3b"
 "checksum tap 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "36474e732d1affd3a6ed582781b3683df3d0563714c59c39591e8ff707cf078e"
 "checksum time 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)" = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
+"checksum trees 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1fcd12c7f693050b0724c2b7d678c62ae8370554b33267702d5adf4b4fa116fb"
 "checksum typed_index_derive 0.1.4 (registry+https://github.com/rust-lang/crates.io-index)" = "2af446d454addd326e26459c5919d2ceaf19f8dc6585dcaa449100502a670ceb"
 "checksum unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fc72304796d0818e357ead4e000d19c9c174ab23dc11093ac919054d20a6a7fc"
 "checksum unicode-xid 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)" = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"

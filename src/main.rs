@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::graph::{PlanarMap, VertexI, Side};
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
-use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored, Black};
+use crate::graph::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap, SchnyderEdge, SchnyderColor};
 use crate::graph::Signum::Forward;
@@ -31,6 +31,7 @@ use std::thread;
 use std::thread::sleep;
 use rand::{thread_rng, Rng};
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
+use crate::arraytree::{ArrayTree, WalkAroundIterator, WalkAroundDirection};
 
 #[macro_use]
 extern crate lazy_static;
@@ -40,13 +41,45 @@ mod util;
 mod algorithm;
 mod petgraph_ext;
 mod flipgraph;
+mod arraytree;
 
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
 }
 
 fn main() {
-    main7();
+    main8();
+}
+
+fn main9() {
+    let code = vec![0u8, 0, 0, 0, 1, 1, 1, 3, 3, 3, 6, 6, 6, 8, 8, 8, 8, 9, 9];
+
+    let tree = ArrayTree::from_tree_code(&code).expect("valid tree");
+    let mut iter = tree.iter_walkaround(18, WalkAroundDirection::HiToLo);
+
+    tree.print();
+    println!("iterateur c'est = {:?}", iter.collect_vec());
+}
+
+fn main8() {
+
+    let mut wood = SchnyderMap::build_apollonian_path(20, Green).unwrap();
+    let mut rand = thread_rng();
+
+    for i in 0..1000 {
+        let mut ops = wood.get_admissible_ops().unwrap();
+        wood.do_operation(&ops[rand.gen_range(0, ops.len())]);
+    }
+
+    let codes = wood.compute_standard_identification_vector();
+
+    //println!("{:?}", codes);
+
+    let re_wood = SchnyderMap::build_from_3tree_code(codes).unwrap();
+
+    DEBUG.write().unwrap().activate();
+    DEBUG.write().unwrap().output("cmp", &wood, Some("Before"), &wood.calculate_face_counts());
+    DEBUG.write().unwrap().output("cmp", &re_wood, Some("After"), &re_wood.calculate_face_counts());
 }
 
 fn main7() {
@@ -83,6 +116,7 @@ fn main6() {
         let mut stack = stack.lock().unwrap();
 
         /*for map in maps {
+
             let mut wood1 = SchnyderMap::build_on_triangulation(&map, map.get_face(VertexI(0), VertexI(1), Side::Left), LeftMost).unwrap();
             let mut wood2 = wood1.clone();
 

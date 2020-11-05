@@ -2,7 +2,7 @@ use crate::graph::{PlanarMap, NbVertex, Edge, Signum, VertexI, Vertex, EdgeI, Cl
 use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::{Itertools, Merge};
 use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored, Black};
+use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::graph::Signum::{Forward, Backward};
 use std::collections::{HashSet, HashMap, VecDeque};
@@ -27,6 +27,9 @@ use std::convert::TryFrom;
 use petgraph::algo::{connected_components, has_path_connecting};
 use take_until::TakeUntilExt;
 use bimap::BiMap;
+use trees::tr;
+use std::sync::mpsc::sync_channel;
+use crate::arraytree::{ArrayTree, WalkAroundDirection};
 
 static INVALID_WOOD : &str = "Assertion failed, invalid Schnyder wood detected.";
 
@@ -95,7 +98,6 @@ pub enum SchnyderVertexType {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SchnyderEdgeDirection {
-    Black,
     Unicolored(SchnyderColor, Signum),
     Bicolored(SchnyderColor, SchnyderColor)
 }
@@ -117,7 +119,6 @@ impl SchnyderEdgeDirection {
 
     pub fn reversed(&self) -> Self {
         match self {
-            Black => Black,
             Unicolored(c, signum) => Unicolored(*c, signum.reversed()),
             Bicolored(a, b) => Bicolored(*b, *a)
         }
@@ -150,19 +151,16 @@ impl Edge<SchnyderEdgeDirection> {
         return match self.weight {
             Unicolored(c, s) => if sig == s { Some(c) } else { None }
             Bicolored(fwd_c, bwd_c) => match sig { Forward => Some(fwd_c), Backward => Some(bwd_c)},
-            Black => None
         }
     }
 
     fn debug(&self) {
         let tail_color = match self.weight {
-            Black => None,
             Unicolored(c, Forward) => Some(c),
             Bicolored(c, _) => Some(c),
             _ => None
         };
         let head_color = match self.weight {
-            Black => None,
             Unicolored(c, Backward) => Some(c),
             Bicolored(_, c) => Some(c),
             _ => None
@@ -262,12 +260,171 @@ impl SchnyderMap {
         faces.push((vec![*susp.get(&color.prev()).unwrap(), *susp.get(&color.next()).unwrap(), *path.last().unwrap()], ()));
         map.set_embedding(faces)?;
 
-        let outer_face = map.get_face(r, g, Side::Left);
+        return SchnyderMap::try_from(map);
+    }
 
-        Ok(SchnyderMap {
-            map, outer_face,
-            red_vertex: r, green_vertex: g, blue_vertex: b
-        })
+    pub fn build_from_3tree_code(code: Vec<u8>) -> GraphResult<SchnyderMap> {
+        if (code.len() % 3) != 0 {
+            return GraphErr::new_err("Not a valid 3tree code, length not divisible by three");
+        }
+        if code.len() > 256*3 {
+            return GraphErr::new_err("Not a valid 3tree code, too many bytes");
+        }
+        let n = (code.len()  / 3);
+
+        let trees = vec![
+            ArrayTree::from_tree_code(&code[0*n..1*n])?,
+            ArrayTree::from_tree_code(&code[1*n..2*n])?,
+            ArrayTree::from_tree_code(&code[2*n..3*n])?
+        ];
+
+        trees[0].print();
+        trees[1].print();
+        trees[2].print();
+
+        let mut map: PlanarMap<_,SchnyderEdgeDirection,()> = PlanarMap::new();
+        let mut vertex_indices = Vec::with_capacity(n);
+        let colors = [Red, Green, Blue];
+
+        // add all vertices
+        for i in 0..n {
+            vertex_indices.push(map.add_vertex(Normal(0)));
+        }
+
+        // set suspension vertices
+        for c in 0..3 {
+            map.vertex_mut(vertex_indices[trees[c].get_root() as usize]).weight = Suspension(colors[c]);
+        }
+
+        for c in 0..3 {
+
+            for v1 in trees[c].iter_dfs() {
+
+                if let Some(v2) = trees[c].get_parent(v1) {
+                    let (v1, v2) = (vertex_indices[v1 as usize], vertex_indices[v2 as usize]);
+
+                    if let Ok(e) = map.get_edge(v1, v2) {
+                        let mut edge = map.edge_mut(e);
+                        let signum = edge.get_signum(v1, v2);
+
+                        match edge.weight {
+                            Bicolored(_, _) => return GraphErr::new_err("Invalid 3tree code"),
+                            Unicolored(opposite_color, sig) => {
+                                if sig == signum {
+                                    return GraphErr::new_err("Invalid 3tree code");
+                                } else {
+                                    edge.weight = match signum {
+                                        Forward => Bicolored(colors[c], opposite_color),
+                                        Backward => Bicolored(opposite_color, colors[c])
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        map.add_edge(v1, v2, Unicolored(colors[c], Forward));
+                        if c == 0 {
+                            map.set_edge_order(&v1, &v2, 0);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut counters = (0..n).map(|_| 0 as usize).collect_vec();
+
+        // red outgoing
+        for v in 0..n {
+           if let Some(p) = trees[0].get_parent(v as u8) {
+                map.set_edge_order(&vertex_indices[v], &vertex_indices[p as usize], counters[v]);
+                counters[v] += 1;
+           }
+        }
+
+        // blue incoming
+        for v in 0..n {
+            let blue_inbound: HashSet<_> = trees[2].get_children(v as u8).collect();
+
+            for other in trees[0].iter_walkaround(v as u8, WalkAroundDirection::HiToLo) {
+                if blue_inbound.contains(&other) &&
+                    trees[0].get_parent(v as u8) != Some(other) &&
+                    trees[1].get_parent(v as u8) != Some(other) {
+
+                    map.set_edge_order(&vertex_indices[v], &vertex_indices[other as usize], counters[v]);
+                    counters[v] += 1;
+                }
+            }
+        }
+
+        // green outgoing
+        for v in 0..n {
+           if let Some(p) = trees[1].get_parent(v as u8) {
+                map.set_edge_order(&vertex_indices[v], &vertex_indices[p as usize], counters[v]);
+                counters[v] += 1;
+            }
+        }
+
+        // red incoming
+        for v in 0..n {
+            for &other in trees[0].get_children(v as u8) {
+                if trees[0].get_parent(v as u8) != Some(other) &&
+                    trees[1].get_parent(v as u8) != Some(other) {
+
+                    map.set_edge_order(&vertex_indices[v], &vertex_indices[other as usize], counters[v]);
+                    counters[v] += 1;
+                }
+            }
+        }
+
+        // blue outgoing
+        for v in 0..n {
+            if let Some(p) = trees[2].get_parent(v as u8) {
+                map.set_edge_order(&vertex_indices[v], &vertex_indices[p as usize], counters[v]);
+                counters[v] += 1;
+            }
+        }
+
+        // order green incoming
+        for v in 0..n {
+            let green_inbound: HashSet<_> = trees[1].get_children(v as u8).collect();
+            let inbound_count = green_inbound.len();
+            let mut sub_counter = 0;
+
+            for other in trees[0].iter_walkaround(v as u8, WalkAroundDirection::LoToHi) {
+                if green_inbound.contains(&other) &&
+                    trees[0].get_parent(v as u8) != Some(other) &&
+                    trees[2].get_parent(v as u8) != Some(other) {
+
+                    map.set_edge_order(
+                        &vertex_indices[v],
+                        &vertex_indices[other as usize],
+                        counters[v] + inbound_count - 1 - sub_counter
+                    );
+                    sub_counter += 1;
+                }
+            }
+
+            counters[v] += inbound_count;
+        }
+
+
+        for mut v in map.vertices.get_map().keys().map(|v|*v).collect_vec() {
+            map.vertex_mut(v).neighbors.sort_by_key(|nb| nb.index);
+            map.restore_nb_indices(v);
+
+            {
+                let v = map.vertex_mut(v);
+                println!("{} ({:?})", v.id, v.weight);
+                for nb in &v.neighbors {
+                    println!("\t to {} is index {}", nb.other, nb.index);
+                }
+            }
+        }
+
+        map.construct_faces(|_|());
+
+        println!("{:?}", map);
+
+        SchnyderMap::try_from(map)
     }
 
     /// the suspension vertex with the lowest index gets red, the next one green, and the vertex
@@ -288,7 +445,7 @@ impl SchnyderMap {
 
         let mut smap = map.clone_with_maps(
             |vertex_weight| Normal(0),
-            |edge_weight| Black,
+            |edge_weight| Unicolored(Red, Forward),
             Some(|face_weight| face_weight.clone())
         );
 
@@ -437,14 +594,14 @@ impl SchnyderMap {
     }
 
     pub fn compute_identification_vector(&self, color: SchnyderColor, direction: ClockDirection) -> Vec<u8> {
-        if self.map.vertex_count() > 255 {
+        if self.map.vertex_count() > 256 {
             panic!("geht nicht");
         }
 
         let mut result = Vec::with_capacity(self.map.vertex_count() * 3);
 
         let vertices = self.get_vertices_in_bfs_order(color, direction);
-        let index_map: HashMap<_, _> = vertices.iter().enumerate().map(|(index, v)| (v, index + 1)).collect();
+        let index_map: HashMap<_, _> = vertices.iter().enumerate().map(|(index, v)| (v, index)).collect();
 
         let cw = [color, color.next(), color.prev()];
         let ccw = [color, color.prev(), color.next()];
@@ -457,10 +614,10 @@ impl SchnyderMap {
         for c in order {
             for v in &vertices {
                 let parent = if let Ok(parent_vertex) = self.find_outgoing_endvertex(*v, *c) {
-                    *index_map.get(&parent_vertex).unwrap() as u8
+                    *index_map.get(&parent_vertex).unwrap()
                 } else {
-                    0u8
-                };
+                    *index_map.get(v).unwrap()
+                } as u8;
                 result.push(parent);
             }
         }
@@ -493,7 +650,6 @@ impl SchnyderMap {
 
     fn replace_color(&self, e: &Edge<SchnyderEdgeDirection>, color: SchnyderColor, sig: Signum) -> SchnyderEdgeDirection {
         match e.weight {
-            Black => Unicolored(color, sig),
             Unicolored(c, s) => if s == sig {
                 Unicolored(color, sig)
             } else {
@@ -587,10 +743,7 @@ impl SchnyderMap {
     }
 
     pub fn get_color(&self, v1: VertexI, v2: VertexI) -> SchnyderEdgeDirection {
-        match self.map.get_edge_with_signum(v1, v2) {
-            (e, Forward) => self.map.edge(e).weight,
-            (e, Backward) => self.map.edge(e).weight.reversed()
-        }
+        self.map.get_color(v1, v2)
     }
 
     pub fn get_color_orientation(&self, eid: EdgeI) -> Option<(SchnyderColor, VertexI, VertexI)> {
@@ -1302,7 +1455,6 @@ impl SchnyderMap {
 
         for edge in self.map.edges.get_map().values() {
             mid.extend(match edge.weight {
-                Black => format!("\\draw ({}) -- ({});", edge.head.0, edge.tail.0),
                 Unicolored(color, signum) => match signum {
                     Forward => if face_labels {
                         format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
@@ -1380,11 +1532,6 @@ impl SchnyderMap {
             .any(|nb| match nb.weight
                 { Bicolored(a, b) if a == b => true, _ => false}) {
             return GraphErr::new_err("Every bicolored edge has to have two distinct colors");
-        }
-
-        // check no black edges
-        if self.map.edges.get_map().values().any(|nb|match nb.weight { Black => true, _ => false}) {
-            return GraphErr::new_err("No black edges allowed");;
         }
 
         // check vertex rule
@@ -1465,7 +1612,7 @@ impl SchnyderMap {
     }
 }
 
-impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
+impl PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()> {
     fn find_outer_face(&self, r: VertexI, g: VertexI, b: VertexI) -> GraphResult<FaceI> {
         let outer_face_candidates = self.faces.get_map().values().filter(|&f|
             f.angles.contains(&r) &&
@@ -1485,6 +1632,23 @@ impl<F:Clone> PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, F> {
             1 => Ok(outer_face[0].id),
             _ => return GraphErr::new_err("There is no outer face in which the suspension vertices appear in the right order, this means the embedding is invalid")
         }
+    }
+
+    pub fn get_color(&self, v1: VertexI, v2: VertexI) -> SchnyderEdgeDirection {
+        match self.get_edge_with_signum(v1, v2) {
+            (e, Forward) => self.edge(e).weight,
+            (e, Backward) => self.edge(e).weight.reversed()
+        }
+    }
+
+    pub fn get_incoming_by_color<'a>(&'a self, v: &'a VertexI, color: SchnyderColor) -> impl Iterator<Item=&'a VertexI> + 'a {
+        self.vertex(*v).neighbors.iter()
+            .filter(move |nb| match self.get_color(*v, nb.other) {
+                Unicolored(c, Backward) if c == color => true,
+                Bicolored(_, c) if c == color => true,
+                _ => false
+            })
+            .map(|nb| &nb.other)
     }
 }
 
