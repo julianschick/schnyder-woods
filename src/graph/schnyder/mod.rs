@@ -263,7 +263,7 @@ impl SchnyderMap {
         return SchnyderMap::try_from(map);
     }
 
-    pub fn build_from_3tree_code(code: Vec<u8>) -> GraphResult<SchnyderMap> {
+    pub fn build_from_3tree_code(code: &Vec<u8>) -> GraphResult<SchnyderMap> {
         if (code.len() % 3) != 0 {
             return GraphErr::new_err("Not a valid 3tree code, length not divisible by three");
         }
@@ -278,9 +278,9 @@ impl SchnyderMap {
             ArrayTree::from_tree_code(&code[2*n..3*n])?
         ];
 
-        trees[0].print();
-        trees[1].print();
-        trees[2].print();
+        //trees[0].print();
+        //trees[1].print();
+        //trees[2].print();
 
         let mut map: PlanarMap<_,SchnyderEdgeDirection,()> = PlanarMap::new();
         let mut vertex_indices = Vec::with_capacity(n);
@@ -410,19 +410,10 @@ impl SchnyderMap {
         for mut v in map.vertices.get_map().keys().map(|v|*v).collect_vec() {
             map.vertex_mut(v).neighbors.sort_by_key(|nb| nb.index);
             map.restore_nb_indices(v);
-
-            {
-                let v = map.vertex_mut(v);
-                println!("{} ({:?})", v.id, v.weight);
-                for nb in &v.neighbors {
-                    println!("\t to {} is index {}", nb.other, nb.index);
-                }
-            }
         }
 
         map.construct_faces(|_|());
-
-        println!("{:?}", map);
+        //println!("{:?}", map);
 
         SchnyderMap::try_from(map)
     }
@@ -589,11 +580,11 @@ impl SchnyderMap {
         return result;
     }
 
-    pub fn compute_standard_identification_vector(&self) -> Vec<u8> {
-        self.compute_identification_vector(Red, CW)
+    pub fn compute_3tree_code(&self) -> Vec<u8> {
+        self.compute_3tree_code_with_rotation(Red, CW)
     }
 
-    pub fn compute_identification_vector(&self, color: SchnyderColor, direction: ClockDirection) -> Vec<u8> {
+    pub fn compute_3tree_code_with_rotation(&self, color: SchnyderColor, direction: ClockDirection) -> Vec<u8> {
         if self.map.vertex_count() > 256 {
             panic!("geht nicht");
         }
@@ -1671,7 +1662,7 @@ impl TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>> for Schny
 
 impl PartialEq for SchnyderMap {
     fn eq(&self, other: &Self) -> bool {
-        self.compute_standard_identification_vector() == other.compute_standard_identification_vector()
+        self.compute_3tree_code() == other.compute_3tree_code()
     }
 }
 

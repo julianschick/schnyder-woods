@@ -1,4 +1,4 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, BTreeMap};
 use std::cmp::Ordering;
 use itertools::Itertools;
 
@@ -30,8 +30,10 @@ use std::time::{Instant, Duration};
 use std::thread;
 use std::thread::sleep;
 use rand::{thread_rng, Rng};
-use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
+use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 use crate::arraytree::{ArrayTree, WalkAroundIterator, WalkAroundDirection};
+use clap::App;
+use std::path::Path;
 
 #[macro_use]
 extern crate lazy_static;
@@ -48,53 +50,132 @@ lazy_static! {
 }
 
 fn main() {
-    main8();
-}
+    let matches = App::new("schnyderflip")
+        .version("0.9.1")
+        .author("Julian Schick <julian.schick@posteo.de>")
+        .about("Algorithms for manipulating Schnyder woods")
+        .subcommand(
+            App::new("build-flipgraph")
+                .arg("<N> 'Number of vertices'")
+                .arg("<OUTPUT> 'Output file'")
+                .arg("-t --threads [t] 'Number of threads to start'")
+                .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
+                .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
+        )
+        .get_matches();
 
-fn main9() {
-    let code = vec![0u8, 0, 0, 0, 1, 1, 1, 3, 3, 3, 6, 6, 6, 8, 8, 8, 8, 9, 9];
+    if let Some(build_matches) = matches.subcommand_matches("build-flipgraph") {
 
-    let tree = ArrayTree::from_tree_code(&code).expect("valid tree");
-    let mut iter = tree.iter_walkaround(18, WalkAroundDirection::HiToLo);
+    }
 
-    tree.print();
-    println!("iterateur c'est = {:?}", iter.collect_vec());
+    match matches.subcommand() {
+        Some(("build-flipgraph", matches))=> {
+            let n = str::parse::<usize>(matches.value_of("N").unwrap_or("3"))
+                .unwrap_or_else(|_| { println!("{}", "Bittaschön"); return 3 });
+            let num_threads= str::parse::<usize>(matches.value_of("threads").unwrap_or("1"))
+                .unwrap_or_else(|_| { println!("{}", "Bittaschön!"); return 1});
+
+            let brk_orientation = matches.is_present("break-orientation-symmetry");
+            let brk_color = matches.is_present("break-color-symmetry");
+
+            let output = Path::new(matches.value_of("OUTPUT").unwrap());
+
+            if output.is_file() {
+                println!("{}", "already present");
+                return;
+            }
+            if output.is_dir() {
+                println!("{}", "directory given");
+                return;
+            }
+            if let Some(parent) = output.parent() {
+                if !parent.is_dir() {
+                    println!("{}", "can't write there");
+                    return;
+                }
+            }
+
+
+            let symmetry_breaking = match (brk_orientation, brk_color) {
+                (false, false) => SymmetryBreaking::None,
+                (true, false) => SymmetryBreaking::BreakOrientation,
+                (false, true) => SymmetryBreaking::BreakColourRotation,
+                (true, true) => SymmetryBreaking::BreakAll
+            };
+
+            if n < 3 {
+                println!("{}", "n must be at least 3");
+                return;
+            }
+
+            main7(n, num_threads, symmetry_breaking, output);
+        },
+        _ => {
+            println!("{}", "No valid command specified.");
+        }
+    }
 }
 
 fn main8() {
 
-    let mut wood = SchnyderMap::build_apollonian_path(20, Green).unwrap();
-    let mut rand = thread_rng();
+    let mut file = File::open("/tmp/test.bincode").unwrap();
+    let g : Flipgraph = bincode::deserialize_from(file).expect("TODO");
 
-    for i in 0..1000 {
-        let mut ops = wood.get_admissible_ops().unwrap();
-        wood.do_operation(&ops[rand.gen_range(0, ops.len())]);
-    }
-
-    let codes = wood.compute_standard_identification_vector();
-
-    //println!("{:?}", codes);
-
-    let re_wood = SchnyderMap::build_from_3tree_code(codes).unwrap();
-
-    DEBUG.write().unwrap().activate();
-    DEBUG.write().unwrap().output("cmp", &wood, Some("Before"), &wood.calculate_face_counts());
-    DEBUG.write().unwrap().output("cmp", &re_wood, Some("After"), &re_wood.calculate_face_counts());
-}
-
-fn main7() {
-    let g = build_flipgraph(8, SymmetryBreaking::None, 4);
-
-    let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
+    let levels = g.get_levels();
 
     print_header();
-    print_statistics("ALL", g.node_indices().collect(), &g);
-    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| **level) {
+    print_statistics("ALL", (0..g.node_count()).collect_vec(), &g);
+    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| *level) {
         print_statistics(&format!("Level {}", level), indices, &g);
     }
 
     eprintln!("NODES = {:?}", g.node_count());
     eprintln!("EDGES = {:?}", g.edge_count());
+}
+
+fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, output_file: &Path) {
+    let g = build_flipgraph(n, symmetry_breaking, thread_count);
+
+    let levels = g.get_levels();
+
+    print_header();
+    print_statistics("ALL", (0..g.node_count()).collect_vec(), &g);
+    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| *level) {
+        print_statistics(&format!("Level {}", level), indices, &g);
+    }
+
+    eprintln!("NODES = {:?}", g.node_count());
+    eprintln!("EDGES = {:?}", g.edge_count());
+
+    /*println!("{}", "Writing edge list...");
+    {
+        let mut file = File::create("/tmp/test.edges").unwrap();
+        g.to_edge_list(&mut file);
+    }
+
+    println!("{}", "Writing level list...");
+    {
+        let mut file = File::create("/tmp/test.levels").unwrap();
+        g.to_level_list(&mut file);
+    }
+
+    println!("{}", "Writing codes list...");
+    {
+        let mut file = File::create("/tmp/test.codes").unwrap();
+        g.to_code_list(&mut file);
+    }*/
+
+    println!("{}", "Writing CBOR...");
+    {
+        let mut file = File::create(output_file).expect("TODO");
+        serde_cbor::to_writer(file, &g).expect("TODO");
+    }
+
+    /*println!("{}", "Writing Bincode...");
+    {
+        let mut file = File::create("/tmp/test.bincode").expect("TODO");
+        bincode::serialize_into(file, &g).expect("TODO");
+    }*/
 }
 
 fn main6() {
@@ -103,7 +184,7 @@ fn main6() {
     file.read_to_end(&mut data);
 
     let mut g = Arc::new(Mutex::new(Graph::new_undirected()));
-    let mut known = Arc::new(Mutex::new(HashMap::new()));
+    let mut known = Arc::new(Mutex::new(BTreeMap::new()));
     let mut stack = Arc::new(Mutex::new(Vec::new()));
 
     //let maps = read_plantri_planar_code(&data, Some(78), |i| i.0, |i| i.0, |i| i.0);
@@ -144,7 +225,7 @@ fn main6() {
         let root_node_index1 = g.add_node(wood1.map.edge_count());
         for color in &[Red, Green, Blue] {
             for dir in &[CW, CCW] {
-                known.insert(wood1.compute_identification_vector(*color, *dir), root_node_index1);
+                known.insert(wood1.compute_3tree_code_with_rotation(*color, *dir), root_node_index1);
             }
         }
         debug_wood(&wood1, root_node_index1);
@@ -191,12 +272,12 @@ fn main6() {
                     let mut neighbor = current.clone();
                     neighbor.do_operation(&op);
                     let nb_id = (
-                        neighbor.compute_identification_vector(Red, CW),
-                        neighbor.compute_identification_vector(Green, CW),
-                        neighbor.compute_identification_vector(Blue, CW),
-                        neighbor.compute_identification_vector(Red, CCW),
-                        neighbor.compute_identification_vector(Green, CCW),
-                        neighbor.compute_identification_vector(Blue, CCW)
+                        neighbor.compute_3tree_code_with_rotation(Red, CW),
+                        neighbor.compute_3tree_code_with_rotation(Green, CW),
+                        neighbor.compute_3tree_code_with_rotation(Blue, CW),
+                        neighbor.compute_3tree_code_with_rotation(Red, CCW),
+                        neighbor.compute_3tree_code_with_rotation(Green, CCW),
+                        neighbor.compute_3tree_code_with_rotation(Blue, CCW)
                     );
 
                     return (nb_id, neighbor);
@@ -206,7 +287,7 @@ fn main6() {
                     let mut known = known.lock().unwrap();
                     let mut g = g.lock().unwrap();
 
-                    let current_node_index = *known.get(&current.compute_standard_identification_vector()).expect("TODO");
+                    let current_node_index = *known.get(&current.compute_3tree_code()).expect("TODO");
 
                     //println!("{} - {:?}", current_node_index.index(), current.compute_standard_identification_vector());
 
@@ -381,11 +462,11 @@ fn main6() {
 
     let levels = g.node_indices().map(|idx| (g.node_weight(idx).unwrap(), idx)).into_group_map();
 
-    print_header();
+    /*print_header();
     print_statistics("ALL", g.node_indices().collect(), &*g);
     for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| **level) {
         print_statistics(&format!("Level {}", level), indices, &*g);
-    }
+    }*/
 
     eprintln!("NODES = {:?}", g.node_count());
     eprintln!("EDGES = {:?}", g.edge_count());
@@ -429,16 +510,16 @@ fn debug_wood(wood: &SchnyderMap, index: NodeIndex) {
     }
 }
 
-fn print_statistics<Y>(name: &str, nodes: Vec<NodeIndex>, g: &Graph<usize,Y, Undirected>) {
+fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
 
-    let degrees = nodes.iter().map(|idx| g.neighbors(*idx).count()).collect_vec();
-    let down_degrees = nodes.iter().map(|idx| g.neighbors(*idx).filter(|nb| g.node_weight(*nb) < g.node_weight(*idx)).count()).collect_vec();
-    let up_degrees = nodes.iter().map(|idx| g.neighbors(*idx).filter(|nb| g.node_weight(*nb) > g.node_weight(*idx)).count()).collect_vec();
+    let degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).count()).collect_vec();
+    let down_degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).filter(|&&nb| g.get_level(nb) < g.get_level(*idx)).count()).collect_vec();
+    let up_degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).filter(|&&nb| g.get_level(nb) > g.get_level(*idx)).count()).collect_vec();
 
     let min_degree = degrees.iter().min().unwrap();
     let max_degree = degrees.iter().max().unwrap();
 
-    let minimums = nodes.iter().filter(|idx| g.neighbors(**idx).filter(|nb| g.node_weight(*nb) < g.node_weight(**idx)).count() == 0).collect_vec();
+    let minimums = nodes.iter().filter(|idx| g.get_neighbors(**idx).filter(|&&nb| g.get_level(nb) < g.get_level(**idx)).count() == 0).collect_vec();
 
     let min_up_degree = up_degrees.iter().min().unwrap();
     let max_up_degree = up_degrees.iter().max().unwrap();
@@ -473,14 +554,14 @@ fn main5() {
 
     let mut known = HashMap::new();
     let mut inspected = HashSet::new();
-    known.insert(wood.compute_standard_identification_vector(), root_node_index);
+    known.insert(wood.compute_3tree_code(), root_node_index);
 
     let mut stack = vec![wood];
     let mut last_print = Instant::now();
 
     while let Some(current) = stack.pop() {
 
-        let current_node_index = *known.get(&current.compute_standard_identification_vector()).expect("TODO");
+        let current_node_index = *known.get(&current.compute_3tree_code()).expect("TODO");
 
         let admissible_ops = current.get_admissible_ops().expect("TODO");
 
@@ -498,7 +579,7 @@ fn main5() {
 
             let mut neighbor = current.clone();
             neighbor.do_operation(&op);
-            let nb_id = neighbor.compute_standard_identification_vector();
+            let nb_id = neighbor.compute_3tree_code();
 
             if let Some(nb_node_index) = known.get(&nb_id) {
                 if !inspected.contains(nb_node_index) {
@@ -566,7 +647,7 @@ fn main4() {
     DEBUG.write().unwrap().activate();
     DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
-    eprintln!("wood.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
+    eprintln!("wood.compute_identification_vector() = {:?}", wood.compute_3tree_code());
 
     loop {
         let admissible_ops = wood.get_admissible_ops().expect("?");
@@ -581,9 +662,9 @@ fn main4() {
         }) {
             let (before,_) = wood.map.into_petgraph();
 
-            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_3tree_code());
             wood.do_operation(op);
-            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_standard_identification_vector());
+            eprintln!(">>.compute_identification_vector() = {:?}", wood.compute_3tree_code());
             DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 
             let (afterwards, _) = wood.map.into_petgraph();
