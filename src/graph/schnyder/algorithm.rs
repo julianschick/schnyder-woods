@@ -24,6 +24,138 @@ use crate::graph::Side::{Left, Right};
 use std::fmt::{Debug, Formatter, Write};
 use bimap::BiMap;
 
+pub trait OperationX {
+    fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()>;
+    fn inverted(&self) -> Box<dyn OperationX>;
+}
+
+pub struct SplitX {
+    pub hinge_vertex: VertexI,
+    pub source_vertex: VertexI,
+    pub target_vertex: VertexI,
+}
+
+pub struct MergeX {
+    pub hinge_vertex: VertexI,
+    pub source_vertex: VertexI,
+    pub target_vertex: VertexI,
+}
+
+pub struct ExtSplitX {
+    pub lo_hinge_vertex: VertexI,
+    pub hi_hinge_vertex: VertexI
+}
+
+pub struct ExtMergeX {
+    pub lo_hinge_vertex: VertexI,
+    pub hi_hinge_vertex: VertexI
+}
+
+impl SplitX {
+    pub fn new(hinge_vertex: VertexI, source_vertex: VertexI, target_vertex: VertexI) -> Self {
+        SplitX{ hinge_vertex, source_vertex, target_vertex }
+    }
+}
+
+impl MergeX {
+    pub fn new(hinge_vertex: VertexI, source_vertex: VertexI, target_vertex: VertexI) -> Self {
+        MergeX{ hinge_vertex, source_vertex, target_vertex }
+    }
+
+    pub fn from_edges(merged_edge: (VertexI, VertexI), target_edge: (VertexI, VertexI)) -> Self {
+        let m = vec![merged_edge.0, merged_edge.1];
+        let t = vec![target_edge.0, target_edge.1];
+
+        if let Some(&hinge) = m.intersect(t).first() {
+            MergeX {
+                hinge_vertex: hinge,
+                source_vertex: *m.iter().find(|&&vid| vid != hinge).unwrap(),
+                target_vertex: *vec![target_edge.0, target_edge.1].iter().find(|&&vid| vid != hinge).unwrap(),
+            }
+        } else {
+            panic!("invalid merge");
+        }
+    }
+}
+
+impl ExtSplitX {
+    pub fn new(lo_hinge_vertex: VertexI, hi_hinge_vertex: VertexI) -> ExtSplitX {
+        ExtSplitX { lo_hinge_vertex, hi_hinge_vertex }
+    }
+}
+
+impl ExtMergeX {
+    pub fn new(lo_hinge_vertex: VertexI, hi_hinge_vertex: VertexI) -> ExtMergeX {
+        ExtMergeX { lo_hinge_vertex, hi_hinge_vertex }
+    }
+}
+
+impl OperationX for SplitX {
+
+    fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()> {
+        let e = wood.map.get_edge(self.hinge_vertex, self.source_vertex)?;
+        wood.split(e, self.hinge_vertex, Some(self.target_vertex))?;
+        Ok(())
+    }
+
+    fn inverted(&self) -> Box<dyn OperationX> {
+        Box::new(MergeX {
+            hinge_vertex: self.hinge_vertex,
+            source_vertex: self.target_vertex,
+            target_vertex: self.source_vertex
+        })
+    }
+}
+
+impl OperationX for MergeX {
+    fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()> {
+        let src = wood.map.get_edge(self.hinge_vertex, self.source_vertex)?;
+        let tgt = wood.map.get_edge(self.hinge_vertex, self.target_vertex)?;
+        wood.merge(src, tgt);
+        Ok(())
+    }
+
+    fn inverted(&self) -> Box<dyn OperationX> {
+        Box::new(SplitX {
+            hinge_vertex: self.hinge_vertex,
+            source_vertex: self.target_vertex,
+            target_vertex: self.source_vertex
+        })
+    }
+}
+
+impl OperationX for ExtSplitX {
+    fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()> {
+        wood.ext_split(self.lo_hinge_vertex, self.hi_hinge_vertex)?;
+        Ok(())
+    }
+
+    fn inverted(&self) -> Box<dyn OperationX> {
+        Box::new(ExtMergeX { lo_hinge_vertex: self.lo_hinge_vertex, hi_hinge_vertex: self.hi_hinge_vertex })
+    }
+}
+
+impl OperationX for ExtMergeX {
+    fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()> {
+        wood.ext_merge(self.lo_hinge_vertex, self.hi_hinge_vertex)?;
+        Ok(())
+    }
+
+    fn inverted(&self) -> Box<dyn OperationX> {
+        Box::new(ExtSplitX { lo_hinge_vertex: self.lo_hinge_vertex, hi_hinge_vertex: self.hi_hinge_vertex })
+    }
+}
+
+pub fn test() -> Vec<Box<dyn OperationX>> {
+    let mut result: Vec<Box<dyn OperationX>> = Vec::new();
+    result.push(Box::new(SplitX::new(VertexI(0), VertexI(1), VertexI(2))));
+    result.push(Box::new(MergeX::new(VertexI(0), VertexI(1), VertexI(2))));
+
+    let inv = result.iter().map(|op| op.inverted()).collect_vec();
+
+    return result;
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
     Split, Merge, ExtSplit, ExtMerge

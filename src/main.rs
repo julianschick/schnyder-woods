@@ -62,11 +62,10 @@ fn main() {
                 .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
                 .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
         )
+        .subcommand(
+            App::new("test")
+        )
         .get_matches();
-
-    if let Some(build_matches) = matches.subcommand_matches("build-flipgraph") {
-
-    }
 
     match matches.subcommand() {
         Some(("build-flipgraph", matches))=> {
@@ -110,10 +109,27 @@ fn main() {
 
             main7(n, num_threads, symmetry_breaking, output);
         },
+        Some(("test", matches)) => {
+            test();
+        }
         _ => {
             println!("{}", "No valid command specified.");
         }
     }
+}
+
+fn test() {
+    let n = 10u8;
+    let mut code = Vec::with_capacity(n as usize * 3);
+    code.extend(&[0, 0, 0]);
+    code.extend((3..5).map(|x| match x { 3 => 0, 4 => 2, _ => 0}));
+    code.extend((5..n).map(|x|x-1));
+    code.extend((0..n).map(|_| 1));
+    code.extend((0..n).map(|_| if n == 3 { 2 } else { 3 }));
+
+    let wood = SchnyderMap::build_from_3tree_code(&code).unwrap();
+    DEBUG.write().unwrap().activate();
+    DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 }
 
 fn main8() {
