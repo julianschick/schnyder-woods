@@ -1,11 +1,11 @@
 use petgraph::{Graph, Undirected};
 use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, VecDeque, BTreeMap};
-use crate::graph::schnyder::SchnyderColor;
+use crate::schnyder::SchnyderColor;
 use crate::graph::ClockDirection;
 use crate::graph::ClockDirection::{CW, CCW};
-use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::schnyder::SchnyderMap;
+use crate::schnyder::SchnyderColor::{Red, Green, Blue};
+use crate::schnyder::SchnyderMap;
 use std::time::{Instant, Duration};
 use std::thread;
 use rand::thread_rng;

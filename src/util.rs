@@ -123,9 +123,9 @@ pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
 pub mod debug {
     use std::path::Path;
     use std::fs::{create_dir, read_dir, remove_file, File, remove_dir_all};
-    use crate::graph::schnyder::SchnyderMap;
+    use crate::schnyder::SchnyderMap;
     use std::collections::HashMap;
-    use crate::graph::VertexI;
+    use crate::graph::indices::VertexI;
     use std::io::Write;
     use std::process::Command;
 
@@ -233,8 +233,10 @@ pub mod debug {
 }
 
 pub mod errors {
-    use crate::graph::{VertexI, EdgeI, FaceI};
-    use std::fmt::{Debug, Formatter};
+    use crate::graph::indices::{VertexI, EdgeI, FaceI};
+    use std::fmt::{Debug, Formatter, Display};
+    use crate::graph::error::{IndexAccessError, NoSuchEdgeError};
+    use crate::graph::guarded_map::Index;
 
     pub type GraphResult<T> = Result<T, GraphErr>;
 
@@ -271,27 +273,6 @@ pub mod errors {
         pub fn new_err<T>(problem: &str) -> Result<T, Self> {
             return Err(GraphErr::new(problem));
         }
-
-        pub fn invalid_edge_index(eid: EdgeI) -> GraphErr {
-            GraphErr {
-                problem: format!("Invalid edge index: {}", eid.0),
-                kind: GraphErrKind::InvalidEdgeIndex(eid)
-            }
-        }
-
-        pub fn invalid_vertex_index(vid: VertexI) -> GraphErr {
-            GraphErr {
-                problem: format!("Invalid vertex index: {}", vid.0),
-                kind: GraphErrKind::InvalidVertexIndex(vid)
-            }
-        }
-
-        pub fn invalid_face_index(fid: FaceI) -> GraphErr {
-            GraphErr {
-                problem: format!("Invalid face index: {}", fid.0),
-                kind: GraphErrKind::InvalidFaceIndex(fid)
-            }
-        }
     }
 
     impl Debug for GraphErr {
@@ -300,9 +281,15 @@ pub mod errors {
         }
     }
 
-    impl From<InvalidVertexI> for GraphErr {
-        fn from(cause: InvalidVertexI) -> Self {
-            return GraphErr::new(&format!("The index {} that was internally expected to be valid could not be resolved.", cause.vid));
+    impl<T: Index + Display> From<IndexAccessError<T>> for GraphErr {
+        fn from(cause: IndexAccessError<T>) -> Self {
+            return GraphErr::new(&format!("Access to invalid index {} occurred.", cause.get_index()))
+        }
+    }
+
+    impl From<NoSuchEdgeError> for GraphErr {
+        fn from(cause: NoSuchEdgeError) -> Self {
+            return GraphErr::new(&format!("No edge between {} and {}.", cause.get_vertices().0, cause.get_vertices().1))
         }
     }
 

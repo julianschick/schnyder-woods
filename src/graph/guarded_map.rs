@@ -115,8 +115,8 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         return Some(N::from(self.least_free_index - 1));
     }
 
-    pub fn get_mut(&mut self, index: &N) -> &mut V {
-        self.map.get_mut(index).unwrap()
+    pub fn get_mut(&mut self, index: &N) -> Option<&mut V> {
+        self.map.get_mut(index)
     }
 
 }

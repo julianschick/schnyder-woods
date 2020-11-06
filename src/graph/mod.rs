@@ -8,9 +8,6 @@ use std::iter::FromIterator;
 
 use array_tool::vec::Intersect;
 use itertools::{any, Itertools, merge};
-use petgraph::algo::has_path_connecting;
-use petgraph::{Graph, EdgeType, Undirected};
-use petgraph::graph::{IndexType, NodeIndex};
 
 use crate::graph::ClockDirection::{CCW, CW};
 use crate::graph::EdgeEnd::{Head, Tail};
@@ -21,83 +18,21 @@ use crate::graph::Side::{Left, Right};
 use crate::util::errors::{GraphResult, GraphErr, InvalidVertexI};
 use std::cmp::Ordering;
 use std::slice::Iter;
-
-#[macro_export]
-macro_rules! mat {
-    ($map:expr, $thing:expr) => { crate::graph::Materialize::materialize_unsafely($thing, $map) };
-}
-
-#[macro_export]
-macro_rules! mats {
-    ($map:expr, $thing:expr) => { crate::graph::Materialize::materialize_safely($thing, $map) };
-}
+use crate::graph::indices::{EdgeI, VertexI, FaceI};
+use petgraph::{EdgeType, Undirected, Graph};
+use petgraph::graph::IndexType;
+use petgraph::csr::NodeIndex;
+use crate::graph::error::{IndexAccessError, NoSuchEdgeError};
 
 #[macro_export]
 macro_rules! invalid_graph {
     () => { panic!("Assertion failed, referential integrity of graph obstructed.") };
 }
 
-pub mod schnyder;
+pub mod indices;
 pub mod io;
-mod guarded_map;
-
-trait Materialize<N, E, F: Clone> {
-    type MaterializedType;
-    fn materialize_unsafely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> &'a Self::MaterializedType;
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType>;
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct VertexI(pub usize);
-
-impl fmt::Display for VertexI {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "VertexI({})", self.0)
-    }
-}
-
-impl<N, E, F: Clone> Materialize<N, E, F> for VertexI {
-    type MaterializedType = Vertex<N>;
-
-    fn materialize_unsafely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> &'a Self::MaterializedType {
-        map.vertex(*self)
-    }
-
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType> {
-        map.vertices.get_map().get(self).ok_or(GraphErr::invalid_vertex_index(*self))
-    }
-}
-
-impl From<usize> for VertexI { fn from(n: usize) -> Self { VertexI(n) } }
-impl Into<usize> for VertexI { fn into(self) -> usize { self.0 } }
-impl Index for VertexI { }
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct EdgeI(pub usize);
-
-impl From<usize> for EdgeI { fn from(n: usize) -> Self { EdgeI(n) } }
-impl Into<usize> for EdgeI { fn into(self) -> usize { self.0 } }
-impl Index for EdgeI { }
-
-impl<N, E, F: Clone> Materialize<N, E, F> for EdgeI {
-    type MaterializedType = Edge<E>;
-
-    fn materialize_unsafely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> &'a Self::MaterializedType {
-        map.edge(*self)
-    }
-
-    fn materialize_safely<'a>(&self, map: &'a PlanarMap<N, E, F>) -> GraphResult<&'a Self::MaterializedType> {
-        map.edges.get_map().get(self).ok_or(GraphErr::invalid_edge_index(*self))
-    }
-}
-
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub struct FaceI(pub usize);
-
-impl From<usize> for FaceI { fn from(n: usize) -> Self { FaceI(n) } }
-impl Into<usize> for FaceI { fn into(self) -> usize { self.0 } }
-impl Index for FaceI { }
+pub mod error;
+pub mod guarded_map;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum EdgeEnd {
@@ -159,17 +94,17 @@ impl Side {
     }
 }
 
-struct Edge<E> {
-    id: EdgeI,
-    tail: VertexI,
-    head: VertexI,
-    right_face: Option<FaceI>,
-    left_face: Option<FaceI>,
-    weight: E
+pub struct Edge<E> {
+    pub id: EdgeI,
+    pub tail: VertexI,
+    pub head: VertexI,
+    pub right_face: Option<FaceI>,
+    pub left_face: Option<FaceI>,
+    pub weight: E
 }
 
 impl<E> Edge<E> {
-    pub fn get_other(&self, this: VertexI) -> VertexI {
+    pub fn get_other(&self, this: VertexI) -> VertexI {//TODO error handling
         match self.get_signum_by_tail(this) {
             Forward => return self.head,
             Backward => return self.tail
@@ -248,10 +183,10 @@ impl<N> Ideable<EdgeI> for Edge<N> {
     fn set_id(&mut self, id: EdgeI) { self.id = id }
 }
 
-struct Vertex<N> {
-    id: VertexI,
-    neighbors: Vec<NbVertex>,
-    weight: N
+pub struct Vertex<N> {
+    pub id: VertexI,
+    pub neighbors: Vec<NbVertex>,
+    pub weight: N
 }
 
 
@@ -272,13 +207,13 @@ impl<N> Ideable<VertexI> for Vertex<N> {
 }
 
 #[derive(Clone)]
-struct Face<F> {
-    id: FaceI,
-    angles: Vec<VertexI>,
-    weight: F
+pub struct Face<F> {
+    pub id: FaceI,
+    pub angles: Vec<VertexI>,
+    pub weight: F
 }
 
-fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
+pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     if do_swap {
         let (a, b) = pair;
         (b, a)
@@ -287,9 +222,19 @@ fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     }
 }
 
-impl<N> Ideable<FaceI> for Face<N> {
+impl<F> Ideable<FaceI> for Face<F> {
     fn get_id(&self) -> FaceI { self.id }
     fn set_id(&mut self, id: FaceI) { self.id = id }
+}
+
+impl<F> Debug for Face<F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: ", self.id)?;
+        for angle in self.angles.iter() {
+            write!(f, "{:?}", angle)?;
+        }
+        Ok(())
+    }
 }
 
 impl<N> Vertex<N> {
@@ -312,21 +257,21 @@ impl<N> Vertex<N> {
         }
     }
 
-    fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
+    pub fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
         let nb = self.get_nb(other).unwrap();
         self.get_iterator(nb.index, direction, false, true).next().unwrap()
     }
 
-    fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
+    pub fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
         self.get_iterator(nb.index, direction, false, true).next().unwrap()
     }
 
-    fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
+    pub fn cycle_while(&self, start_index: usize, condition_while: &Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
         self.get_iterator(start_index, direction, include_start_index, true).take_while(condition_while).collect_vec()
     }
 
     /// does not include the edges to v1 and v2 respectively
-    fn sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
             return self.nb_sector_between(nb1, nb2, direction);
         } else {
@@ -334,7 +279,7 @@ impl<N> Vertex<N> {
         }
     }
 
-    fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
         return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
     }
 
@@ -346,7 +291,7 @@ impl<N> Vertex<N> {
         }
     }
 
-    fn nb_sector_including(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn nb_sector_including(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
         let mut result = Vec::new();
         let mut start = true;
         for nb in self.get_iterator(nb1.index, direction, true, true) {
@@ -362,11 +307,11 @@ impl<N> Vertex<N> {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct NbVertex {
-    index: usize,
-    other: VertexI,
-    edge: EdgeI,
-    end: EdgeEnd
+pub struct NbVertex {
+    pub index: usize,
+    pub other: VertexI,
+    pub edge: EdgeI,
+    pub end: EdgeEnd
 }
 
 pub struct PlanarMap<N, E, F: Clone> {
@@ -376,51 +321,6 @@ pub struct PlanarMap<N, E, F: Clone> {
     //
     embedded: bool,
     enforce_simple: bool
-}
-
-impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> From<Graph<N, E, Ty, Ix>> for PlanarMap<N, E, F> {
-    fn from(g: Graph<N, E, Ty, Ix>) -> Self {
-        let mut map = PlanarMap::new();
-
-        let mut node_map = HashMap::new();
-        for i in g.node_indices() {
-            let new_idx = map.add_vertex(g.node_weight(i).unwrap().clone());
-            node_map.insert(i, new_idx);
-        }
-
-        for i in g.edge_indices() {
-            let (a, b) = g.edge_endpoints(i).unwrap();
-
-            let v1 = node_map.get(&a).unwrap();
-            let v2 = node_map.get(&b).unwrap();
-
-            map.add_edge(*v1, *v2, g.edge_weight(i).unwrap().clone());
-        }
-
-        return map;
-    }
-}
-
-impl<N: Clone, E: Clone, F: Clone> /*Into<(Graph<N, E, Ty, Ix>, HashMap<VertexI, NodeIndex<Ix>>)> for*/ PlanarMap<N, E, F> {
-    pub fn into_petgraph(&self) -> (Graph<N, E, Undirected, u32>, HashMap<VertexI, NodeIndex<u32>>) {
-        let mut g: Graph<N, E, Undirected, u32> = Graph::new_undirected();
-
-        let mut node_map = HashMap::new();
-        for v in self.vertices.get_map().values() {
-            let new_idx = g.add_node(v.weight.clone());
-            node_map.insert(v.id, new_idx);
-        }
-
-        for e in self.edges.get_map().values() {
-
-            let v1 = node_map.get(&e.tail).unwrap();
-            let v2 = node_map.get(&e.head).unwrap();
-
-            g.add_edge(*v1, *v2, e.weight.clone());
-        }
-
-        return (g, node_map);
-    }
 }
 
 impl<N, E, F: Clone> PlanarMap<N, E, F> {
@@ -487,11 +387,24 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
-        let v = mats!(self, &v1)?;
+        let v = self.try_vertex(v1)?;
+        self.try_vertex(v2)?;
+
         v.neighbors.iter()
             .find(|nb| nb.other == v2)
             .map(|nb| nb.edge)
-            .ok_or(GraphErr::new(&format!("No edge between vertices {} and {}", v1.0, v2.0)))
+            .ok_or(GraphErr::from(NoSuchEdgeError::new(v1, v2)))
+    }
+
+    pub fn edge_pair(&self, e: EdgeI, sig: Signum) -> Result<(VertexI, VertexI), IndexAccessError<EdgeI>> {
+        let e = self.try_edge(e)?;
+        return Ok(match sig {
+            Forward => (e.tail, e.head), Backward => (e.head, e.tail)
+        });
+    }
+
+    pub fn faces(&self) -> impl Iterator<Item = &Face<F>> {
+        self.faces.get_map().values()
     }
 
     pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> FaceI {
@@ -541,7 +454,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn is_embedded(&self) -> bool { self.embedded }
 
-    fn edges(&self) -> impl Iterator<Item=&Edge<E>> {
+    pub fn edges(&self) -> impl Iterator<Item=&Edge<E>> {
         self.edges.get_map().values()
     }
 
@@ -554,10 +467,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn edge_contains(&self, eid: &EdgeI, vid: &VertexI) -> bool {
         let e = self.edge(*eid);
         return &e.head == vid || &e.tail == vid;
-    }
-
-    fn vertices(&self) -> impl Iterator<Item=&Vertex<N>> {
-        self.vertices.get_map().values()
     }
 
     pub fn next_nb(&self, v: VertexI, nb: VertexI, direction: ClockDirection) -> GraphResult<VertexI> {
@@ -573,6 +482,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
         self.vertices.get_map().keys()
+    }
+
+    pub fn vertices(&self) -> impl Iterator<Item = &Vertex<N>> {
+        self.vertices.get_map().values()
     }
 
     pub fn vertex_cycle(&self, vid: VertexI, other: VertexI, wrap: bool, direction: ClockDirection) -> impl Iterator<Item=&NbVertex> {
@@ -593,8 +506,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get_map().len()
     }
 
-    pub fn sector_between(&self, center: &VertexI, from: &VertexI, to: &VertexI, direction: ClockDirection) -> GraphResult<Vec<(EdgeI, VertexI)>> {
-        Ok(center.materialize_safely(&self)?.sector_between(*from, *to, direction).iter()
+    pub fn sector_between(&self, center: VertexI, from: VertexI, to: VertexI, direction: ClockDirection) -> GraphResult<Vec<(EdgeI, VertexI)>> {
+        Ok(self.try_vertex(center)?.sector_between(from, to, direction).iter()
             .map(|nb| (nb.edge, nb.other))
             .collect_vec())
     }
@@ -607,12 +520,28 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn edge_weight(&self, edge: &EdgeI) -> Option<&E> {
-        self.edges.get_map().get(edge).map(|e| &e.weight)
+    pub fn edge_opposite_vertex(&self, e: EdgeI, v: VertexI) -> GraphResult<VertexI> {
+        Ok(self.try_edge(e)?.get_other(v))
     }
 
-    pub fn vertex_weight(&self, vertex: &VertexI) -> GraphResult<&N> {
-        Ok(&mats![self, vertex]?.weight)
+    pub fn edge_weight(&self, e: EdgeI) -> Result<&E, IndexAccessError<EdgeI>> {
+        Ok(&self.try_edge(e)?.weight)
+    }
+
+    pub fn set_edge_weight(&mut self, e: EdgeI, weight: E) -> Result<(), IndexAccessError<EdgeI>> {
+        let e = self.try_edge_mut(e)?;
+        e.weight = weight;
+        return Ok(());
+    }
+
+    pub fn vertex_weight(&self, v: VertexI) -> Result<&N, IndexAccessError<VertexI>> {
+        Ok(&self.try_vertex(v)?.weight)
+    }
+
+    pub fn set_vertex_weight(&mut self, v: VertexI, weight: N) -> Result<(), IndexAccessError<VertexI>> {
+        let v = self.try_vertex_mut(v)?;
+        v.weight = weight;
+        return Ok(());
     }
 
     pub fn is_connected(&self) -> bool {
@@ -620,7 +549,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             return true;
         }
 
-        let connected_component = self.connected_component(&self.vertices.any_index().unwrap(), &HashSet::new()).unwrap();
+        let connected_component = self.connected_component(self.vertices.any_index().unwrap(), &HashSet::new()).unwrap();
         return connected_component.len() == self.vertex_count();
     }
 
@@ -628,19 +557,18 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get_map().values().all(|f| f.angles.len() == 3)
     }
 
-    pub fn connected_component(&self, vertex: &VertexI, forbidden_edges: &HashSet<EdgeI>) -> GraphResult<Vec<VertexI>> {
-        self.try_vertex(*vertex)?;
+    pub fn connected_component(&self, vertex: VertexI, forbidden_edges: &HashSet<EdgeI>) -> GraphResult<Vec<VertexI>> {
+        self.try_vertex(vertex)?;
 
         let mut visited = HashSet::new();
         let mut to_visit = vec![vertex];
 
-        while !to_visit.is_empty() {
-            let v = to_visit.remove(to_visit.len() - 1);
-            visited.insert(*v);
+        while let Some(v) = to_visit.pop() {
+            visited.insert(v);
 
-            for nb in &self.try_vertex(*v)?.neighbors {
+            for nb in &self.try_vertex(v)?.neighbors {
                 if !forbidden_edges.contains(&nb.edge) {
-                    let v = &nb.other;
+                    let v = nb.other;
                     if !visited.contains(&v) {
                         to_visit.push(v);
                     }
@@ -702,7 +630,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         };
 
         let index = self.vertices.retrieve_index(v);
-        self.vertices.get_mut(&index).id = index;
+        self.vertices.get_mut(&index).unwrap().id = index;
         return index;
     }
 
@@ -733,7 +661,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             None => self.vertex(v1).neighbors.len(),
             Some(i) => i
         };
-        self.vertices.get_mut(&v1).neighbors.push(
+        self.vertex_mut(v1).neighbors.push(
             NbVertex {
                 index,
                 other: v2,
@@ -746,7 +674,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             None => self.vertex(v2).neighbors.len(),
             Some(i) => i
         };
-        self.vertices.get_mut(&v2).neighbors.push(
+        self.vertex_mut(v2).neighbors.push(
             NbVertex {
                 index,
                 other: v1,
@@ -868,8 +796,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.remove_edge_(v1, v2).map(|e|e.id)
     }
 
-    pub fn remove_embedded_edge_by_id(&mut self, eid: EdgeI, merge_weights: &Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
-        let e = mats![&self, &eid]?;
+    pub fn remove_embedded_edge_by_id(&mut self, e: EdgeI, merge_weights: &Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
+        let e = self.try_edge(e)?;
         self.remove_embedded_edge(e.tail, e.head, merge_weights)
     }
 
@@ -1177,7 +1105,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     /// new_end = end of the existing edge that will be replaced by the new edge
-    fn split_embedded_edge(
+    pub fn split_embedded_edge(
         &mut self,
         split_eid: EdgeI,
         new_end: EdgeEnd,
@@ -1334,9 +1262,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         self.embedded = true;
-        let (n, m, f) = (self.vertex_count() as isize, self.edge_count() as isize, self.face_count() as isize);
+        let (n, m, f) = (self.vertex_count(), self.edge_count(), self.face_count());
 
-        if n - m + f != 2 {
+        if n + f != 2 + m {
             self.embedded = false;
             panic!("Euler is unhappy");
         }
@@ -1394,16 +1322,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
     /// `faces` is a vector of all face cycles. The face cycles are vectors of vertex indices,
     /// specifying the order of vertices around the face in counterclockwise direction.
-    pub fn set_embedding(&mut self, faces: Vec<(Vec<VertexI>, F)>) -> GraphResult<()> {
+    pub fn set_embedding_by_face_cycles(&mut self, faces: Vec<(Vec<VertexI>, F)>) -> GraphResult<()> {
         if !(self.is_simple() && self.is_connected()) {
             return GraphErr::new_err("Embeddings can only be set if the graph is simple and connected");
         }
 
-        for vid in faces.iter()
+        for v in faces.iter()
             .flat_map(|(fc, w)| fc.iter()) {
-            mats![&self, vid]?;
+            self.try_vertex(*v)?;
         }
-
 
         let n = self.vertices.get_map().len() as isize;
         let m = self.edges.get_map().len() as isize;
@@ -1433,7 +1360,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                     GraphErr::new(&format!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0))
                 )?;
 
-                match self.get_signum(e, a, b) {
+                match self.get_signum(e, a, b)? {
                     Forward => fwd_occurence.insert(e),
                     Backward => backwd_occurence.insert(e)
                 };
@@ -1450,7 +1377,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         // check if all vertices have a well-defined total order on their neighbors now
         for i in self.vertices.get_map().keys().copied().collect_vec() {
-            let mut v = self.vertices.get_mut(&i);
+            let mut v = self.vertex_mut(i);
             let vertex_angles = angles.get(&v.id).unwrap();
 
             if vertex_angles.len() != v.neighbors.len() {
@@ -1507,6 +1434,35 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.embedded = true; Ok(())
     }
 
+    pub fn set_embedding_by_vertex_orders(&mut self, neighbor_orders: Vec<(VertexI, Vec<VertexI>)>, f_weights: fn(FaceI) -> F) -> GraphResult<()> {
+        if !(self.is_simple() && self.is_connected()) {
+            return GraphErr::new_err("Embeddings can only be set if the graph is simple and connected");
+        }
+
+        let mut vertices: HashSet<_> = self.vertex_indices().cloned().collect();
+        for (v, nb_order) in neighbor_orders {
+            if !vertices.contains(&v) {
+                return GraphErr::new_err(&format!("Vertex orders are given twice for {}", v));
+            }
+
+            let map: HashMap<_,_> = nb_order.iter().enumerate().map(|(i, nb)| (nb, i)).collect();
+
+            let v = self.try_vertex_mut(v)?;
+            for nb in &mut v.neighbors {
+                nb.index = *map.get(&nb.other).ok_or(GraphErr::new(&format!("Vertex orders are not matching actual neighborhoods for {}", v.id)))?;
+            }
+            v.neighbors.sort_by_key(|nb| nb.index);
+            vertices.remove(&v.id);
+        }
+
+        if !vertices.is_empty() {
+            return GraphErr::new_err(&format!("No vertex orders given for at least one vertex"));
+        }
+
+        self.construct_faces(f_weights); //TODO error handling
+        Ok(())
+    }
+
     pub fn get_dual(&self, enforce_simple: bool) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {
 
         let mut dual_map = PlanarMap::new();
@@ -1539,7 +1495,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         for v in self.vertices.get_map().values() {
             let cycle = v.neighbors.iter().map(|nb| {
                 let f = match nb.end {
-                    Tail => mat!(self, &nb.edge).left_face.unwrap(),
+                    Tail => self.edge(nb.edge).left_face.unwrap(),
                     Head => self.edge(nb.edge).right_face.unwrap()
                 };
                 *primal_face_to_dual_vertex.get(&f).unwrap()
@@ -1548,7 +1504,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             face_cycles.push((cycle, v.id));
         }
 
-        dual_map.set_embedding(face_cycles);
+        dual_map.set_embedding_by_face_cycles(face_cycles);
         for dual_face in dual_map.faces.get_map().values() {
             primal_vertex_to_dual_face.insert(dual_face.weight, dual_face.id);
         }
@@ -1566,12 +1522,20 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.edges.get(&e).unwrap()
     }
 
+    pub fn try_edge(&self, e: EdgeI) -> Result<&Edge<E>, IndexAccessError<EdgeI>> {
+        self.edges.get(&e).ok_or(IndexAccessError::new(e))
+    }
+
     fn edge_mut(&mut self, e: EdgeI) -> &mut Edge<E> {
-        self.edges.get_mut(&e)
+        self.edges.get_mut(&e).unwrap()
+    }
+
+    fn try_edge_mut(&mut self, e: EdgeI) -> Result<&mut Edge<E>, IndexAccessError<EdgeI>> {
+        self.edges.get_mut(&e).ok_or(IndexAccessError::new(e))
     }
 
     /// (tail vertex, tail neighbor, edge, head neighbor, head vertex)
-    fn edge_with_nb(&self, e: EdgeI) -> (&Vertex<N>, &NbVertex, &Edge<E>, &NbVertex, &Vertex<N>) {
+    pub fn edge_with_nb(&self, e: EdgeI) -> (&Vertex<N>, &NbVertex, &Edge<E>, &NbVertex, &Vertex<N>) {
         let e = self.edge(e);
         let tail = self.vertex(e.tail);
         let head = self.vertex(e.head);
@@ -1584,8 +1548,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get(&f).unwrap()
     }
 
+    pub fn try_face(&self, f: FaceI) -> Result<&Face<F>, IndexAccessError<FaceI>> {
+        self.faces.get(&f).ok_or(IndexAccessError::new(f))
+    }
+
     fn face_mut(&mut self, f: FaceI) -> &mut Face<F> {
-        self.faces.get_mut(&f)
+        self.faces.get_mut(&f).unwrap()
     }
 
     /// Unchecked retrieval of the vertex struct for a given vertex index
@@ -1593,12 +1561,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.vertices.get(&v).unwrap()
     }
 
-    fn try_vertex(&self, v: VertexI) -> GraphResult<&Vertex<N>> {
-        self.vertices.get(&v).ok_or_else(|| GraphErr::new(&format!("Invalid vertex index: {}", v.0)))
+    pub fn try_vertex(&self, v: VertexI) -> Result<&Vertex<N>, IndexAccessError<VertexI>> {
+        self.vertices.get(&v).ok_or(IndexAccessError::new(v))
     }
 
     fn vertex_mut(&mut self, v: VertexI) -> &mut Vertex<N> {
-        self.vertices.get_mut(&v)
+        self.vertices.get_mut(&v).unwrap()
+    }
+
+    fn try_vertex_mut(&mut self, v: VertexI) -> Result<&mut Vertex<N>, IndexAccessError<VertexI>> {
+        self.vertices.get_mut(&v).ok_or(IndexAccessError::new(v))
     }
 
     fn restore_nb_indices(&mut self, vid: VertexI) {
@@ -1624,20 +1596,25 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
+    //TODO: deprecated
     fn get_edge_with_signum(&self, v1: VertexI, v2: VertexI) -> (EdgeI, Signum) {
         let e = self.get_edge(v1, v2).unwrap();
-        (e, self.get_signum(e, v1, v2))
+        (e, self.get_signum(e, v1, v2).unwrap())
     }
 
-    /// Unchecked retrieval of signum
-    fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> Signum {
-        self.edge(e).get_signum(v1, v2)
+    pub fn edge_with_signum(&self, v1: VertexI, v2: VertexI) -> GraphResult<(EdgeI, Signum)> {
+        let e = self.get_edge(v1, v2)?;
+        Ok((e, self.get_signum(e, v1, v2)?))
+    }
+
+    pub fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> GraphResult<Signum> {
+        Ok(self.try_edge(e)?.get_signum(v1, v2))
     }
 
     /// The order of NbVertex is in face definition order (ccw), or seen from the vertex in cw order.
-    fn get_knee_by_face(&self, fid: FaceI, vid: VertexI) -> Option<(&Vertex<N>, usize, &NbVertex, &NbVertex)> {
+    pub fn get_knee_by_face(&self, fid: FaceI, vid: VertexI) -> Option<(&Vertex<N>, usize, &NbVertex, &NbVertex)> {
         if !self.embedded {
-            panic!("no embedding given");
+            panic!("no embedding given"); //TODO
         };
 
         if !self.face(fid).angles.contains(&vid) {
@@ -1645,7 +1622,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         let idx = self.face(fid).angles.iter().position(|&v| v == vid).unwrap();
-        let v = mat!(self, &vid);
+        let v = self.vertex(vid);
 
         let first = v.neighbors.iter()
             .find(|nb| {
@@ -1672,19 +1649,22 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    fn get_knee(&self, e1: EdgeI, e2: EdgeI) -> Option<(&Vertex<N>, &NbVertex, &NbVertex)> {
+    pub fn get_knee(&self, e1: EdgeI, e2: EdgeI) ->  GraphResult<(&Vertex<N>, &NbVertex, &NbVertex)> {
         if !self.embedded {
-            panic!("no embedding given");
+            return GraphErr::new_err("Operation only allowed on embedded graphs.");
+        }
+        if !self.is_simple() {
+            return GraphErr::new_err("Operation only allowed on simple graphs.");
         }
 
-        let e1 = self.edge(e1);
-        let e2 = self.edge(e2);
+        let e1 = self.try_edge(e1)?;
+        let e2 = self.try_edge(e2)?;
 
         let vertex_intersection = vec![e1.tail, e1.head].intersect(vec![e2.tail, e2.head]);
         match vertex_intersection.len() {
-            0 => return None,
+            0 => return GraphErr::new_err("No common vertex, edges do not form a knee"),
             1 => (),
-            _ => panic!("assertion failed")
+            _ => invalid_graph!()
         };
 
         let e1_signum = e1.get_signum_by_tail(vertex_intersection[0]);
@@ -1696,17 +1676,17 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let nb2 = v.get_nb(e2.get_other(v.id)).unwrap();
         let l = v.neighbors.len();
 
-        if l < 3 { panic!("knee not uniquely determined"); }
+        assert!(l >= 3);
 
         if (nb1.index + 1) % l == nb2.index {
-            return Some((v, nb1, nb2));
+            return Ok((v, nb1, nb2));
         }
 
         if (nb2.index + 1) % l == nb1.index {
-            return Some((v, nb2, nb1));
+            return Ok((v, nb2, nb1));
         }
 
-        return None;
+        GraphErr::new_err("Edges are not next to each other at their common vertex, edges do not form a knee")
     }
 
 }
@@ -1718,6 +1698,11 @@ impl<N, E, F: Clone> Debug for PlanarMap<N, E, F> {
         }
         for e in self.edges.get_map().values().sorted_by_key(|e| e.id.0) {
             writeln!(f, "{:?}", e);
+        }
+        if self.embedded {
+            for face in self.faces.get_map().values().sorted_by_key(|f| f.id.0) {
+                writeln!(f, "{:?}", face);
+            }
         }
         Ok(())
     }
@@ -1741,7 +1726,7 @@ mod tests {
         g.add_edge(v1, v3, 2);
         g.add_edge(v2, v3, 2);
 
-        g.set_embedding(vec![
+        g.set_embedding_by_face_cycles(vec![
             (vec![v1, v2, v3], 1),
             (vec![v3, v2, v1], 1),
         ]);
@@ -1772,7 +1757,7 @@ mod tests {
             the_face.push(*&ctr);
         }
 
-        g.set_embedding(vec![
+        g.set_embedding_by_face_cycles(vec![
             (the_face, 0)
         ]);
 
@@ -1805,7 +1790,7 @@ mod tests {
 
         let e = h.add_edge(a, b, 0);
 
-        h.set_embedding(vec![
+        h.set_embedding_by_face_cycles(vec![
             (vec![a, b], 0)
         ]).expect("test");
 
@@ -1828,7 +1813,7 @@ mod tests {
         let e1 = j.add_edge(a, b, 0);
         let e2 = j.add_edge(a, c, 0);
 
-        j.set_embedding(vec![
+        j.set_embedding_by_face_cycles(vec![
             (vec![a, b, a, c], 0)
         ]).expect("test");
 
@@ -1842,3 +1827,48 @@ mod tests {
 
     }
 }
+
+/*impl<N: Clone, E: Clone, F: Clone, Ty: EdgeType, Ix: IndexType> From<Graph<N, E, Ty, Ix>> for PlanarMap<N, E, F> {
+    fn from(g: Graph<N, E, Ty, Ix>) -> Self {
+        let mut map = PlanarMap::new();
+
+        let mut node_map = HashMap::new();
+        for i in g.node_indices() {
+            let new_idx = map.add_vertex(g.node_weight(i).unwrap().clone());
+            node_map.insert(i, new_idx);
+        }
+
+        for i in g.edge_indices() {
+            let (a, b) = g.edge_endpoints(i).unwrap();
+
+            let v1 = node_map.get(&a).unwrap();
+            let v2 = node_map.get(&b).unwrap();
+
+            map.add_edge(*v1, *v2, g.edge_weight(i).unwrap().clone());
+        }
+
+        return map;
+    }
+}
+
+impl<N: Clone, E: Clone, F: Clone> /*Into<(Graph<N, E, Ty, Ix>, HashMap<VertexI, NodeIndex<Ix>>)> for*/ PlanarMap<N, E, F> {
+    pub fn into_petgraph(&self) -> (Graph<N, E, Undirected, u32>, HashMap<VertexI, NodeIndex<u32>>) {
+        let mut g: Graph<N, E, Undirected, u32> = Graph::new_undirected();
+
+        let mut node_map = HashMap::new();
+        for v in self.vertices.get_map().values() {
+            let new_idx = g.add_node(v.weight.clone());
+            node_map.insert(v.id, new_idx);
+        }
+
+        for e in self.edges.get_map().values() {
+
+            let v1 = node_map.get(&e.tail).unwrap();
+            let v2 = node_map.get(&e.head).unwrap();
+
+            g.add_edge(*v1, *v2, e.weight.clone());
+        }
+
+        return (g, node_map);
+    }
+}*/

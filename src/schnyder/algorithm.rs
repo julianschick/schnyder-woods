@@ -6,16 +6,16 @@ use chrono::{NaiveDateTime, Utc};
 use itertools::Itertools;
 
 use crate::DEBUG;
-use crate::graph::{ClockDirection, EdgeI, NbVertex, Signum, swap, Vertex, VertexI, Side, FaceI};
+use crate::graph::{ClockDirection, NbVertex, Signum, swap, Vertex, Side};
 use crate::graph::ClockDirection::{CCW, CW};
-use crate::graph::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType, SchnyderEdge, SchnyderEdgeDirection};
-use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
-use crate::graph::schnyder::IndexedEnum;
-use crate::graph::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
-use crate::graph::schnyder::SchnyderVertexType::{Suspension, Normal};
+use crate::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType, SchnyderEdge, SchnyderEdgeDirection};
+use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
+use crate::schnyder::IndexedEnum;
+use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
+use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::Signum::{Backward, Forward};
 use crate::util::iterators::cyclic::CyclicIterable;
-use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
+use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
@@ -23,8 +23,9 @@ use std::convert::TryInto;
 use crate::graph::Side::{Left, Right};
 use std::fmt::{Debug, Formatter, Write};
 use bimap::BiMap;
+use crate::graph::indices::{VertexI, EdgeI, FaceI};
 
-pub trait OperationX {
+/*pub trait OperationX {
     fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()>;
     fn inverted(&self) -> Box<dyn OperationX>;
 }
@@ -154,7 +155,7 @@ pub fn test() -> Vec<Box<dyn OperationX>> {
     let inv = result.iter().map(|op| op.inverted()).collect_vec();
 
     return result;
-}
+}*/
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
@@ -335,40 +336,37 @@ impl SchnyderMap {
     }
 
     fn get_unidirected_color(&self, v1: &VertexI, v2: &VertexI) -> SchnyderColor {
-        match self.get_color(*v1, *v2) {
+        match self.get_color(*v1, *v2).unwrap() {
             Unicolored(color, Forward) => color,
             _ => panic!("Other color or direction than expected by assertion")
         }
     }
 
     fn get_bidirected_colors(&self, v1: &VertexI, v2: &VertexI) -> (SchnyderColor, SchnyderColor) {
-        match self.get_color(*v1, *v2) {
+        match self.get_color(*v1, *v2).unwrap() {
             Bicolored(a, b)  => (a, b),
             _ => panic!("Other color or direction than expected by assertion")
         }
     }
 
-
-
 }
 
-fn flip_over_to_triangle(wood: &mut SchnyderMap, mut flip_edges: Vec<EdgeI>, debug: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> Vec<Operation> {
+fn flip_over_to_triangle(wood: &mut SchnyderMap, mut flip_edges: Vec<EdgeI>) -> GraphResult<Vec<Operation>> {
     let mut result = Vec::new();
     while flip_edges.len() >= 2 {
         let merge_source_edge = flip_edges[flip_edges.len() - 1];
         let merge_target_edge = flip_edges[flip_edges.len() - 2];
 
-        result.push(Operation::merge(wood.map.edge(merge_source_edge).to_vertex_pair(Forward), wood.map.edge(merge_target_edge).to_vertex_pair(Forward)));
+        result.push(Operation::merge(wood.map.edge_pair(merge_source_edge, Forward)?, wood.map.edge_pair(merge_target_edge, Forward)?));
         let merge_op = wood.merge(merge_source_edge, merge_target_edge).unwrap();
-        let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_op.hinge_vertex);
-        let split_edge = merge_target_edge;
+        let split_hinge = wood.map.try_edge(merge_target_edge)?.get_other(merge_op.hinge_vertex);
 
         let split_op = wood.split(merge_target_edge, split_hinge, None).unwrap();
         result.push(split_op);
 
         flip_edges.pop();
     }
-    return result;
+    return Ok(result);
 }
 
 fn cycle_while_color(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap, start_index: usize, in_color: SchnyderColor, out_color: SchnyderColor, direction: ClockDirection) -> Vec<EdgeI> {
@@ -376,13 +374,11 @@ fn cycle_while_color(v: &Vertex<SchnyderVertexType>, wood: &SchnyderMap, start_i
         .iter().map(|nb| nb.edge).collect()
 }
 
-pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> Result<(), GraphErr> {
+pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> GraphResult<()> {
 
     let (v1, v2, apex1, apex2) = {
-        let (tail, head) = {
-            let e = wood.map.edge(eid);
-            (wood.map.vertex(e.tail), wood.map.vertex(e.head))
-        };
+        let (tail, head) = wood.map.edge_pair(eid, Forward)?;
+        let (tail, head) = (wood.map.try_vertex(tail)?, wood.map.try_vertex(head)?);
 
         let (tail_apex, head_apex) = match side {
             Side::Right=> (tail.next_nb(head.id, CW), head.next_nb(tail.id, CCW)),
@@ -395,8 +391,8 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> Result<(), 
 
     if apex1 == apex2 {
         let apex = apex1;
-        match wood.get_color(v1, apex1) {
-            Unicolored(c1, Forward) => match wood.get_color(v2, apex2) {
+        match wood.get_color(v1, apex1)? {
+            Unicolored(c1, Forward) => match wood.get_color(v2, apex2)? {
                 Unicolored(c2, Forward) if c1 == c2 => Ok(()),
                 _ => GraphErr::new_err("Edge in triangle is not unicolored")
             },
@@ -409,7 +405,7 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> Result<(), 
 
 pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<Operation>> {
 
-    if !wood.is_inner_edge(&eid)? {
+    if !wood.is_inner_edge(eid)? {
         return GraphErr::new_err("Only inner edges can be made contractible");
     }
     if !wood.map.is_triangulation() {
@@ -433,10 +429,10 @@ pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<
         let left_head_section = cycle_while_color(head, wood, head_nb.index, color, color.prev(), CW);
 
         // do the actual operations
-        result.extend(flip_over_to_triangle(wood, right_head_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, right_tail_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, left_head_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, left_tail_section, true, yummi));
+        result.extend(flip_over_to_triangle(wood, right_head_section)?);
+        result.extend(flip_over_to_triangle(wood, right_tail_section)?);
+        result.extend(flip_over_to_triangle(wood, left_head_section)?);
+        result.extend(flip_over_to_triangle(wood, left_tail_section)?);
 
     } else {
         assert!(false);
@@ -461,12 +457,12 @@ pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor
     }
 
     let mut result = Vec::new();
-    let mut incoming = wood.get_incoming_sector(&v, color, false);
+    let mut incoming = wood.get_incoming_sector(v, color, false);
     while incoming.len() > 1 {
 
         let target_edge = wood.map.get_edge(incoming[0], incoming[1])?;
 
-        match wood.get_color(incoming[0], incoming[1]) {
+        match wood.get_color(incoming[0], incoming[1])? {
             Unicolored(_, Forward) => {
                 let source_edge = wood.map.get_edge(v, incoming[1])?;
                 incoming.remove(1);
@@ -485,24 +481,24 @@ pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor
 
 }
 
-pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
+pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> GraphResult<(EdgeI, Vec<Operation>)> {
     if !wood.map.is_triangulation() {
-        panic!("needs to be a triangulation");
+        panic!("needs to be a triangulation");//TODO graph errors
     }
     if wood.map.vertex_count() < 4 {
         panic!("vertex count is too small");
     }
 
     if let Some(e) = wood.map.edge_indices()
-        .filter(|e| wood.is_inner_edge(e).unwrap())
-        .find(|e| match wood.map.edge_weight(e) {
-            Some(Unicolored(c, _)) if *c == color  => true,
+        .filter(|e| wood.is_inner_edge(**e).unwrap())
+        .find(|e| match wood.map.edge_weight(**e).unwrap() {
+            Unicolored(c, _) if *c == color  => true,
             _ => false
         }) {
-        return (*e, vec![]);
+        return Ok((*e, vec![]));
     }
 
-    let v = wood.map.vertex(wood.get_suspension_vertex(color));
+    let v = wood.map.try_vertex(wood.get_suspension_vertex(color))?;
     let nbs = v.sector_between(wood.get_suspension_vertex(color.prev()), wood.get_suspension_vertex(color.next()), CCW);
 
     if nbs.len() < 2 {
@@ -512,18 +508,18 @@ pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, 
     let mut result = Vec::new();
 
     let opposite_edge = wood.map.get_edge(nbs[0].other, nbs[1].other).unwrap();
-    let merged_edge = match wood.get_color(nbs[0].other, nbs[1].other) {
+    let merged_edge = match wood.get_color(nbs[0].other, nbs[1].other)? {
         Unicolored(_, Forward) => nbs[1].edge,
         Unicolored(_, Backward) => nbs[0].edge,
         _ => panic!("bicolored edge found")
     };
 
     let merge_op = wood.merge(merged_edge, opposite_edge).unwrap();
-    let split_hinge = wood.map.edge(opposite_edge).get_other(merge_op.hinge_vertex);
+    let split_hinge = wood.map.edge_opposite_vertex(opposite_edge, merge_op.hinge_vertex)?;
     let split_op = wood.split(opposite_edge, split_hinge, None).unwrap();
 
     result.push(merge_op);
     result.push(split_op);
 
-    return (opposite_edge, result);
+    return Ok((opposite_edge, result));
 }

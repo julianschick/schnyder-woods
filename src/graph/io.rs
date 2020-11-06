@@ -3,7 +3,7 @@ use std::collections::{HashSet, HashMap};
 use itertools::Itertools;
 use std::fs::{create_dir, File, read_dir, remove_file};
 use std::process::Command;
-use crate::graph::schnyder::SchnyderMap;
+use crate::schnyder::SchnyderMap;
 use std::io::Write;
 use std::path::Path;
 
