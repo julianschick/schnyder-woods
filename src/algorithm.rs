@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use itertools::Itertools;
 
 use crate::graph::EdgeEnd::{Tail, Head};
-use crate::graph::schnyder::algorithm::{Operation, make_inner_edge, make_contractible, Contraction, full_pizza_lemma};
+use crate::graph::schnyder::algorithm::{Operation, make_inner_edge, make_contractible, Contraction, full_pizza_lemma, OperationX};
 use crate::graph::schnyder::SchnyderColor::{Blue, Green, Red};
 use crate::graph::schnyder::SchnyderEdgeDirection::Unicolored;
 use crate::graph::schnyder::{SchnyderMap, SchnyderColor, IndexedEnum};
@@ -16,7 +16,7 @@ use crate::graph::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit
 use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
 
-pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> Vec<Operation> {
+pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> Vec<Box<dyn OperationX>> {
     let (vm, seq) = find_sequence_(wood1, wood2, 0);
     println!("outer vertex map = {:?}", vm);
     return seq;
@@ -51,7 +51,7 @@ fn compute_color_quality(info: Option<&(EdgeI, bool)>) -> usize {
     }
 }
 
-fn prepare_wood(wood: &mut SchnyderMap, candidates: &HashMap<SchnyderColor, (EdgeI, bool)>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Operation>)> {
+fn prepare_wood(wood: &mut SchnyderMap, candidates: &HashMap<SchnyderColor, (EdgeI, bool)>, color: SchnyderColor) -> GraphResult<(Contraction, Vec<Box<dyn OperationX>>)> {
 
     let mut seq = Vec::new();
     let contraction = if let Some((e, contractible)) = candidates.get(&color) {
@@ -83,7 +83,7 @@ fn calc_sector(wood: &mut SchnyderMap, center: &VertexI, from: &VertexI, to: &Ve
         .collect_vec()
 }
 
-fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap, lvl: usize) -> Vec<Operation> {
+fn lift_sequence(mut seq: &Vec<Box<dyn OperationX>>, ctr: &Contraction, wood: &mut SchnyderMap, lvl: usize) -> Vec<Box<dyn OperationX>> {
 
     let mut result = Vec::new();
     let vr = ctr.retained_vertex;
@@ -221,7 +221,7 @@ fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut Schnyde
     return result;
 }
 
-fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Operation>) {
+fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Box<dyn OperationX>>) {
     if wood1.map.vertex_count() != wood2.map.vertex_count() {
         panic!("vertex count is not equal");
     }
@@ -274,7 +274,7 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
             // swap
             let retained_vertex = *vertex_map.get_by_left(&contraction2.retained_vertex).unwrap();//TODO
             for op in &seq {
-                wood1.do_operation(op);
+                op.execute(&mut wood1);
             }
             println!("swap {} ~ {}", retained_vertex.0, contraction1.retained_vertex.0);
             let swap_seq = wood1.swap(&retained_vertex, &contraction1.retained_vertex).unwrap();//TODO
@@ -292,7 +292,7 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
 
             // rewind changes
             for op in swap_seq.iter().rev().chain(seq.iter().rev()) {
-                wood1.do_operation(&op.inverted());
+                op.inverted().execute(wood1);
             }
 
             seq.extend(swap_seq);
@@ -303,7 +303,7 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
         wood1.revert_schnyder_contraction(&contraction1);
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, uncontracted)"), &wood1.calculate_face_counts());
         for op in prep_seq1.iter().rev() {
-            wood1.do_operation(&op.inverted());
+            op.inverted().execute(wood1);
         }
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (re-unprepared, uncontracted)"), &wood1.calculate_face_counts());
 

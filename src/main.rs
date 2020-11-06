@@ -774,7 +774,7 @@ fn main2() {
     println!("{} operations", seq.len());
     for op in &seq {
         i += 1;
-        wood1.do_operation(op).expect(&format!("first level operation {:?} execution failed!", op));
+        op.execute(&mut wood1).expect(&format!("first level operation {:?} execution failed!", op));
         DEBUG.write().unwrap().output("std",&wood1, Some(&format!("Step {}",i)), &wood1.calculate_face_counts());
     }
 

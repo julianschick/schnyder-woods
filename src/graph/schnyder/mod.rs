@@ -19,7 +19,7 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::iterators::cyclic::CyclicIterableByElement;
 use rand::{thread_rng, Rng};
 use crate::util::errors::{GraphErr, GraphResult};
-use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle, OpType};
+use crate::graph::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle, OpType, MergeX, SplitX, OperationX};
 use crate::DEBUG;
 use petgraph::Graph;
 use petgraph::graph::{NodeIndex, EdgeIndex};
@@ -822,7 +822,7 @@ impl SchnyderMap {
         self.assemble_merge_data(source, target).map(|_| ())
     }
 
-    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> GraphResult<Operation> {
+    pub fn merge(&mut self, source: EdgeI, target: EdgeI) -> GraphResult<MergeX> {
 
         let dir = {
             let data = self.assemble_merge_data(source, target)?;
@@ -835,7 +835,7 @@ impl SchnyderMap {
         self.map.edge_mut(target).weight = dir;
         self.map.remove_embedded_edge_by_id(source, &(|a, b| a));
 
-        Ok(Operation::merge(
+        Ok(MergeX::from_edges(
             source_as_pair,
             target_as_pair
         ))
@@ -903,7 +903,7 @@ impl SchnyderMap {
             .map(|data| data.target_vids)
     }
 
-    pub fn split(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<Operation> {
+    pub fn split(&mut self, eid: EdgeI, hinge_vid: VertexI, target_vid: Option<VertexI>) -> GraphResult<SplitX> {
         let data = self.assemble_split_data(eid, hinge_vid, target_vid)?;
         let effective_target = match target_vid {
             Some(target_vid) => target_vid,
@@ -912,14 +912,14 @@ impl SchnyderMap {
         self.map.add_embedded_edge(hinge_vid, effective_target, Unicolored(data.split_color, Forward), data.target_face);
         self.map.edge_mut(eid).weight = data.remaining_color;
 
-        Ok(Operation::split(hinge_vid, self.map.edge(eid).get_other(hinge_vid), effective_target))
+        Ok(SplitX::new(hinge_vid, self.map.edge(eid).get_other(hinge_vid), effective_target))
     }
 
-    pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: Option<VertexI>) -> GraphResult<Vec<Operation>> {
+    pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: Option<VertexI>) -> GraphResult<Vec<Box<dyn OperationX>>> {
         let merge_op = self.merge(source, target)?;
         let split_hinge = self.map.edge(target).get_other(merge_op.hinge_vertex);
         let split_op = self.split(target, split_hinge, resplit_target)?;
-        Ok(vec![merge_op, split_op])
+        Ok(vec![Box::new(merge_op), Box::new(split_op)])
     }
 
     fn ext_splittable_(&self, hinge: VertexI, opposite: VertexI) -> GraphResult<(VertexI, VertexI, SchnyderColor, SchnyderColor)> {
@@ -1213,7 +1213,7 @@ impl SchnyderMap {
         return Ok((pivot_vid, eid));
     }
 
-    pub fn swap_locally(&mut self, a: &VertexI, b: &VertexI) -> Result<Vec<Operation>, GraphErr> {
+    pub fn swap_locally(&mut self, a: &VertexI, b: &VertexI) -> Result<Vec<Box<dyn OperationX>>, GraphErr> {
         if !self.map.is_triangulation() {
             return GraphErr::new_err("Swaps can only be done on triangulations");
         }
@@ -1285,8 +1285,8 @@ impl SchnyderMap {
 
             // revert the "make contractible" step
             for op in leading_seq.iter().rev() {
-                let inv_op = op.swapped_vertices(&a, &b).inverted();
-                self.do_operation(&inv_op);
+                let inv_op = op.replaced_vertex(&a, &b).inverted();
+                inv_op.execute(self);
                 mid_seq.push(inv_op);
             }
 
@@ -1300,45 +1300,14 @@ impl SchnyderMap {
         }
     }
 
-    pub fn swap(&mut self, a: &VertexI, b: &VertexI) -> GraphResult<Vec<Operation>> {
+    pub fn swap(&mut self, a: &VertexI, b: &VertexI) -> GraphResult<Vec<Box<dyn OperationX>>> {
         if a == b {
             return Ok(Vec::new());
         }
 
         let forbidden = vec![self.red_vertex, self.blue_vertex, self.green_vertex];
-
         let route = self.map.shortest_path(a, b, &forbidden.into_iter().collect());
 
-        /*let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
-
-        g.remove_node(*vmap.get(&self.red_vertex).unwrap());
-        g.remove_node(*vmap.get(&self.blue_vertex).unwrap());
-        g.remove_node(*vmap.get(&self.green_vertex).unwrap());
-
-        let from = vmap.get(&a).unwrap();
-        let to = vmap.get(&b).unwrap();
-
-        let rmap : HashMap<_, _> = vmap.iter().map(|(k,v)| (v, k)).collect();
-
-        //println!("connected = {}", has_path_connecting(g, from, to, None));
-
-         let (_, route) = petgraph::algo::astar(
-             &g,
-             *from,
-             |n| n == *to,
-             |n| 1,
-             |n| 1
-         ).expect("no route found! (a*)");
-
-        /*petgraph::algo::dijkstra(
-            &g,
-            *from,
-            Some(to),
-            |n| 1,
-        ).expect("no route found! (dijkstra)");*/
-
-        let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();*/
-        eprintln!("route = {:?}", route);
         let mut result = Vec::new();
         for tmp in route.iter().skip(1) {
             result.extend(self.swap_locally(a, tmp)?);

@@ -19,14 +19,21 @@ use crate::graph::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
+use crate::graph::schnyder::INVALID_WOOD;
 use std::convert::TryInto;
 use crate::graph::Side::{Left, Right};
 use std::fmt::{Debug, Formatter, Write};
 use bimap::BiMap;
 
-pub trait OperationX {
+pub trait OperationX: Debug {
     fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()>;
     fn inverted(&self) -> Box<dyn OperationX>;
+    fn replaced_vertex(&mut self, from: &VertexI, to: &VertexI) -> Box<dyn OperationX>;
+
+    fn replace(&self, from: &VertexI, to: &VertexI, in_question: &VertexI) -> VertexI {
+        if in_question == from { *to } else { *in_question }
+    }
+
 }
 
 pub struct SplitX {
@@ -56,6 +63,31 @@ impl SplitX {
         SplitX{ hinge_vertex, source_vertex, target_vertex }
     }
 }
+
+impl Debug for SplitX {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("Split @{}: {} ⤴ {}", self.hinge_vertex.0, self.source_vertex.0, self.target_vertex.0))
+    }
+}
+
+impl Debug for MergeX {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("Merge @{}: {} ⤵ {}", self.hinge_vertex.0, self.source_vertex.0, self.target_vertex.0))
+    }
+}
+
+impl Debug for ExtSplitX {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("ExtSplit: {} ⥎ {}", self.lo_hinge_vertex.0, self.hi_hinge_vertex.0))
+    }
+}
+
+impl Debug for ExtMergeX {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("ExtMerge: {} ⥐ {}", self.lo_hinge_vertex.0, self.hi_hinge_vertex.0))
+    }
+}
+
 
 impl MergeX {
     pub fn new(hinge_vertex: VertexI, source_vertex: VertexI, target_vertex: VertexI) -> Self {
@@ -105,6 +137,14 @@ impl OperationX for SplitX {
             target_vertex: self.source_vertex
         })
     }
+
+    fn replaced_vertex(&mut self, from: &VertexI, to: &VertexI) -> Box<dyn OperationX> {
+        Box::new(SplitX {
+            hinge_vertex: self.replace(from, to, &self.hinge_vertex),
+            source_vertex: self.replace(from, to, &self.source_vertex),
+            target_vertex: self.replace(from, to, &self.target_vertex),
+        })
+    }
 }
 
 impl OperationX for MergeX {
@@ -122,6 +162,14 @@ impl OperationX for MergeX {
             target_vertex: self.source_vertex
         })
     }
+
+    fn replaced_vertex(&mut self, from: &VertexI, to: &VertexI) -> Box<dyn OperationX> {
+        Box::new(MergeX {
+            hinge_vertex: self.replace(from, to, &self.hinge_vertex),
+            source_vertex: self.replace(from, to, &self.source_vertex),
+            target_vertex: self.replace(from, to, &self.target_vertex),
+        })
+    }
 }
 
 impl OperationX for ExtSplitX {
@@ -133,6 +181,13 @@ impl OperationX for ExtSplitX {
     fn inverted(&self) -> Box<dyn OperationX> {
         Box::new(ExtMergeX { lo_hinge_vertex: self.lo_hinge_vertex, hi_hinge_vertex: self.hi_hinge_vertex })
     }
+
+    fn replaced_vertex(&mut self, from: &VertexI, to: &VertexI) -> Box<dyn OperationX> {
+        Box::new(ExtSplitX {
+            lo_hinge_vertex: self.replace(from, to, &self.lo_hinge_vertex),
+            hi_hinge_vertex: self.replace(from, to, &self.hi_hinge_vertex),
+        })
+    }
 }
 
 impl OperationX for ExtMergeX {
@@ -143,6 +198,13 @@ impl OperationX for ExtMergeX {
 
     fn inverted(&self) -> Box<dyn OperationX> {
         Box::new(ExtSplitX { lo_hinge_vertex: self.lo_hinge_vertex, hi_hinge_vertex: self.hi_hinge_vertex })
+    }
+
+    fn replaced_vertex(&mut self, from: &VertexI, to: &VertexI) -> Box<dyn OperationX> {
+        Box::new(ExtMergeX {
+            lo_hinge_vertex: self.replace(from, to, &self.lo_hinge_vertex),
+            hi_hinge_vertex: self.replace(from, to, &self.hi_hinge_vertex),
+        })
     }
 }
 
@@ -352,19 +414,21 @@ impl SchnyderMap {
 
 }
 
-fn flip_over_to_triangle(wood: &mut SchnyderMap, mut flip_edges: Vec<EdgeI>, debug: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> Vec<Operation> {
-    let mut result = Vec::new();
+fn flip_over_to_triangle(wood: &mut SchnyderMap, mut flip_edges: Vec<EdgeI>) -> Vec<Box<dyn OperationX>> {
+    let mut result: Vec<Box<dyn OperationX>> = Vec::new();
     while flip_edges.len() >= 2 {
         let merge_source_edge = flip_edges[flip_edges.len() - 1];
         let merge_target_edge = flip_edges[flip_edges.len() - 2];
 
-        result.push(Operation::merge(wood.map.edge(merge_source_edge).to_vertex_pair(Forward), wood.map.edge(merge_target_edge).to_vertex_pair(Forward)));
-        let merge_op = wood.merge(merge_source_edge, merge_target_edge).unwrap();
+        //result.push(MergeX::from_edges(wood.map.edge(merge_source_edge).to_vertex_pair(Forward), wood.map.edge(merge_target_edge).to_vertex_pair(Forward)));
+        let merge_op = wood.merge(merge_source_edge, merge_target_edge).unwrap(); //TODO
         let split_hinge = wood.map.edge(merge_target_edge).get_other(merge_op.hinge_vertex);
-        let split_edge = merge_target_edge;
+        //let split_edge = merge_target_edge;
 
         let split_op = wood.split(merge_target_edge, split_hinge, None).unwrap();
-        result.push(split_op);
+
+        result.push(Box::new(merge_op));
+        result.push(Box::new(split_op));
 
         flip_edges.pop();
     }
@@ -407,7 +471,7 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> Result<(), 
     }
 }
 
-pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<Operation>> {
+pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<Box<dyn OperationX>>> {
 
     if !wood.is_inner_edge(&eid)? {
         return GraphErr::new_err("Only inner edges can be made contractible");
@@ -417,7 +481,6 @@ pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<
     }
 
     let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
-    let yummi = &wood.calculate_face_counts();
     let mut result = Vec::new();
 
     if let Unicolored(color, signum) = e.weight {
@@ -433,29 +496,19 @@ pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<
         let left_head_section = cycle_while_color(head, wood, head_nb.index, color, color.prev(), CW);
 
         // do the actual operations
-        result.extend(flip_over_to_triangle(wood, right_head_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, right_tail_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, left_head_section, true, yummi));
-        result.extend(flip_over_to_triangle(wood, left_tail_section, true, yummi));
+        result.extend(flip_over_to_triangle(wood, right_head_section));
+        result.extend(flip_over_to_triangle(wood, right_tail_section));
+        result.extend(flip_over_to_triangle(wood, left_head_section));
+        result.extend(flip_over_to_triangle(wood, left_tail_section));
 
     } else {
-        assert!(false);
-        //panic!("assertion failed - triangulation should only consist of unicolored inner edges.");
+        invalid_wood!();
     }
-
-    //DEBUG.write().unwrap().output(wood, Some("Finish"), yummi);
-    //DEBUG.write().unwrap().output(wood, Some("Finish w/ Updated Vertex Positions"), &wood.calculate_face_counts());
-
-    /*DEBUG.write().unwrap().output(wood, Some("Pre-Revert"), yummi);
-    for op in result.iter().rev().map(|op| op.inverted()) {
-        wood.do_operation(&op);
-        DEBUG.write().unwrap().output(wood, Some("Revert"), yummi);
-    }*/
 
     return Ok(result);
 }
 
-pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
+pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor) -> GraphResult<Vec<Box<dyn OperationX>>> {
     if !wood.map.is_triangulation() {
         return GraphErr::new_err("Map needs to be triangulation for exploiting the pizza lemma");
     }
@@ -485,7 +538,7 @@ pub fn full_pizza_lemma(wood: &mut SchnyderMap, v: VertexI, color: SchnyderColor
 
 }
 
-pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, Vec<Operation>) {
+pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, Vec<Box<dyn OperationX>>) {
     if !wood.map.is_triangulation() {
         panic!("needs to be a triangulation");
     }
@@ -509,7 +562,7 @@ pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, 
         panic!("assertion failed! (vertex count >= 4 and non presence of inner edge should guarantee at least 2 nbs");
     }
 
-    let mut result = Vec::new();
+    let mut result: Vec<Box<dyn OperationX>> = Vec::new();
 
     let opposite_edge = wood.map.get_edge(nbs[0].other, nbs[1].other).unwrap();
     let merged_edge = match wood.get_color(nbs[0].other, nbs[1].other) {
@@ -522,8 +575,8 @@ pub fn make_inner_edge(wood: &mut SchnyderMap, color: SchnyderColor) -> (EdgeI, 
     let split_hinge = wood.map.edge(opposite_edge).get_other(merge_op.hinge_vertex);
     let split_op = wood.split(opposite_edge, split_hinge, None).unwrap();
 
-    result.push(merge_op);
-    result.push(split_op);
+    result.push(Box::new(merge_op));
+    result.push(Box::new(split_op));
 
     return (opposite_edge, result);
 }
