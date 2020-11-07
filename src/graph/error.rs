@@ -1,4 +1,4 @@
-use crate::graph::indices::{EdgeI, VertexI};
+use crate::graph::indices::{VertexI};
 use crate::graph::guarded_map::Index;
 use std::fmt::Display;
 

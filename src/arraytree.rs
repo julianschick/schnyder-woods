@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use crate::util::errors::{GraphResult, GraphErr};
 
 pub struct ArrayTree {
@@ -155,6 +154,7 @@ impl ArrayTree {
         return result;
     }
 
+    #[allow(dead_code)]
     pub fn print(&self) {
         println!("{:?}", self.parents);
         println!("{:#?}", self.children);

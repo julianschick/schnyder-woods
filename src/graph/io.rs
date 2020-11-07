@@ -1,11 +1,6 @@
 use super::{VertexI, EdgeI, FaceI, PlanarMap};
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet};
 use itertools::Itertools;
-use std::fs::{create_dir, File, read_dir, remove_file};
-use std::process::Command;
-use crate::schnyder::SchnyderMap;
-use std::io::Write;
-use std::path::Path;
 
 pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Option<usize>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> Vec<PlanarMap<N, E, F>> {
     if data.len() < 15 {
@@ -39,7 +34,7 @@ pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Optio
 }
 
 impl<N,E,F: Clone> PlanarMap<N,E,F> {
-    pub fn from_plantri_planar_code(data: &mut Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
+    pub fn from_plantri_planar_code(data: &mut dyn Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
 
         if let Some(n) = data.next() {
             let mut result = PlanarMap::new();

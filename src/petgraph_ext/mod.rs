@@ -1,10 +1,8 @@
-use petgraph::visit::{IntoNodeIdentifiers, IntoNeighbors, NodeCount, IntoNodeReferences, IntoEdgeReferences};
+use petgraph::visit::{IntoNodeIdentifiers, IntoNeighbors, NodeCount};
 use bitvec::prelude::*;
-use std::collections::{HashSet, HashMap};
-use itertools::Itertools;
+use std::collections::{HashMap};
 use petgraph::{Graph, EdgeType};
 use petgraph::graph::IndexType;
-use petgraph::visit::NodeRef;
 
 pub fn to_edge_list<N, E, Ty: EdgeType, Ix: IndexType>(g: &Graph<N, E, Ty, Ix>) -> Vec<u8> {
     let mut result = Vec::with_capacity((g.edge_count()+1) * 8 * 2);

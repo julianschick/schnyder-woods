@@ -1,49 +1,30 @@
-use std::collections::{HashSet, HashMap, BTreeMap};
-use std::cmp::Ordering;
-use itertools::Itertools;
-
-use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
-use crate::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
-use crate::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::schnyder::{SchnyderVertexType, SchnyderEdgeDirection, SchnyderMap, SchnyderEdge, SchnyderColor};
-use crate::graph::Signum::Forward;
-use crate::util::iterators::cyclic::CyclicIterable;
-use crate::util::debug::Debug;
-use crate::graph::ClockDirection::{CCW, CW};
 use std::fs::File;
-use std::sync::{RwLock, Arc, Mutex};
-use std::io::Write;
-use std::io::Read;
-use std::process::Command;
-use crate::schnyder::SchnyderBuildMode::{LeftMost, RightMost, Random};
-use crate::graph::io::{read_plantri_planar_code};
-use crate::schnyder::algorithm::{make_contractible, make_inner_edge, full_pizza_lemma, OpType};
-use crate::algorithm::{compute_contraction_candidates, find_sequence, to_canonical_form, find_sequence_2};
-use crate::graph::EdgeEnd::{Tail, Head};
-
-use crate::petgraph_ext::{to_sparse6, to_edge_list, to_level_list};
-use std::time::{Instant, Duration};
-use std::thread;
-use std::thread::sleep;
-use rand::{thread_rng, Rng};
-use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
-use crate::arraytree::{ArrayTree, WalkAroundIterator, WalkAroundDirection};
-use clap::App;
+use std::sync::RwLock;
 use std::path::Path;
+
+use itertools::Itertools;
+use clap::App;
+
+use crate::schnyder::SchnyderColor::{Red};
+use crate::schnyder::{SchnyderMap};
+use crate::util::debug::Debug;
+use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 
 #[macro_use]
 extern crate lazy_static;
 
-mod graph;
+pub mod flipgraph;
+pub mod graph;
+pub mod schnyder;
+
 mod util;
 mod algorithm;
-mod petgraph_ext;
-mod flipgraph;
+//mod petgraph_ext;
 mod arraytree;
-mod schnyder;
+
 
 lazy_static! {
-    static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder", "/tmp/schnyder/output"));
+    static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder"));
 }
 
 fn main() {
@@ -106,7 +87,7 @@ fn main() {
 
             main7(n, num_threads, symmetry_breaking, output);
         },
-        Some(("test", matches)) => {
+        Some(("test", _)) => {
             test();
         }
         _ => {
@@ -131,9 +112,10 @@ fn test() {
     DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts().unwrap());
 }
 
+#[allow(dead_code)]
 fn main8() {
 
-    let mut file = File::open("/tmp/test.bincode").unwrap();
+    let file = File::open("/tmp/test.bincode").unwrap();
     let g : Flipgraph = bincode::deserialize_from(file).expect("TODO");
 
     let levels = g.get_levels();
@@ -182,7 +164,7 @@ fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, out
 
     println!("{}", "Writing CBOR...");
     {
-        let mut file = File::create(output_file).expect("TODO");
+        let file = File::create(output_file).expect("TODO");
         serde_cbor::to_writer(file, &g).expect("TODO");
     }
 

@@ -1,27 +1,16 @@
-use std::collections::HashMap;
-use std::time::Instant;
-
 use array_tool::vec::Intersect;
-use chrono::{NaiveDateTime, Utc};
-use itertools::Itertools;
 
-use crate::DEBUG;
-use crate::graph::{ClockDirection, NbVertex, Signum, swap, Vertex, Side};
+use crate::graph::{ClockDirection, Signum, swap, Vertex, Side};
 use crate::graph::ClockDirection::{CCW, CW};
-use crate::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType, SchnyderEdge, SchnyderEdgeDirection};
+use crate::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType};
 use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::schnyder::IndexedEnum;
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
-use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
 use crate::graph::Signum::{Backward, Forward};
-use crate::util::iterators::cyclic::CyclicIterable;
-use crate::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::graph::EdgeEnd::{Tail, Head};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
-use std::convert::TryInto;
 use crate::graph::Side::{Left, Right};
-use std::fmt::{Debug, Formatter, Write};
+use std::fmt::{Debug, Formatter};
 use bimap::BiMap;
 use crate::graph::indices::{VertexI, EdgeI, FaceI};
 
@@ -283,7 +272,7 @@ impl SchnyderMap {
             Merge => {
                 let src = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
                 let tgt = self.map.get_edge(op.hinge_vertex, op.target_vertex)?;
-                self.merge(src, tgt);
+                self.merge(src, tgt)?;
             },
             Split => {
                 let e = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
@@ -390,7 +379,7 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> GraphResult
 
 
     if apex1 == apex2 {
-        let apex = apex1;
+        //let apex = apex1;
         match wood.get_color(v1, apex1)? {
             Unicolored(c1, Forward) => match wood.get_color(v2, apex2)? {
                 Unicolored(c2, Forward) if c1 == c2 => Ok(()),
@@ -413,7 +402,7 @@ pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<
     }
 
     let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
-    let yummi = &wood.calculate_face_counts();
+    //let yummi = &wood.calculate_face_counts();
     let mut result = Vec::new();
 
     if let Unicolored(color, signum) = e.weight {

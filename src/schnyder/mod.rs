@@ -1,34 +1,23 @@
 use crate::graph::{PlanarMap, NbVertex, Edge, Signum, Vertex, ClockDirection, Side};
 use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
-use itertools::{Itertools, Merge};
+use itertools::{Itertools};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::EdgeEnd::{Tail, Head};
 use crate::graph::Signum::{Forward, Backward};
 use std::collections::{HashSet, HashMap, VecDeque};
-use array_tool::vec::Intersect;
 use crate::graph::ClockDirection::{CCW, CW};
-use std::io::{Split, empty};
-use std::ops::{Deref, BitAnd};
-use std::fmt::{Debug, Formatter};
-use std::iter::FromIterator;
-use core::fmt;
+use std::fmt::{Debug};
 use crate::util::is_in_cyclic_order;
-use std::slice::Iter;
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::iterators::cyclic::CyclicIterableByElement;
 use rand::{thread_rng, Rng};
 use crate::util::errors::{GraphErr, GraphResult};
-use crate::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle, OpType};
+use crate::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle};
 use crate::DEBUG;
-use petgraph::Graph;
-use petgraph::graph::{NodeIndex, EdgeIndex};
 use std::convert::TryFrom;
-use petgraph::algo::{connected_components, has_path_connecting};
 use take_until::TakeUntilExt;
 use bimap::BiMap;
-use trees::tr;
-use std::sync::mpsc::sync_channel;
 use crate::arraytree::{ArrayTree, WalkAroundDirection};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::error::IndexAccessError;
@@ -138,6 +127,7 @@ pub trait SchnyderEdge {
 }
 
 impl Vertex<SchnyderVertexType> {
+    #[allow(dead_code)]
     fn debug(&self) {
         print!("v[{}]: ", self.id.0);
         for nb in self.neighbors.iter() {
@@ -156,6 +146,7 @@ impl Edge<SchnyderEdgeDirection> {
         }
     }
 
+    #[allow(dead_code)]
     fn debug(&self) {
         let tail_color = match self.weight {
             Unicolored(c, Forward) => Some(c),
@@ -187,13 +178,13 @@ impl Edge<SchnyderEdgeDirection> {
 }
 
 struct MergeData<'a> {
-    hinge_vertex: &'a Vertex<SchnyderVertexType>,
-    source_edge: &'a Edge<SchnyderEdgeDirection>,
-    source_nb: &'a NbVertex,
+    //hinge_vertex: &'a Vertex<SchnyderVertexType>,
+    //source_edge: &'a Edge<SchnyderEdgeDirection>,
+    //source_nb: &'a NbVertex,
     source_color: SchnyderColor,
-    target_edge: &'a Edge<SchnyderEdgeDirection>,
+    //target_edge: &'a Edge<SchnyderEdgeDirection>,
     target_nb: &'a NbVertex,
-    target_color: SchnyderColor,
+    //target_color: SchnyderColor,
 }
 
 struct SplitData {
@@ -217,6 +208,16 @@ pub enum SchnyderBuildMode {
 }
 
 impl SchnyderMap {
+
+    pub fn debug(&self) {
+        for e in self.map.edges() {
+            e.debug();
+        }
+
+        for v in self.map.vertices() {
+            v.debug();
+        }
+    }
 
     pub fn build_apollonian_path(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
         if vertex_count < 3 {
@@ -272,7 +273,7 @@ impl SchnyderMap {
         if code.len() > 256*3 {
             return GraphErr::new_err("Not a valid 3tree code, too many bytes");
         }
-        let n = (code.len()  / 3);
+        let n = code.len()  / 3;
 
         let trees = vec![
             ArrayTree::from_tree_code(&code[0*n..1*n])?,
@@ -285,13 +286,13 @@ impl SchnyderMap {
         let colors = [Red, Green, Blue];
 
         // add all vertices
-        for i in 0..n {
+        for _ in 0..n {
             vertex_indices.push(map.add_vertex(Normal(0)));
         }
 
         // set suspension vertices
         for c in 0..3 {
-            map.set_vertex_weight(vertex_indices[trees[c].get_root() as usize], Suspension(colors[c]));
+            map.set_vertex_weight(vertex_indices[trees[c].get_root() as usize], Suspension(colors[c]))?;
         }
 
         for c in 0..3 {
@@ -302,7 +303,7 @@ impl SchnyderMap {
                     let (v1, v2) = (vertex_indices[v1 as usize], vertex_indices[v2 as usize]);
 
                     if let Ok(e) = map.get_edge(v1, v2) {
-                        let mut edge = map.try_edge(e)?;
+                        let edge = map.try_edge(e)?;
                         let signum = edge.get_signum(v1, v2);
 
                         match edge.weight {
@@ -417,8 +418,8 @@ impl SchnyderMap {
         }
 
         let mut smap = map.clone_with_maps(
-            |vertex_weight| Normal(0),
-            |edge_weight| Unicolored(Red, Forward),
+            |_| Normal(0),
+            |_| Unicolored(Red, Forward),
             Some(|face_weight| face_weight.clone())
         );
 
@@ -431,9 +432,9 @@ impl SchnyderMap {
         let b = *suspension_vertices.next().unwrap();
 
         // Color the suspension vertices
-        smap.set_vertex_weight(r, Suspension(Red));
-        smap.set_vertex_weight(g, Suspension(Green));
-        smap.set_vertex_weight(b, Suspension(Blue));
+        smap.set_vertex_weight(r, Suspension(Red))?;
+        smap.set_vertex_weight(g, Suspension(Green))?;
+        smap.set_vertex_weight(b, Suspension(Blue))?;
 
         // Color the outer face cycle
         for (&a, &b) in vec![r,g,b].cycle(0, true).tuple_windows() {
@@ -442,8 +443,8 @@ impl SchnyderMap {
             if let Suspension(color_a) = smap.try_vertex(a)?.weight {
                 if let Suspension(color_b) = smap.try_vertex(b)?.weight {
                     match signum {
-                        Backward => smap.set_edge_weight(e, Bicolored(color_a, color_b)),
-                        Forward => smap.set_edge_weight(e, Bicolored(color_b, color_a))
+                        Backward => smap.set_edge_weight(e, Bicolored(color_a, color_b))?,
+                        Forward => smap.set_edge_weight(e, Bicolored(color_b, color_a))?
                     };
                 }
             }
@@ -453,7 +454,7 @@ impl SchnyderMap {
         for (eid, signum) in smap.try_vertex(r)?.sector_between(b, g, CCW).iter().map(|nb|
             (nb.edge, match nb.end { Head => Forward, Tail => Backward})
         ).collect_vec() {
-            smap.set_edge_weight(eid, Unicolored(Red, signum));
+            smap.set_edge_weight(eid, Unicolored(Red, signum))?;
         }
 
         //
@@ -475,7 +476,7 @@ impl SchnyderMap {
                 let candidates: Vec<_> = b_singleton.iter().chain(frontier.iter()).chain(g_singleton.iter())
                     .tuple_windows()
                     .enumerate()
-                    .filter(|(pos, (&left_neighbour, &pivot, &right_neighbour))| {
+                    .filter(|(_, (&left_neighbour, &pivot, &right_neighbour))| {
                         !smap.try_vertex(pivot).unwrap().sector_between(right_neighbour, left_neighbour, CW)
                             .iter().any(|nb| frontier.contains(&nb.other) || nb.other == g || nb.other == b)
                     }
@@ -494,14 +495,14 @@ impl SchnyderMap {
             let (eid_left, signum_left) = smap.edge_with_signum(pivot, left_neighbour)?;
             let (eid_right, signum_right) = smap.edge_with_signum(pivot, right_neighbour)?;
 
-            smap.set_edge_weight(eid_left, Unicolored(Blue, signum_left));
-            smap.set_edge_weight(eid_right, Unicolored(Green, signum_right));
+            smap.set_edge_weight(eid_left, Unicolored(Blue, signum_left))?;
+            smap.set_edge_weight(eid_right, Unicolored(Green, signum_right))?;
 
             // color the edges reaching from the pivot vertex to the new part of the frontier
             for (eid, signum) in smap.try_vertex(pivot)?.sector_between(right_neighbour, left_neighbour, CW).iter().map(|nb|
                 (nb.edge, match nb.end { Head => Forward, Tail => Backward})
             ).collect_vec() {
-                smap.set_edge_weight(eid, Unicolored(Red, signum));
+                smap.set_edge_weight(eid, Unicolored(Red, signum))?;
             }
 
             // alter the frontier (remove the pivot vertex and add its neighbors beyond the old frontier)
@@ -634,7 +635,11 @@ impl SchnyderMap {
             Ok(nb)
         } else {
             match self.map.vertex_weight(vid)? {
-                Normal(_) => panic!("In a valid schnyder wood there should be an outgoing edge of each color at non-suspension vertices"),
+                Normal(_) => {
+
+                    self.debug();
+                    panic!("In a valid schnyder wood there should be an outgoing edge of each color at non-suspension vertices")
+                },
                 Suspension(c) if *c == color => return GraphErr::new_err("The suspension vertices have no outgoing edges of their very color"),
                 Suspension(_) => panic!("In a valid schnyder wood there should be an outgoing edge of the other two colors at suspension vertices"),
             }
@@ -740,24 +745,21 @@ impl SchnyderMap {
         return Ok(!weights.iter().any(|w| if let Suspension(_) = w { true } else { false }));
     }
 
-    pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> SchnyderColor {
-        if let Some((v, idx, nb1, nb2)) = self.map.get_knee_by_face(fid, vid) {
-            if let Some(out_before) = self.outgoing_color(nb1) {
-                return out_before.prev();
-            } else if let Some(in_before) = self.incoming_color(nb1) {
-                return in_before;
-            } else {
-                panic!("black edge!");
-            }
-        } else {
-            panic!("no valid knee!");
+    pub fn get_angle_color(&self, fid: FaceI, vid: VertexI) -> GraphResult<SchnyderColor> {
+        let (_, _, nb1, _) = self.map.get_knee_by_face(fid, vid)?;
+        if let Some(out_before) = self.outgoing_color(nb1) {
+            return Ok(out_before.prev());
+        } else if let Some(in_before) = self.incoming_color(nb1) {
+            return Ok(in_before);
         }
+
+        invalid_wood!();
     }
 
     fn assemble_merge_data(&self, source: EdgeI, target: EdgeI) -> GraphResult<MergeData> {
         let knee = self.map.get_knee(source, target);
 
-        if let Ok((hinge_vertex, nb1, nb2)) = knee {
+        if let Ok((_hinge_vertex, nb1, nb2)) = knee {
 
             let source_edge = self.map.try_edge(source)?;
             let target_edge = self.map.try_edge(target)?;
@@ -774,13 +776,13 @@ impl SchnyderMap {
                 None => return GraphErr::new_err("Source edge for merge must be directed away from hinge"),
                 Some(c) => c
             };
-            let target_color = match self.incoming_color(target_nb) {
-                None => return return GraphErr::new_err("Target edge for merge must be directed towards hinge"),
+            match self.incoming_color(target_nb) {
+                None => return GraphErr::new_err("Target edge for merge must be directed towards hinge"),
                 Some(c) => c
             };
 
             Ok(MergeData {
-                hinge_vertex, source_edge, source_nb, source_color, target_edge, target_nb, target_color
+                /*hinge_vertex, source_edge, source_nb,*/ source_color, /*target_edge,*/ target_nb, /*target_color*/
             })
         } else {
             GraphErr::new_err("The source edge is not mergeable onto the target edge, as they do not share a common angle")
@@ -801,8 +803,8 @@ impl SchnyderMap {
         let source_as_pair = self.map.edge_pair(source, Forward)?;
         let target_as_pair = self.map.edge_pair(target, Forward)?;
 
-        self.map.set_edge_weight(target, dir);
-        self.map.remove_embedded_edge_by_id(source, &(|a, b| a));
+        self.map.set_edge_weight(target, dir)?;
+        self.map.remove_embedded_edge_by_id(source, &(|a, _| a))?;
 
         Ok(Operation::merge(
             source_as_pair,
@@ -838,7 +840,7 @@ impl SchnyderMap {
             };
 
             let target_vids = self.map.try_face(target_face)?.angles.iter()
-                .filter(|&&vid| self.get_angle_color(target_face, vid) == split_color)
+                .filter(|&&vid| self.get_angle_color(target_face, vid).unwrap() == split_color)
                 .filter(|&&vid| vid != hinge_vid)
                 .cloned().collect_vec();
 
@@ -878,8 +880,8 @@ impl SchnyderMap {
             Some(target_vid) => target_vid,
             _ => data.target_vids[0]
         };
-        self.map.add_embedded_edge(hinge_vid, effective_target, Unicolored(data.split_color, Forward), data.target_face);
-        self.map.set_edge_weight(eid, data.remaining_color);
+        self.map.add_embedded_edge(hinge_vid, effective_target, Unicolored(data.split_color, Forward), data.target_face)?;
+        self.map.set_edge_weight(eid, data.remaining_color)?;
 
         Ok(Operation::split(hinge_vid, self.map.edge_opposite_vertex(eid,hinge_vid)?, effective_target))
     }
@@ -897,7 +899,7 @@ impl SchnyderMap {
 
         // the two hinges must be part of the outer face cycle
         if !angles.contains(&hinge) || !angles.contains(&opposite) {
-            return GraphErr::new_err("The hinges for an external split must lie on the outer face cycle.");;
+            return GraphErr::new_err("The hinges for an external split must lie on the outer face cycle.");
         }
 
         {
@@ -933,7 +935,7 @@ impl SchnyderMap {
 
     pub fn ext_split(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<Operation> {
         let (hinge_other, opposite_other, hinge_color, opposite_color) = self.ext_splittable_(hinge, opposite)?;
-        let new_edge = self.map.add_embedded_edge(hinge, opposite, Bicolored(hinge_color, opposite_color), self.outer_face);
+        let new_edge = self.map.add_embedded_edge(hinge, opposite, Bicolored(hinge_color, opposite_color), self.outer_face)?;
 
         let (e1, signum1) = self.map.edge_with_signum(hinge_other, hinge)?;
         self.map.set_edge_weight(e1,  Unicolored(opposite_color, signum1))?;
@@ -995,7 +997,7 @@ impl SchnyderMap {
     pub fn ext_merge(&mut self, hinge: VertexI, opposite: VertexI) -> GraphResult<Operation> {
         let (color1, color2, vertex1, vertex2) = self.ext_mergeable_(hinge, opposite)?;
 
-        let (_, new_face) = self.map.remove_embedded_edge(hinge, opposite, &|a, b| a)?;
+        let (_, new_face) = self.map.remove_embedded_edge(hinge, opposite, &|a, _| a)?;
         self.outer_face = new_face;
 
         let (e1, signum1) = self.map.edge_with_signum(hinge, vertex1)?;
@@ -1003,8 +1005,8 @@ impl SchnyderMap {
         let (e2, signum2) = self.map.edge_with_signum(opposite, vertex2)?;
         let e2_new_colors = self.replace_color(e2, color2, signum2)?;
 
-        self.map.set_edge_weight(e1, e1_new_colors);
-        self.map.set_edge_weight(e2, e2_new_colors);
+        self.map.set_edge_weight(e1, e1_new_colors)?;
+        self.map.set_edge_weight(e2, e2_new_colors)?;
 
         Ok(Operation::ext_merge(hinge, opposite))
     }
@@ -1012,7 +1014,7 @@ impl SchnyderMap {
     pub fn get_admissible_ops(&self) -> GraphResult<Vec<Operation>> {
 
         let mut result = Vec::new();
-        let mut outer_cycle : Vec<_> = self.map.try_face(self.outer_face)?.angles.iter().cloned().collect();
+        let outer_cycle : Vec<_> = self.map.try_face(self.outer_face)?.angles.iter().cloned().collect();
 
         for v in self.map.vertices().sorted_by_key(|v| v.id.0) {
 
@@ -1047,7 +1049,7 @@ impl SchnyderMap {
         for c in &[Red, Green, Blue] {
             let begin = &self.get_suspension_vertex(*c);
             let end = &self.get_suspension_vertex(c.next());
-            let mut sector = outer_cycle.cycle_by_element(begin, false).take_until(|v| *v == end).collect_vec();
+            let sector = outer_cycle.cycle_by_element(begin, false).take_until(|v| *v == end).collect_vec();
 
             for x in 0..sector.len() {
                 for y in (x+1)..sector.len() {
@@ -1073,7 +1075,7 @@ impl SchnyderMap {
         }
 
         return match self.map.edge_weight(eid)? {
-            Unicolored(c, _) => {
+            Unicolored(_, _) => {
                 check_triangle(self, eid, Side::Left)?;
                 check_triangle(self, eid, Side::Right)?;
                 Ok(())
@@ -1092,7 +1094,7 @@ impl SchnyderMap {
                     Forward => Tail,
                     Backward => Head
                 }
-            );
+            )?;
 
             Ok(Contraction {
                 retained_vertex,
@@ -1127,7 +1129,7 @@ impl SchnyderMap {
         let border_ccw = self.find_outgoing_endvertex(pivot_vid,color.prev()).unwrap();
         let border_cw = self.find_outgoing_endvertex(pivot_vid, color.next()).unwrap();
 
-        let (new_vid, new_eid) = self.map.split_embedded_edge( // TODO maybe move here
+        let (new_vid, _) = self.map.split_embedded_edge( // TODO maybe move the called function here
             eid, new_end,
             Some((border_ccw, border_cw)),
             new_vertex_index,
@@ -1172,8 +1174,8 @@ impl SchnyderMap {
         //println!("{} -> {} in {}", new_vid.0, next_vid.0, next_face.0);
 
         if let Unicolored(color, _) = old_weight {
-            self.map.add_embedded_edge(new_vid, prev_vid, Unicolored(color.prev(), Forward), prev_face);
-            self.map.add_embedded_edge(new_vid, next_vid, Unicolored(color.next(), Forward), next_face);
+            self.map.add_embedded_edge(new_vid, prev_vid, Unicolored(color.prev(), Forward), prev_face)?;
+            self.map.add_embedded_edge(new_vid, next_vid, Unicolored(color.next(), Forward), next_face)?;
         } else {
             panic!("undiscontractible edge");
         }
@@ -1254,7 +1256,7 @@ impl SchnyderMap {
             // revert the "make contractible" step
             for op in leading_seq.iter().rev() {
                 let inv_op = op.swapped_vertices(&a, &b).inverted();
-                self.do_operation(&inv_op);
+                self.do_operation(&inv_op)?;
                 mid_seq.push(inv_op);
             }
 
@@ -1321,7 +1323,7 @@ impl SchnyderMap {
     pub fn calculate_face_counts(&self) -> GraphResult<HashMap<VertexI, (usize, usize, usize)>> {
 
         let number_of_faces = self.map.face_count() - 1;
-        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(true);
+        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual();
 
         let mut result = HashMap::new();
 
@@ -1407,7 +1409,7 @@ impl SchnyderMap {
         let mut mid = String::new();
 
         for v in self.map.vertices() {
-            let (r, g, b) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
+            let (r, g, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
             mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, g, r).chars());
             mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
         }
@@ -1441,7 +1443,7 @@ impl SchnyderMap {
         }
 
         for v in self.map.vertices() {
-            let (r, g, b) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
+            //let (_, _, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
             mid.extend(format!("\\fill ({}) circle (2pt);", v.id.0).chars());
         }
 
@@ -1498,13 +1500,13 @@ impl SchnyderMap {
             let l = v.neighbors.len();
 
             let begin_sector = match v.weight {
-                Normal(id) => Blue,
+                Normal(_) => Blue,
                 Suspension(c) => c
             };
 
             match v.weight {
-                Normal(id) => if l < 3 { return GraphErr::new_err("Vertex rule violated"); },
-                Suspension(c) => if l < 2 { return GraphErr::new_err("Vertex rule violated"); }
+                Normal(_) => if l < 3 { return GraphErr::new_err("Vertex rule violated"); },
+                Suspension(_) => if l < 2 { return GraphErr::new_err("Vertex rule violated"); }
             }
 
             let begin = self.find_outgoing(v, begin_sector.next());
@@ -1545,7 +1547,7 @@ impl SchnyderMap {
 
         // check face cycle rule
         for f in self.map.faces() {
-            let l = f.angles.len();
+            //let l = f.angles.len();
             let mut fwd_colors = HashSet::new();
             let mut bwd_colors = HashSet::new();
 
@@ -1616,7 +1618,7 @@ impl TryFrom<PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>> for Schny
 
     fn try_from(map: PlanarMap<SchnyderVertexType, SchnyderEdgeDirection, ()>) -> GraphResult<SchnyderMap> {
 
-        let mut result = SchnyderMap {
+        let result = SchnyderMap {
             map,
             outer_face: FaceI(0),
             red_vertex: VertexI(0),

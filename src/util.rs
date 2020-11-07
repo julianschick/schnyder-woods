@@ -122,50 +122,51 @@ pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
 
 pub mod debug {
     use std::path::Path;
-    use std::fs::{create_dir, read_dir, remove_file, File, remove_dir_all};
+    use std::fs::{create_dir, File, remove_dir_all};
     use crate::schnyder::SchnyderMap;
     use std::collections::HashMap;
     use crate::graph::indices::VertexI;
     use std::io::Write;
-    use std::process::Command;
 
     pub struct Debug {
         base_dir: &'static str,
-        output_dir: &'static str,
         counters: HashMap<String, usize>,
         active: bool,
     }
 
     impl Debug {
 
+        #[allow(dead_code)]
         pub fn activate(&mut self) {
             self.active = true;
         }
 
+        #[allow(dead_code)]
         pub fn deactivate(&mut self) {
             self.active = false;
         }
 
-        pub fn is_active(&self) -> bool { self.active }
-
-        fn delete_all_files(dir: &str) {
+        /*fn delete_all_files(dir: &str) {
             for entry in read_dir(dir).unwrap() {
                 let p = entry.unwrap().path();
                 if p.is_file() {
                     remove_file(p);
                 }
             }
-        }
+        }*/
 
-        pub fn new(base_dir: &'static str, output_dir: &'static str) -> Debug  {
+        pub fn new(base_dir: &'static str) -> Debug  {
             let result = Debug {
                 base_dir,
-                output_dir,
                 active: false,
                 counters: HashMap::new()
             };
 
-            remove_dir_all(base_dir);
+            let rr = remove_dir_all(base_dir);
+
+            if let Err(_) = rr {
+                println!("{}", "Debug was not present, no need to be wiped.")
+            }
 
             /*if !Path::new(&base_dir).is_dir() {
                 create_dir(base_dir).expect("Unable to create temporary output dir");
@@ -192,7 +193,7 @@ pub mod debug {
             let name = format!("{}", self.counters.get(context).unwrap());
             self.counters.insert(context.to_string(), self.counters.get(context).unwrap() + 1);
 
-            let basedir = "/tmp/schnyder";
+            let basedir = self.base_dir;
             let contextdir = &format!("{}/{}", basedir, context);
             let outputdir = format!("{}/{}/output", basedir, context);
 
@@ -233,27 +234,14 @@ pub mod debug {
 }
 
 pub mod errors {
-    use crate::graph::indices::{VertexI, EdgeI, FaceI};
     use std::fmt::{Debug, Formatter, Display};
     use crate::graph::error::{IndexAccessError, NoSuchEdgeError};
     use crate::graph::guarded_map::Index;
 
     pub type GraphResult<T> = Result<T, GraphErr>;
 
-    pub enum GraphErrKind {
-        Generic,
-        InvalidVertexIndex(VertexI),
-        InvalidEdgeIndex(EdgeI),
-        InvalidFaceIndex(FaceI)
-    }
-
     pub struct GraphErr {
         problem: String,
-        kind: GraphErrKind
-    }
-
-    pub struct InvalidVertexI {
-        vid: VertexI
     }
 
     impl GraphErr {
@@ -265,8 +253,7 @@ pub mod errors {
             }
 
             GraphErr {
-                problem,
-                kind: GraphErrKind::Generic
+                problem
             }
         }
 

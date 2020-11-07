@@ -1,18 +1,13 @@
-use petgraph::{Graph, Undirected};
 use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, VecDeque, BTreeMap};
+use std::collections::{HashMap, VecDeque};
 use crate::schnyder::SchnyderColor;
 use crate::graph::ClockDirection;
 use crate::graph::ClockDirection::{CW, CCW};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::schnyder::SchnyderMap;
-use std::time::{Instant, Duration};
+use std::time::{Instant};
 use std::thread;
-use rand::thread_rng;
 use itertools::Itertools;
-use std::thread::sleep;
-use std::sync::atomic::AtomicBool;
-use std::cmp::Ordering;
 use std::sync::mpsc::channel;
 use bimap::BiMap;
 use std::io::Write;
@@ -44,15 +39,15 @@ impl SymmetryBreaking {
 
 pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_count: usize) -> Flipgraph {
 
-    let mut g = Arc::new(Mutex::new(Flipgraph::new(n)));
-    let mut stack = Arc::new(Mutex::new(Vec::new()));
+    let g = Arc::new(Mutex::new(Flipgraph::new(n)));
+    let stack = Arc::new(Mutex::new(Vec::new()));
 
     {
         let mut g = g.lock().unwrap();
         //let mut known = known.lock().unwrap();
         let mut stack = stack.lock().unwrap();
 
-        let mut wood1 = SchnyderMap::build_apollonian_path(n, Red).expect("TODO");
+        let wood1 = SchnyderMap::build_apollonian_path(n, Red).expect("TODO");
         let code = wood1.compute_3tree_code();
         let index = g.add_node(code, wood1.map.edge_count() as u8);
         stack.push(index);
@@ -68,7 +63,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
         let g = Arc::clone(&g);
 
         let tx = tx.clone();
-        let mut informed_others = false;
+        let informed_others = false;
 
         let mut last_print = Instant::now();
         let mut nodes_checked = 0usize;
@@ -102,14 +97,14 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                 nodes_checked += 1;
 
                 if i == 0 && !informed_others && len > thread_count*2 {
-                    tx.send(true);
+                    tx.send(true).expect("TODO");
                 }
 
                 let admissible_ops = current.get_admissible_ops().expect("TODO");
 
                 let neighbors = admissible_ops.iter().map(|op| {
                     let mut neighbor = current.clone();
-                    neighbor.do_operation(&op);
+                    neighbor.do_operation(&op).expect("TODO");
                     let nb_ids: VecDeque<_> = symmetry_breaking.expand(&Red, &CW)
                         .iter().map(|(c, d)| neighbor.compute_3tree_code_with_rotation(**c, **d)).collect();
                     return (nb_ids, neighbor);
@@ -243,32 +238,36 @@ impl Flipgraph {
             .into_group_map()
     }
 
-    pub fn to_edge_list(&self, writer: &mut Write) {
+    pub fn to_edge_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         let n = self.edge_count();
-        writer.write_all(&n.to_le_bytes());
+        writer.write_all(&n.to_le_bytes())?;
 
         for v1 in 0..self.adjacencies.len() {
             for &v2 in &self.adjacencies[v1] {
                 if v1 < v2 {
-                    writer.write_all(&v1.to_le_bytes());
-                    writer.write_all(&v2.to_le_bytes());
+                    writer.write_all(&v1.to_le_bytes())?;
+                    writer.write_all(&v2.to_le_bytes())?;
                 }
             }
         }
+
+        Ok(())
     }
 
-    pub fn to_code_list(&self, writer: &mut Write) {
+    pub fn to_code_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         if let Some((code, _)) = self.nodes_by_treecode.iter().next() {
-            writer.write_all(&code.len().to_le_bytes());
+            writer.write_all(&code.len().to_le_bytes())?;
 
             for v in 0..self.adjacencies.len() {
-                writer.write_all(&self.nodes_by_treecode.get_by_right(&v).unwrap());
+                writer.write_all(&self.nodes_by_treecode.get_by_right(&v).unwrap())?;
             }
         }
+
+        Ok(())
     }
 
-    pub fn to_level_list(&self, writer: &mut Write) {
-        writer.write_all(&self.levels);
+    pub fn to_level_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
+        writer.write_all(&self.levels)
     }
 
 }

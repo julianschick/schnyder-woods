@@ -1,26 +1,23 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use itertools::Itertools;
 
-use crate::graph::EdgeEnd::{Tail, Head};
 use crate::schnyder::algorithm::{Operation, make_inner_edge, make_contractible, Contraction, full_pizza_lemma};
 use crate::schnyder::SchnyderColor::{Blue, Green, Red};
 use crate::schnyder::SchnyderEdgeDirection::Unicolored;
 use crate::schnyder::{SchnyderMap, SchnyderColor, IndexedEnum};
-use crate::schnyder::SchnyderVertexType::Normal;
 use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::indices::{EdgeI, VertexI};
 
 use crate::DEBUG;
-use crate::util::errors::{GraphResult, GraphErr};
+use crate::util::errors::{GraphResult};
 use crate::graph::ClockDirection::{CW, CCW};
-use crate::graph::Side::{Right, Left};
 use bimap::BiMap;
 use crate::graph::ClockDirection;
 
-pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> Vec<Operation> {
-    let (vm, seq) = find_sequence_(wood1, wood2, 0);
+pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
+    let (vm, seq) = find_sequence_(wood1, wood2, 0)?;
     println!("outer vertex map = {:?}", vm);
-    return seq;
+    return Ok(seq);
 }
 
 pub fn compute_contraction_candidates(wood: &SchnyderMap) -> HashMap<SchnyderColor, (EdgeI, bool)> {
@@ -33,7 +30,7 @@ pub fn compute_contraction_candidates(wood: &SchnyderMap) -> HashMap<SchnyderCol
             }
         )
         .map(|(c, e)| (c, (e, wood.is_schnyder_contractible(e).is_ok())))
-        .sorted_by_key(|(c, (e, contractible))| (!*contractible, e.0))
+        .sorted_by_key(|(_, (e, contractible))| (!*contractible, e.0))
         .into_group_map();
 
     [Red, Green, Blue].iter().filter_map(
@@ -81,11 +78,11 @@ fn prepare_wood(wood: &mut SchnyderMap, candidates: &HashMap<SchnyderColor, (Edg
 fn calc_sector(wood: &mut SchnyderMap, center: VertexI, from: VertexI, to: VertexI, direction: ClockDirection) -> GraphResult<Vec<VertexI>> {
     Ok(wood.map.sector_between(center,from, to, direction)?
         .iter()
-        .map(|(e, v)| *v)
+        .map(|(_, v)| *v)
         .collect_vec())
 }
 
-fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap, lvl: usize) -> Vec<Operation> {
+fn lift_sequence(seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap, lvl: usize) -> GraphResult<Vec<Operation>> {
 
     let mut result = Vec::new();
     let vr = ctr.retained_vertex;
@@ -102,7 +99,7 @@ fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut Schnyde
 
     for op in seq {
 
-        let mut recalculate_sector = false;
+        //let mut recalculate_sector = false;
         let mut replacement_ops = Vec::new();
         let affected_face = wood.get_affected_face(op);
 
@@ -141,7 +138,7 @@ fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut Schnyde
 
                 if u_or_w == u { u = op.target_vertex } else { w = op.target_vertex };
                 //println!("\tu = {}, w = {}", u.0, w.0);
-                recalculate_sector = true;
+                //recalculate_sector = true;
 
             } else { // sector
                 replacement_ops.push(Operation { hinge_vertex: vd, ..*op });
@@ -202,28 +199,28 @@ fn lift_sequence(mut seq: &Vec<Operation>, ctr: &Contraction, wood: &mut Schnyde
         }*/
 
         result.extend(replacement_ops);
-        wood.do_operation(op);
+        wood.do_operation(op)?;
 
-        recalculate_sector = true;
-        if recalculate_sector {
+        //recalculate_sector = true;
+        //if recalculate_sector {
             sector_vertices = calc_sector(wood, vr, u, w, CW).unwrap();
             sector_faces = wood.map.faces_between(&vr, &u, &w, CW);
             //println!("\tsector_vertices = {:?}", sector_vertices);
             //println!("\tsector_faces = {:?}", sector_faces);
-        }
+        //}
 
         DEBUG.write().unwrap().output(&format!("level{}", lvl), &wood, Some(&format!("Step")), &wood.calculate_face_counts().unwrap());
     }
 
     //rewind
     for op in seq.iter().rev() {
-        wood.do_operation(&op.inverted());
+        wood.do_operation(&op.inverted())?;
     }
 
-    return result;
+    return Ok(result);
 }
 
-fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize) -> (BiMap<VertexI, VertexI>, Vec<Operation>) {
+fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize) -> GraphResult<(BiMap<VertexI, VertexI>, Vec<Operation>)> {
     if wood1.map.vertex_count() != wood2.map.vertex_count() {
         panic!("vertex count is not equal");
     }
@@ -248,7 +245,7 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
         let inner2 = wood2.get_inner_vertices(); assert_eq!(inner2.len(), 1);
         vertex_map.insert(inner2[0], inner1[0]);
 
-        return (vertex_map, vec![]);
+        return Ok((vertex_map, vec![]));
     } else {
         let candidates1 = compute_contraction_candidates(&wood1);
         let candidates2 = compute_contraction_candidates(&wood2);
@@ -268,15 +265,15 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, contracted)"), &wood1.calculate_face_counts().unwrap());
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, contracted)"), &wood2.calculate_face_counts().unwrap());
 
-        let (mut vertex_map, mut lifted_seq) = {
-            let (mut vertex_map, mut seq) = find_sequence_(wood1, wood2, depth + 1);
+        let (vertex_map, mut lifted_seq) = {
+            let (mut vertex_map, mut seq) = find_sequence_(wood1, wood2, depth + 1)?;
             println!("level{} vertex map (wood2 -> wood1) = {:?}", depth, vertex_map);
             vertex_map.insert(contraction2.dropped_vertex, contraction1.dropped_vertex);
 
             // swap
             let retained_vertex = *vertex_map.get_by_left(&contraction2.retained_vertex).unwrap();//TODO
             for op in &seq {
-                wood1.do_operation(op);
+                wood1.do_operation(op)?;
             }
             println!("swap {} ~ {}", retained_vertex.0, contraction1.retained_vertex.0);
             let swap_seq = wood1.swap(&retained_vertex, &contraction1.retained_vertex).unwrap();//TODO
@@ -294,26 +291,26 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
 
             // rewind changes
             for op in swap_seq.iter().rev().chain(seq.iter().rev()) {
-                wood1.do_operation(&op.inverted());
+                wood1.do_operation(&op.inverted())?;
             }
 
             seq.extend(swap_seq);
 
-            (vertex_map, lift_sequence(&seq, &contraction1, wood1, depth))
+            (vertex_map, lift_sequence(&seq, &contraction1, wood1, depth)?)
         };
 
-        wood1.revert_schnyder_contraction(&contraction1);
+        wood1.revert_schnyder_contraction(&contraction1)?;
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, uncontracted)"), &wood1.calculate_face_counts().unwrap());
         for op in prep_seq1.iter().rev() {
-            wood1.do_operation(&op.inverted());
+            wood1.do_operation(&op.inverted())?;
         }
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (re-unprepared, uncontracted)"), &wood1.calculate_face_counts().unwrap());
 
-        wood2.revert_schnyder_contraction(&contraction2);
+        wood2.revert_schnyder_contraction(&contraction2)?;
         DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, uncontracted)"), &wood2.calculate_face_counts().unwrap());
         let mut i = 1;
         for op in prep_seq2.iter().rev() {
-            wood2.do_operation(&op.inverted());
+            wood2.do_operation(&op.inverted())?;
             DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some(&format!("Wood2 unprepare Step {}", i)), &wood2.calculate_face_counts().unwrap());
             i += 1;
         }
@@ -325,7 +322,7 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
         lifted_seq.extend(prep_seq2.iter().rev()
             .map(|op| op.inverted().mapped_vertices_by_left(&vertex_map)));
 
-        return (vertex_map, lifted_seq);
+        return Ok((vertex_map, lifted_seq));
     }
 }
 

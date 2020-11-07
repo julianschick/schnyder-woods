@@ -22,7 +22,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         }
     }
 
-    pub fn clone_with_map<Vv: Ideable<N>>(&self, value_mapping: &Fn(&V) -> Vv) -> GuardedMap<N, Vv> {
+    pub fn clone_with_map<Vv: Ideable<N>>(&self, value_mapping: &dyn Fn(&V) -> Vv) -> GuardedMap<N, Vv> {
         GuardedMap {
             map: self.map.iter().map(|(k,v)| (*k, value_mapping(&v))).collect(),
             least_free_index: self.least_free_index,
@@ -96,13 +96,13 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         &self.map
     }
 
-    fn is_empty(&self) -> bool {
+    /*fn is_empty(&self) -> bool {
         self.map.is_empty()
-    }
+    }*/
 
-    fn len(&self) -> usize {
+    /*fn len(&self) -> usize {
         self.map.len()
-    }
+    }*/
 
     pub fn get(&self, index: &N) -> Option<&V> {
         self.map.get(index)
