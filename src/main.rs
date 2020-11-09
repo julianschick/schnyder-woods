@@ -23,7 +23,6 @@ mod algorithm;
 //mod petgraph_ext;
 mod arraytree;
 
-
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder"));
 }
@@ -53,9 +52,9 @@ fn main() {
     match matches.subcommand() {
         Some(("build-flipgraph", matches))=> {
             let n = str::parse::<usize>(matches.value_of("N").unwrap_or("3"))
-                .unwrap_or_else(|_| { println!("{}", "Bittaschön"); return 3 });
+                .unwrap_or_else(|_| { println!("Bittaschön"); return 3 });
             let num_threads= str::parse::<usize>(matches.value_of("threads").unwrap_or("1"))
-                .unwrap_or_else(|_| { println!("{}", "Bittaschön!"); return 1});
+                .unwrap_or_else(|_| { println!("Bittaschön!"); return 1});
 
             let brk_orientation = matches.is_present("break-orientation-symmetry");
             let brk_color = matches.is_present("break-color-symmetry");
@@ -63,16 +62,16 @@ fn main() {
             let output = Path::new(matches.value_of("OUTPUT").unwrap());
 
             if output.is_file() {
-                println!("{}", "already present");
+                println!("already present");
                 return;
             }
             if output.is_dir() {
-                println!("{}", "directory given");
+                println!("directory given");
                 return;
             }
             if let Some(parent) = output.parent() {
                 if !parent.is_dir() {
-                    println!("{}", "can't write there");
+                    println!("can't write there");
                     return;
                 }
             }
@@ -86,7 +85,7 @@ fn main() {
             };
 
             if n < 3 {
-                println!("{}", "n must be at least 3");
+                println!("n must be at least 3");
                 return;
             }
 
@@ -95,7 +94,7 @@ fn main() {
         Some(("explore", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
-            println!("{}", "Reading CBOR...");
+            println!("Reading CBOR...");
             {
                 let file = File::open(flipgraph_file).expect("TODO");
                 let g: Flipgraph = serde_cbor::from_reader(file).expect("TODO");
@@ -109,10 +108,11 @@ fn main() {
                 DEBUG.write().unwrap().output("std", &wood1, Some("From"), &wood1.calculate_face_counts().unwrap());
                 DEBUG.write().unwrap().output("std", &wood2, Some("To"), &wood2.calculate_face_counts().unwrap());
 
-                let seq = find_sequence(&mut wood1, &mut wood2).unwrap();
+                let seq1 = find_sequence(&mut wood1, &mut wood2).unwrap();
+                let _seq2 = find_sequence_2(&mut wood1, &mut wood2, Red);
 
                 DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
-                for op in &seq {
+                for op in &seq1 {
                     wood.do_operation(op).unwrap();//TODO
                     DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
                 }
@@ -122,7 +122,7 @@ fn main() {
             test();
         }
         _ => {
-            println!("{}", "No valid command specified.");
+            println!("No valid command specified.");
         }
     }
 }
@@ -146,8 +146,8 @@ fn test() {
 #[allow(dead_code)]
 fn main8() {
 
-    let file = File::open("/tmp/test.bincode").unwrap();
-    let g : Flipgraph = bincode::deserialize_from(file).expect("TODO");
+    let file = File::open("/tmp/test.cbor").unwrap();
+    let g : Flipgraph = serde_cbor::from_reader(file).expect("TODO");
 
     let levels = g.get_levels();
 
@@ -193,7 +193,7 @@ fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, out
         g.to_code_list(&mut file);
     }*/
 
-    println!("{}", "Writing CBOR...");
+    println!("Writing CBOR...");
     {
         let file = File::create(output_file).expect("TODO");
         serde_cbor::to_writer(file, &g).expect("TODO");

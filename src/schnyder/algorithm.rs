@@ -1,18 +1,20 @@
 use array_tool::vec::Intersect;
 
-use crate::graph::{ClockDirection, Signum, swap, Vertex, Side};
-use crate::graph::ClockDirection::{CCW, CW};
+use crate::graph::swap;
+use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType};
 use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::schnyder::IndexedEnum;
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
-use crate::graph::Signum::{Backward, Forward};
+use crate::graph::enums::Signum::{Backward, Forward};
 use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
-use crate::graph::Side::{Left, Right};
+use crate::graph::enums::Side::{Left, Right};
 use std::fmt::{Debug, Formatter};
 use bimap::BiMap;
 use crate::graph::indices::{VertexI, EdgeI, FaceI};
+use crate::graph::enums::{Signum, ClockDirection, Side};
+use crate::graph::data_holders::Vertex;
 
 /*pub trait OperationX {
     fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()>;

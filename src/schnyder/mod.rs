@@ -1,12 +1,12 @@
-use crate::graph::{PlanarMap, NbVertex, Edge, Signum, Vertex, ClockDirection, Side, Face};
+use crate::graph::PlanarMap;
 use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::{Itertools};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
-use crate::graph::EdgeEnd::{Tail, Head};
-use crate::graph::Signum::{Forward, Backward};
+use crate::graph::enums::EdgeEnd::{Tail, Head};
+use crate::graph::enums::Signum::{Forward, Backward};
 use std::collections::{HashSet, HashMap, VecDeque};
-use crate::graph::ClockDirection::{CCW, CW};
+use crate::graph::enums::ClockDirection::{CCW, CW};
 use std::fmt::{Debug};
 use crate::util::is_in_cyclic_order;
 use crate::util::iterators::cyclic::CyclicIterable;
@@ -21,6 +21,8 @@ use bimap::BiMap;
 use crate::arraytree::{ArrayTree, WalkAroundDirection};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::error::IndexAccessError;
+use crate::graph::enums::{Signum, ClockDirection, Side};
+use crate::graph::data_holders::{NbVertex, Vertex, Face, Edge};
 
 static INVALID_WOOD : &str = "Assertion failed, invalid Schnyder wood detected.";
 
@@ -291,8 +293,8 @@ impl SchnyderMap {
         let n = code.len()  / 3;
 
         let trees = vec![
-            ArrayTree::from_tree_code(&code[0*n..1*n])?,
-            ArrayTree::from_tree_code(&code[1*n..2*n])?,
+            ArrayTree::from_tree_code(&code[0..n])?,
+            ArrayTree::from_tree_code(&code[n..2*n])?,
             ArrayTree::from_tree_code(&code[2*n..3*n])?
         ];
 
@@ -317,17 +319,14 @@ impl SchnyderMap {
                 if let Some(v2) = trees[c].get_parent(v1) {
                     let (v1, v2) = (vertex_indices[v1 as usize], vertex_indices[v2 as usize]);
 
-                    if let Ok(e) = map.get_edge(v1, v2) {
-                        let edge = map.try_edge(e)?;
-                        let signum = edge.get_signum(v1, v2);
-
-                        match edge.weight {
+                    if let Ok((e, signum)) = map.edge_with_signum(v1, v2) {
+                        match *map.edge_weight(e)? {
                             Bicolored(_, _) => return GraphErr::new_err("Invalid 3tree code"),
                             Unicolored(opposite_color, sig) => {
                                 if sig == signum {
                                     return GraphErr::new_err("Invalid 3tree code");
                                 } else {
-                                    map.set_edge_weight(edge.id, match signum {
+                                    map.set_edge_weight(e, match signum {
                                         Forward => Bicolored(colors[c], opposite_color),
                                         Backward => Bicolored(opposite_color, colors[c])
                                     })?;
@@ -819,7 +818,7 @@ impl SchnyderMap {
         let target_as_pair = self.map.edge_pair(target, Forward)?;
 
         self.map.set_edge_weight(target, dir)?;
-        self.map.remove_embedded_edge_by_id(source, &(|a, _| a))?;
+        self.map.remove_embedded_edge_by_index(source, &(|a, _| a))?;
 
         Ok(Operation::merge(
             source_as_pair,

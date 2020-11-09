@@ -165,7 +165,7 @@ pub mod debug {
             let rr = remove_dir_all(base_dir);
 
             if let Err(_) = rr {
-                println!("{}", "Debug was not present, no need to be wiped.")
+                println!("Debug was not present, no need to be wiped.")
             }
 
             /*if !Path::new(&base_dir).is_dir() {

@@ -91,16 +91,15 @@ impl ArrayTree {
             parents: Vec::with_capacity(code.len()),
         };
 
-        for i in 0..tree.size {
-            if code[i] != i as u8 {
-                tree.children[code[i] as usize].push(i as u8);
+        for (i, &value) in code.iter().enumerate() {
+            if value != i as u8 {
+                tree.children[value as usize].push(i as u8);
             }
-
-            tree.parents.push(code[i]);
+            tree.parents.push(value);
         }
 
-        for i in 0..tree.size {
-            tree.children[i].sort();
+        for c in &mut tree.children {
+            c.sort();
         }
 
         return Ok(tree);

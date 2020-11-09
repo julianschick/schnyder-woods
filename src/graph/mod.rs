@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
 
 use array_tool::vec::Intersect;
 use itertools::{Itertools};
@@ -8,13 +7,15 @@ use itertools::{Itertools};
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::errors::{GraphResult, GraphErr};
 
-use self::ClockDirection::{CCW, CW};
-use self::EdgeEnd::{Head, Tail};
-use self::guarded_map::{GuardedMap, Ideable};
-use self::Signum::{Backward, Forward};
+use enums::ClockDirection::{CCW, CW};
+use enums::EdgeEnd::{Head, Tail};
+use enums::Signum::{Backward, Forward};
+use enums::Side::{Left, Right};
+use enums::{Side, EdgeEnd, Signum, ClockDirection};
+use self::guarded_map::{GuardedMap};
 use self::indices::{EdgeI, VertexI, FaceI};
 use self::error::{IndexAccessError, NoSuchEdgeError};
-use self::Side::{Left, Right};
+use data_holders::{Vertex, Edge, Face, NbVertex};
 
 #[macro_export]
 macro_rules! invalid_graph {
@@ -26,196 +27,17 @@ macro_rules! embedded {
     () => { GraphErr::new_err("This operation can only be applied to graphs that are not embedded.") };
 }
 
-
 #[macro_export]
 macro_rules! not_embedded {
     () => { GraphErr::new_err("This operation can only be applied to embedded graphs.") };
 }
 
-
 pub mod indices;
 pub mod io;
 pub mod error;
 pub mod guarded_map;
-
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub enum EdgeEnd {
-    Tail, Head
-}
-
-impl EdgeEnd {
-    pub fn inverted(&self) -> Self {
-        match self { Tail => Head, Head => Tail }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Signum {
-    Forward, Backward
-}
-
-impl Signum {
-    pub fn reversed(&self) -> Self {
-        match self {
-            Forward => Backward,
-            Backward => Forward
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum ClockDirection {
-    CW, CCW
-}
-
-impl ClockDirection {
-    pub fn reversed(&self) -> Self {
-        match self {
-            CW => CCW,
-            CCW => CW
-        }
-    }
-    pub fn rev_if(&self, cond: bool) -> Self {
-        if cond {
-            self.reversed()
-        } else {
-            *self
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Side {
-    Left, Right
-}
-
-impl Side {
-    pub fn reversed(&self) -> Self {
-        match self {
-            Left => Right,
-            Right => Left
-        }
-    }
-}
-
-pub struct Edge<E> {
-    pub id: EdgeI,
-    pub tail: VertexI,
-    pub head: VertexI,
-    pub right_face: Option<FaceI>,
-    pub left_face: Option<FaceI>,
-    pub weight: E
-}
-
-impl<E> Edge<E> {
-    pub fn get_other(&self, this: VertexI) -> VertexI {//TODO error handling
-        match self.get_signum_by_tail(this) {
-            Forward => return self.head,
-            Backward => return self.tail
-        }
-    }
-
-    pub fn is_loop(&self) -> bool {
-        self.tail == self.head
-    }
-
-    pub fn get_vertex(&self, end: EdgeEnd) -> VertexI {
-        match end {
-            Head => self.head,
-            Tail => self.tail
-        }
-    }
-
-    pub fn get_signum_by_tail(&self, v1: VertexI) -> Signum {
-        if self.is_loop() {
-            panic!("signum not defined")
-        }
-
-        if v1 == self.tail { return Forward }
-        else if v1 == self.head { return Backward }
-        else { panic!("assertion failed") }
-    }
-
-    pub fn get_signum(&self, v1: VertexI, v2: VertexI) -> Signum {
-        if self.is_loop() {
-            panic!("signum not defined")
-        }
-
-        if v1 == self.tail && v2 == self.head {
-            return Forward;
-        } else if v1 == self.head && v2 == self.tail {
-            return Backward;
-        } else {
-            panic!("Forward check assertion failed");
-        }
-    }
-
-    pub fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
-        return swap((self.tail, self.head), signum == Backward)
-    }
-}
-
-impl<E> PartialEq for Edge<E> {
-    fn eq(&self, other: &Self) -> bool {
-        self.head == other.head && self.tail == other.tail ||
-        self.head == other.tail && self.tail == other.head
-    }
-}
-
-impl<E> Eq for Edge<E> { }
-
-impl<E> Hash for Edge<E> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.head.0 + self.tail.0).hash(state)
-    }
-}
-
-impl<E> Debug for Edge<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "e[{}]: v[{}] ==> v[{}] (L = f[{}], R = f[{}])",
-               self.id.0,
-               self.tail.0,
-               self.head.0,
-               match self.left_face { Some(fid) => format!("{}", fid.0), None => "?".to_string()},
-               match self.right_face { Some(fid) => format!("{}", fid.0), None => "?".to_string()}
-        )
-    }
-}
-
-impl<N> Ideable<EdgeI> for Edge<N> {
-    fn get_id(&self) -> EdgeI { self.id }
-    fn set_id(&mut self, id: EdgeI) { self.id = id }
-}
-
-pub struct Vertex<N> {
-    pub id: VertexI,
-    pub neighbors: Vec<NbVertex>,
-    pub weight: N
-}
-
-
-
-impl<N> Debug for Vertex<N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "v[{}]: ", self.id.0)?;
-        for nb in self.neighbors.iter() {
-            write!(f, "v[{}] . ", nb.other.0)?;
-        }
-        Ok(())
-    }
-}
-
-impl<N> Ideable<VertexI> for Vertex<N> {
-    fn get_id(&self) -> VertexI { self.id }
-    fn set_id(&mut self, id: VertexI) { self.id = id }
-}
-
-#[derive(Clone)]
-pub struct Face<F> {
-    pub id: FaceI,
-    pub angles: Vec<VertexI>,
-    pub weight: F
-}
+pub mod enums;
+pub mod data_holders;
 
 pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     if do_swap {
@@ -224,98 +46,6 @@ pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     } else {
         pair
     }
-}
-
-impl<F> Ideable<FaceI> for Face<F> {
-    fn get_id(&self) -> FaceI { self.id }
-    fn set_id(&mut self, id: FaceI) { self.id = id }
-}
-
-impl<F> Debug for Face<F> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: ", self.id)?;
-        for angle in self.angles.iter() {
-            write!(f, "{:?}", angle)?;
-        }
-        Ok(())
-    }
-}
-
-impl<N> Vertex<N> {
-
-    fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
-        self.neighbors.iter().find(|nb| nb.other == other)
-    }
-
-    fn get_nb_mut(&mut self, other: VertexI) -> Option<&mut NbVertex> {
-        self.neighbors.iter_mut().find(|nb| nb.other == other)
-    }
-
-    /// does contain start_index at the end (wraps around), if condition is always true
-    fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection, include_start_index: bool, wrap: bool) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
-        let iter = self.neighbors.cycle(start_index, wrap);
-        let skip = if include_start_index { 0 } else { 1 };
-        match direction {
-            CW => Box::new(iter.skip(skip)),
-            CCW => Box::new(iter.rev().skip(skip))
-        }
-    }
-
-    pub fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
-        let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction, false, true).next().unwrap()
-    }
-
-    pub fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
-        self.get_iterator(nb.index, direction, false, true).next().unwrap()
-    }
-
-    pub fn cycle_while(&self, start_index: usize, condition_while: &dyn Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
-        self.get_iterator(start_index, direction, include_start_index, true).take_while(condition_while).collect_vec()
-    }
-
-    /// does not include the edges to v1 and v2 respectively
-    pub fn sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
-        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.nb_sector_between(nb1, nb2, direction);
-        } else {
-            panic!("v1/v2 invalid");
-        }
-    }
-
-    pub fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
-        return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
-    }
-
-    fn _sector_including(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
-        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.nb_sector_including(nb1, nb2, direction);
-        } else {
-            panic!("v1/v2 invalid");
-        }
-    }
-
-    pub fn nb_sector_including(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
-        let mut result = Vec::new();
-        let mut start = true;
-        for nb in self.get_iterator(nb1.index, direction, true, true) {
-            result.push(nb);
-            if nb.other == nb2.other && !start {
-                break;
-            }
-            start = false;
-        }
-        return result;
-    }
-
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct NbVertex {
-    pub index: usize,
-    pub other: VertexI,
-    pub edge: EdgeI,
-    pub end: EdgeEnd
 }
 
 pub struct PlanarMap<N, E, F: Clone> {
@@ -452,10 +182,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn is_simple(&self) -> bool {
         let loops = self.edges.get_map().values().any(|e| e.is_loop());
         let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
-
-        for e in self.edges() {
-            println!("{} - {}", e.tail, e.head);
-        }
 
         !loops && !double_edges
     }
@@ -793,15 +519,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
         if self.embedded {
-            panic!("superplanar operation on embedded graph.")
+            return embedded!();
         }
 
         self.remove_edge_(v1, v2).map(|e|e.id)
     }
 
-    pub fn remove_embedded_edge_by_id(&mut self, e: EdgeI, merge_weights: &dyn Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
-        let e = self.try_edge(e)?;
-        self.remove_embedded_edge(e.tail, e.head, merge_weights)
+    pub fn remove_embedded_edge_by_index(&mut self, e: EdgeI, merge_weights: &dyn Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
+        let (v1, v2) = self.edge_pair(e, Forward)?;
+        self.remove_embedded_edge(v1, v2, merge_weights)
     }
 
     pub fn remove_embedded_edge(&mut self, v1: VertexI, v2: VertexI, merge_weights: &dyn Fn(F, F) -> F) -> GraphResult<(EdgeI, FaceI)> {
@@ -910,7 +636,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 };
 
                 //(*s).edge_mut(kept_right.id).weight = merge_weights(&removed_edge, &kept_right);
-                (*s).remove_embedded_edge_by_id(dropped_right.id, &right_face_merge)?;
+                (*s).remove_embedded_edge_by_index(dropped_right.id, &right_face_merge)?;
             }
 
             if left_face_collapse && !dropped_single_edge {
@@ -919,7 +645,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                     Backward => Box::new(|_, b| b)
                 };
 
-                (*s).remove_embedded_edge_by_id(dropped_left.id, &left_face_merge)?;
+                (*s).remove_embedded_edge_by_index(dropped_left.id, &left_face_merge)?;
             }
 
             (v_dropped, v_kept)

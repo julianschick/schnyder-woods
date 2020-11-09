@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, VecDeque};
 use crate::schnyder::SchnyderColor;
-use crate::graph::ClockDirection;
-use crate::graph::ClockDirection::{CW, CCW};
+use crate::graph::enums::ClockDirection;
+use crate::graph::enums::ClockDirection::{CW, CCW};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::schnyder::SchnyderMap;
 use std::time::{Instant};
@@ -31,7 +31,7 @@ impl SymmetryBreaking {
                         result.push((color, dir));
                     }
                 }
-                return result;
+                result
             }
         }
     }
@@ -90,8 +90,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                 let current = {
                     let g = g.lock().unwrap();
                     let current_code = g.get_code(current_index);
-                    let current = SchnyderMap::build_from_3tree_code(&current_code).unwrap();
-                    current
+                    SchnyderMap::build_from_3tree_code(&current_code).unwrap()
                 };
 
                 nodes_checked += 1;
@@ -165,7 +164,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
         handle.join().unwrap();
     }
 
-    return Arc::try_unwrap(g).unwrap().into_inner().unwrap();
+    Arc::try_unwrap(g).unwrap().into_inner().unwrap()
 }
 
 #[derive(Debug, Serialize, Deserialize)]

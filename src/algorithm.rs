@@ -9,10 +9,10 @@ use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::indices::{EdgeI, VertexI};
 
 use crate::DEBUG;
-use crate::util::errors::{GraphResult};
-use crate::graph::ClockDirection::{CW, CCW};
+use crate::util::errors::{GraphResult, GraphErr};
+use crate::graph::enums::ClockDirection::{CW, CCW};
 use bimap::BiMap;
-use crate::graph::ClockDirection;
+use crate::graph::enums::ClockDirection;
 
 pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
     let tri1 = arbitrary_triangulation(wood1)?;
@@ -119,7 +119,7 @@ fn lift_sequence(seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap
         {
 
             if op.source_vertex == u || op.source_vertex == w {
-                let dir = wood.get_operation_direction(op).unwrap().rev_if(op.source_vertex == w);
+                let dir = wood.get_operation_direction(op).unwrap().reversed_if(op.source_vertex == w);
                 let u_or_w = op.source_vertex;
 
                 match (op.operation_type, dir) {
@@ -163,7 +163,7 @@ fn lift_sequence(seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap
                 Split => replacement_ops.push(Operation { target_vertex: vd, ..*op }),
                 Merge => {
                     if op.hinge_vertex == u || op.hinge_vertex == w {
-                        let dir = wood.get_operation_direction(op).unwrap().rev_if(op.hinge_vertex == w);
+                        let dir = wood.get_operation_direction(op).unwrap().reversed_if(op.hinge_vertex == w);
                         match dir {
                             CW => replacement_ops.push(Operation { target_vertex: vd, ..*op }),
                             CCW => replacement_ops.push(*op)
@@ -183,7 +183,7 @@ fn lift_sequence(seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap
             match op.operation_type {
                 Split => {
                     if op.hinge_vertex == u || op.hinge_vertex == w {
-                        let dir = wood.get_operation_direction(op).unwrap().rev_if(op.hinge_vertex == w);
+                        let dir = wood.get_operation_direction(op).unwrap().reversed_if(op.hinge_vertex == w);
                         match dir {
                             CW => replacement_ops.push(*op),
                             CCW => replacement_ops.push(Operation { source_vertex: vd, ..*op })
@@ -344,7 +344,7 @@ pub fn arbitrary_triangulation(wood: &mut SchnyderMap) -> GraphResult<Vec<Operat
 
     let mut seq = Vec::new();
     while let Some(&op) = wood.get_admissible_ops()?.iter().find(|op| op.is_upwards()) {
-        wood.do_operation(&op);
+        wood.do_operation(&op)?;
         seq.push(op);
     }
 
@@ -357,8 +357,8 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
     let tri_seq1 = arbitrary_triangulation(wood1).unwrap(); //TODO
     let tri_seq2 = arbitrary_triangulation(wood2).unwrap(); //TODO
 
-    let seq1 = to_canonical_form(wood1, color);
-    let seq2 = to_canonical_form(wood2, color);
+    let seq1 = to_apollonian_path(wood1, color).unwrap();
+    let seq2 = to_apollonian_path(wood2, color).unwrap();
 
     DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts().unwrap());
     DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts().unwrap());
@@ -380,12 +380,16 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
     return seq;
 }
 
-pub fn to_canonical_form(wood: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {
+pub fn to_apollonian_path(wood: &mut SchnyderMap, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
+
+    if !wood.map.is_triangulation() {
+        return GraphErr::new_err("Only triangulations can be transformed to an apollonian path.");
+    }
 
     let mut pivot = wood.get_suspension_vertex(color);
     let mut seq = Vec::new();
 
-    while let Some(_) = wood.get_incoming_sector(pivot, color, false).first() {
+    while wood.get_incoming_sector(pivot, color, false).first().is_some() {
         seq.extend(full_pizza_lemma(wood, pivot, color).expect("TODO"));
 
         if let Some(v) = wood.get_incoming_sector(pivot, color, false).first() {
@@ -395,5 +399,5 @@ pub fn to_canonical_form(wood: &mut SchnyderMap, color: SchnyderColor) -> Vec<Op
         }
     }
 
-    return seq;
+    return Ok(seq);
 }
