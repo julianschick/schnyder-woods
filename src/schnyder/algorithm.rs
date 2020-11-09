@@ -257,6 +257,20 @@ impl Operation {
         }
     }
 
+    pub fn is_upwards(&self) -> bool {
+        match self.operation_type {
+            Split | ExtSplit => true,
+            _ => false
+        }
+    }
+
+    pub fn is_downwards(&self) -> bool {
+        match self.operation_type {
+            Merge | ExtMerge => true,
+            _ => false
+        }
+    }
+
 }
 
 impl Debug for Operation {

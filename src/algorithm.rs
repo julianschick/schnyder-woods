@@ -15,9 +15,19 @@ use bimap::BiMap;
 use crate::graph::ClockDirection;
 
 pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
+    let tri1 = arbitrary_triangulation(wood1)?;
+    let tri2 = arbitrary_triangulation(wood2)?;
+
     let (vm, seq) = find_sequence_(wood1, wood2, 0)?;
+    let mut result = Vec::with_capacity(tri1.len() + tri2.len() + seq.len());
+
+    result.extend(tri1);
+    result.extend(seq);
+    result.extend(tri2.iter().rev().map(|op| op.inverted().mapped_vertices_by_left(&vm)));
+
+
     println!("outer vertex map = {:?}", vm);
-    return Ok(seq);
+    return Ok(result);
 }
 
 pub fn compute_contraction_candidates(wood: &SchnyderMap) -> HashMap<SchnyderColor, (EdgeI, bool)> {
@@ -330,14 +340,24 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
 //
 //
 
-pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {
+pub fn arbitrary_triangulation(wood: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
 
-    //TODO triangulate
-    if !wood1.map.is_triangulation() || !wood2.map.is_triangulation() {
-        panic!("must be triangulations!");
+    let mut seq = Vec::new();
+    while let Some(&op) = wood.get_admissible_ops()?.iter().find(|op| op.is_upwards()) {
+        wood.do_operation(&op);
+        seq.push(op);
     }
 
-    let mut seq1 = to_canonical_form(wood1, color);
+    return Ok(seq);
+}
+
+pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {
+
+
+    let tri_seq1 = arbitrary_triangulation(wood1).unwrap(); //TODO
+    let tri_seq2 = arbitrary_triangulation(wood2).unwrap(); //TODO
+
+    let seq1 = to_canonical_form(wood1, color);
     let seq2 = to_canonical_form(wood2, color);
 
     DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts().unwrap());
@@ -345,10 +365,19 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
 
     let vertex_map = wood1.get_vertex_map(wood2).expect("TODO");
 
+    let mut seq = Vec::with_capacity(tri_seq1.len() + tri_seq2.len() + seq1.len() + seq2.len());
+    seq.extend(tri_seq1);
+    seq.extend(seq1);
+
     for op in seq2.iter().rev() {
-        seq1.push(op.mapped_vertices_by_right(&vertex_map).inverted());
+        seq.push(op.mapped_vertices_by_right(&vertex_map).inverted());
     }
-    return seq1;
+
+    for op in tri_seq2.iter().rev() {
+        seq.push(op.mapped_vertices_by_right(&vertex_map).inverted());
+    }
+
+    return seq;
 }
 
 pub fn to_canonical_form(wood: &mut SchnyderMap, color: SchnyderColor) -> Vec<Operation> {

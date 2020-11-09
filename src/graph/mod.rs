@@ -453,6 +453,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let loops = self.edges.get_map().values().any(|e| e.is_loop());
         let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
 
+        for e in self.edges() {
+            println!("{} - {}", e.tail, e.head);
+        }
+
         !loops && !double_edges
     }
 
@@ -1352,10 +1356,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         // check if each edge occurs exactly twice, one time as (a,b), one time as (b,a)
         if fwd_occurence.len() < self.edges.get_map().len() {
-            return GraphErr::new_err("Not every each occurs twice in the face cycles");
+            return GraphErr::new_err("Not every edge occurs twice in the face cycles");
         }
         if backwd_occurence.len() < self.edges.get_map().len() {
-            return GraphErr::new_err("Not every each occurs twice in the face cycles");
+            return GraphErr::new_err("Not every edge occurs twice in the face cycles");
         }
 
         // check if all vertices have a well-defined total order on their neighbors now
@@ -1446,7 +1450,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         Ok(())
     }
 
-    pub fn get_dual(&self) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {
+    pub fn get_dual(&self, embedded: bool) -> (PlanarMap<FaceI, EdgeI, VertexI>, HashMap<VertexI, FaceI>, HashMap<EdgeI, EdgeI>, HashMap<FaceI, VertexI>) {
 
         let mut dual_map = PlanarMap::new();
         dual_map.enforce_simple = false;
@@ -1472,23 +1476,25 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-        let mut face_cycles = vec![];
+        if embedded {
+            let mut face_cycles = vec![];
 
-        for v in self.vertices.get_map().values() {
-            let cycle = v.neighbors.iter().map(|nb| {
-                let f = match nb.end {
-                    Tail => self.edge(nb.edge).left_face.unwrap(),
-                    Head => self.edge(nb.edge).right_face.unwrap()
-                };
-                *primal_face_to_dual_vertex.get(&f).unwrap()
-            }).collect_vec();
+            for v in self.vertices.get_map().values() {
+                let cycle = v.neighbors.iter().map(|nb| {
+                    let f = match nb.end {
+                        Tail => self.edge(nb.edge).left_face.unwrap(),
+                        Head => self.edge(nb.edge).right_face.unwrap()
+                    };
+                    *primal_face_to_dual_vertex.get(&f).unwrap()
+                }).collect_vec();
 
-            face_cycles.push((cycle, v.id));
-        }
+                face_cycles.push((cycle, v.id));
+            }
 
-        dual_map.set_embedding_by_face_cycles(face_cycles).expect("TODO");
-        for dual_face in dual_map.faces.get_map().values() {
-            primal_vertex_to_dual_face.insert(dual_face.weight, dual_face.id);
+            dual_map.set_embedding_by_face_cycles(face_cycles).expect("TODO");
+            for dual_face in dual_map.faces.get_map().values() {
+                primal_vertex_to_dual_face.insert(dual_face.weight, dual_face.id);
+            }
         }
 
         (

@@ -1,4 +1,4 @@
-use crate::graph::{PlanarMap, NbVertex, Edge, Signum, Vertex, ClockDirection, Side};
+use crate::graph::{PlanarMap, NbVertex, Edge, Signum, Vertex, ClockDirection, Side, Face};
 use crate::schnyder::SchnyderVertexType::{Suspension, Normal};
 use itertools::{Itertools};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
@@ -177,6 +177,17 @@ impl Edge<SchnyderEdgeDirection> {
     }
 }
 
+impl Face<()> {
+    #[allow(dead_code)]
+    fn debug(&self) {
+        print!("f[{}]: ", self.id.0);
+        for angles in self.angles.iter() {
+            print!("v[{}] . ", angles.0);
+        }
+        println!();
+    }
+}
+
 struct MergeData<'a> {
     //hinge_vertex: &'a Vertex<SchnyderVertexType>,
     //source_edge: &'a Edge<SchnyderEdgeDirection>,
@@ -216,6 +227,10 @@ impl SchnyderMap {
 
         for v in self.map.vertices() {
             v.debug();
+        }
+
+        for f in self.map.faces() {
+            f.debug();
         }
     }
 
@@ -1323,7 +1338,7 @@ impl SchnyderMap {
     pub fn calculate_face_counts(&self) -> GraphResult<HashMap<VertexI, (usize, usize, usize)>> {
 
         let number_of_faces = self.map.face_count() - 1;
-        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual();
+        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(false);
 
         let mut result = HashMap::new();
 
@@ -1408,34 +1423,45 @@ impl SchnyderMap {
         let tail = "\\end{tikzpicture}\\end{document}";
         let mut mid = String::new();
 
+        //mid.push_str("\\tikzstyle{edges}=[->, shorten >= 2pt, thick]");
+        //mid.push_str("\\tikzstyle{biedges}=[->, thick]");
+        mid.push_str("\\tikzstyle{edges}=[line width=5pt, shorten >= 12pt]");
+        mid.push_str("\\tikzstyle{biedges}=[line width=5pt, shorten >= 1pt]");
+
+        let max_red = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().0).max().unwrap();
+        let max_green = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().1).max().unwrap();
+        let shear = max_red as f32 / (max_green as f32 * 2f32);
+
+
         for v in self.map.vertices() {
             let (r, g, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
-            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, g, r).chars());
-            mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
+
+            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, *g as f32 + shear * *r as f32, *r as f32 * 0.86602540378).chars());
+            //mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
         }
 
         for edge in self.map.edges() {
             mid.extend(match edge.weight {
                 Unicolored(color, signum) => match signum {
                     Forward => if face_labels {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
+                        format!("\\draw[edges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
                     } else {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
+                        format!("\\draw[edges, {}] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
                     },
                     Backward => if face_labels {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
+                        format!("\\draw[edges, {}] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
                     } else {
-                        format!("\\draw[->, {}, shorten >= 2pt, thick] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
+                        format!("\\draw[edges, {}] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
                     }
                 }
                 Bicolored(fwd_c, bwd_c) => {
                     let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
 
                     if face_labels {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[->, {}, thick] ({}) -- ({});",
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[biedges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[biedges, {}] ({}) -- ({});",
                                 mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
                     } else {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[->, {}, thick] ({}) -- ({});\\draw[->, {}, thick] ({}) -- ({});",
+                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[biedges, {}] ({}) -- ({});\\draw[biedges, {}] ({}) -- ({});",
                                 mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
                     }
                 }

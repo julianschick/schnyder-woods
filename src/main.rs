@@ -9,6 +9,7 @@ use crate::schnyder::SchnyderColor::{Red};
 use crate::schnyder::{SchnyderMap};
 use crate::util::debug::Debug;
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
+use crate::algorithm::{find_sequence_2, find_sequence};
 
 #[macro_use]
 extern crate lazy_static;
@@ -39,6 +40,10 @@ fn main() {
                 .arg("-t --threads [t] 'Number of threads to start'")
                 .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
                 .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
+        )
+        .subcommand(
+    App::new("explore")
+                .arg("<GRAPH> 'Flipgraph file'")
         )
         .subcommand(
             App::new("test")
@@ -87,6 +92,32 @@ fn main() {
 
             main7(n, num_threads, symmetry_breaking, output);
         },
+        Some(("explore", matches)) => {
+            let flipgraph_file = matches.value_of("GRAPH").unwrap();
+
+            println!("{}", "Reading CBOR...");
+            {
+                let file = File::open(flipgraph_file).expect("TODO");
+                let g: Flipgraph = serde_cbor::from_reader(file).expect("TODO");
+
+                let mut wood1 = SchnyderMap::build_from_3tree_code(g.get_code(42)).expect("TODO");
+                let mut wood2 = SchnyderMap::build_from_3tree_code(g.get_code(142)).expect("TODO");
+
+                let mut wood = wood1.clone();
+
+                DEBUG.write().unwrap().activate();
+                DEBUG.write().unwrap().output("std", &wood1, Some("From"), &wood1.calculate_face_counts().unwrap());
+                DEBUG.write().unwrap().output("std", &wood2, Some("To"), &wood2.calculate_face_counts().unwrap());
+
+                let seq = find_sequence(&mut wood1, &mut wood2).unwrap();
+
+                DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
+                for op in &seq {
+                    wood.do_operation(op).unwrap();//TODO
+                    DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
+                }
+            }
+        }
         Some(("test", _)) => {
             test();
         }
