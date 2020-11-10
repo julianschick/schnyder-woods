@@ -1,4 +1,4 @@
-use crate::util::errors::{GraphResult, GraphErr};
+use crate::graph::error::{GraphErr, GraphResult};
 
 pub struct ArrayTree {
     size: usize,

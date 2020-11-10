@@ -7,7 +7,6 @@ use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::schnyder::IndexedEnum;
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::enums::Signum::{Backward, Forward};
-use crate::util::errors::{GraphErr, GraphResult};
 use crate::util::swapped;
 use crate::graph::enums::Side::{Left, Right};
 use std::fmt::{Debug, Formatter};
@@ -15,6 +14,7 @@ use bimap::BiMap;
 use crate::graph::indices::{VertexI, EdgeI, FaceI};
 use crate::graph::enums::{Signum, ClockDirection, Side};
 use crate::graph::data_holders::Vertex;
+use crate::graph::error::{GraphErr, GraphResult};
 
 /*pub trait OperationX {
     fn execute(&self, wood: &mut SchnyderMap) -> GraphResult<()>;

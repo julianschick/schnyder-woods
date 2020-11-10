@@ -9,10 +9,10 @@ use crate::schnyder::algorithm::OpType::{Merge, Split, ExtMerge, ExtSplit};
 use crate::graph::indices::{EdgeI, VertexI};
 
 use crate::DEBUG;
-use crate::util::errors::{GraphResult, GraphErr};
 use crate::graph::enums::ClockDirection::{CW, CCW};
 use bimap::BiMap;
 use crate::graph::enums::ClockDirection;
+use crate::graph::error::{GraphErr, GraphResult};
 
 pub fn find_sequence(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
     let tri1 = arbitrary_triangulation(wood1)?;

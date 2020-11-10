@@ -10,6 +10,7 @@ use crate::schnyder::{SchnyderMap};
 use crate::util::debug::Debug;
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 use crate::algorithm::{find_sequence_2, find_sequence};
+use rustyline::Editor;
 
 #[macro_use]
 extern crate lazy_static;
@@ -46,6 +47,7 @@ fn main() {
         )
         .subcommand(
             App::new("test")
+                .arg("<GRAPH> 'Flipgraph file'")
         )
         .get_matches();
 
@@ -91,7 +93,8 @@ fn main() {
 
             main7(n, num_threads, symmetry_breaking, output);
         },
-        Some(("explore", matches)) => {
+        Some(("explore", _)) => explore_repl(),
+        Some(("test", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
             println!("Reading CBOR...");
@@ -118,7 +121,7 @@ fn main() {
                 }
             }
         }
-        Some(("test", _)) => {
+        Some(("test2", _)) => {
             test();
         }
         _ => {
@@ -228,4 +231,20 @@ fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
 
 fn print_header() {
     println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "Subset", "Card", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "Minima");
+}
+
+fn explore_repl() {
+    let mut rl = Editor::<()>::new();
+
+    loop {
+        let line = rl.readline("> ");
+
+        match line {
+            Ok(l) => {
+                rl.add_history_entry(l);
+            }
+            _ => ()
+        }
+
+    }
 }

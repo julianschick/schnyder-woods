@@ -5,8 +5,6 @@ use array_tool::vec::Intersect;
 use itertools::{Itertools};
 
 use crate::util::iterators::cyclic::CyclicIterable;
-use crate::util::errors::{GraphResult, GraphErr};
-
 use enums::ClockDirection::{CCW, CW};
 use enums::EdgeEnd::{Head, Tail};
 use enums::Signum::{Backward, Forward};
@@ -16,6 +14,8 @@ use self::guarded_map::{GuardedMap};
 use self::indices::{EdgeI, VertexI, FaceI};
 use self::error::{IndexAccessError, NoSuchEdgeError};
 use data_holders::{Vertex, Edge, Face, NbVertex};
+use error::GraphErr;
+use crate::graph::error::GraphResult;
 
 #[macro_export]
 macro_rules! invalid_graph {

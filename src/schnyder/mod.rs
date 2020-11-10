@@ -12,7 +12,6 @@ use crate::util::is_in_cyclic_order;
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::iterators::cyclic::CyclicIterableByElement;
 use rand::{thread_rng, Rng};
-use crate::util::errors::{GraphErr, GraphResult};
 use crate::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle};
 use crate::DEBUG;
 use std::convert::TryFrom;
@@ -20,7 +19,7 @@ use take_until::TakeUntilExt;
 use bimap::BiMap;
 use crate::arraytree::{ArrayTree, WalkAroundDirection};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
-use crate::graph::error::IndexAccessError;
+use crate::graph::error::{IndexAccessError, GraphErr, GraphResult};
 use crate::graph::enums::{Signum, ClockDirection, Side};
 use crate::graph::data_holders::{NbVertex, Vertex, Face, Edge};
 

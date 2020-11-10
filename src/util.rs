@@ -233,55 +233,6 @@ pub mod debug {
 
 }
 
-pub mod errors {
-    use std::fmt::{Debug, Formatter, Display};
-    use crate::graph::error::{IndexAccessError, NoSuchEdgeError};
-    use crate::graph::guarded_map::Index;
-
-    pub type GraphResult<T> = Result<T, GraphErr>;
-
-    pub struct GraphErr {
-        problem: String,
-    }
-
-    impl GraphErr {
-
-        pub fn new(problem: &str) -> Self {
-            let mut problem = problem.to_string();
-            if !(problem.ends_with(".") || problem.ends_with("!") || problem.ends_with("?")) {
-                problem.push('.');
-            }
-
-            GraphErr {
-                problem
-            }
-        }
-
-        pub fn new_err<T>(problem: &str) -> Result<T, Self> {
-            return Err(GraphErr::new(problem));
-        }
-    }
-
-    impl Debug for GraphErr {
-        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-            f.write_str(&format!("GraphErr: {}", self.problem))
-        }
-    }
-
-    impl<T: Index + Display> From<IndexAccessError<T>> for GraphErr {
-        fn from(cause: IndexAccessError<T>) -> Self {
-            return GraphErr::new(&format!("Access to invalid index {} occurred.", cause.get_index()))
-        }
-    }
-
-    impl From<NoSuchEdgeError> for GraphErr {
-        fn from(cause: NoSuchEdgeError) -> Self {
-            return GraphErr::new(&format!("No edge between {} and {}.", cause.get_vertices().0, cause.get_vertices().1))
-        }
-    }
-
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

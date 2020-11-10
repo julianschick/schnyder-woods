@@ -99,7 +99,9 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                     tx.send(true).expect("TODO");
                 }
 
-                let admissible_ops = current.get_admissible_ops().expect("TODO");
+                let admissible_ops = current.get_admissible_ops().expect("TODO").into_iter()
+                    .filter(|op| 3*n - 7 == current.map.edge_count() || op.is_downwards())
+                    .collect_vec();
 
                 let neighbors = admissible_ops.iter().map(|op| {
                     let mut neighbor = current.clone();
