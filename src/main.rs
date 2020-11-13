@@ -34,7 +34,7 @@ fn main() {
         .author("Julian Schick <julian.schick@posteo.de>")
         .about("Algorithms for manipulating Schnyder woods")
         .subcommand(
-            App::new("build-flipgraph")
+            App::new("build")
                 .arg("<N> 'Number of vertices'")
                 .arg("<OUTPUT> 'Output file'")
                 .arg("-t --threads [t] 'Number of threads to start'")
@@ -52,7 +52,9 @@ fn main() {
         .get_matches();
 
     match matches.subcommand() {
-        Some(("build-flipgraph", matches))=> {
+        Some(("build", matches))=> {
+            DEBUG.write().unwrap().activate();
+
             let n = str::parse::<usize>(matches.value_of("N").unwrap_or("3"))
                 .unwrap_or_else(|_| { println!("Bittaschön"); return 3 });
             let num_threads= str::parse::<usize>(matches.value_of("threads").unwrap_or("1"))
@@ -93,7 +95,21 @@ fn main() {
 
             main7(n, num_threads, symmetry_breaking, output);
         },
-        Some(("explore", _)) => explore_repl(),
+        Some(("explore", matches)) => {
+            let flipgraph_file = matches.value_of("GRAPH").unwrap();
+            let g: Flipgraph = serde_cbor::from_reader(File::open(flipgraph_file).unwrap()).expect("TODO");
+            DEBUG.write().unwrap().activate();
+
+            for i in 0..g.node_count() {
+                if g.get_updegree(i)==15 && g.get_level(i)==12 {
+                    let wood = SchnyderMap::build_from_3tree_code(g.get_code(i)).unwrap();
+                    //if wood.is_outer_triangular() {
+                        DEBUG.write().unwrap().output("std", &wood, Some(&format!("|E|={}, deg = {}", wood.map.edge_count(), g.get_degree(i))), &wood.calculate_face_counts().unwrap());
+                    //}
+                }
+            }
+
+        },
         Some(("test", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
@@ -155,9 +171,9 @@ fn main8() {
     let levels = g.get_levels();
 
     print_header();
-    print_statistics("ALL", (0..g.node_count()).collect_vec(), &g);
+    print_statistics("*", (0..g.node_count()).collect_vec(), &g);
     for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| *level) {
-        print_statistics(&format!("Level {}", level), indices, &g);
+        print_statistics(&format!("{}", level), indices, &g);
     }
 
     eprintln!("NODES = {:?}", g.node_count());
@@ -171,7 +187,7 @@ fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, out
 
     print_header();
     print_statistics("ALL", (0..g.node_count()).collect_vec(), &g);
-    for (level, indices) in levels.into_iter().sorted_by_key(|(level, _)| *level) {
+    for (level, indices) in levels.into_iter().sorted_by_key(|&(level, _)| -(level as isize)) {
         print_statistics(&format!("Level {}", level), indices, &g);
     }
 
@@ -230,9 +246,10 @@ fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
 }
 
 fn print_header() {
-    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "Subset", "Card", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "Minima");
+    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "Cardinality", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "#Minima");
 }
 
+#[allow(dead_code)]
 fn explore_repl() {
     let mut rl = Editor::<()>::new();
 

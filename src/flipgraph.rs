@@ -12,6 +12,7 @@ use std::sync::mpsc::channel;
 use bimap::BiMap;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
+use crate::DEBUG;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
@@ -221,6 +222,20 @@ impl Flipgraph {
 
     pub fn get_neighbors(&self, v: usize) -> impl Iterator<Item = &usize> {
         self.adjacencies[v].iter()
+    }
+
+    pub fn get_degree(&self, v: usize) -> usize {
+        self.adjacencies[v].len()
+    }
+
+    pub fn get_updegree(&self, v: usize) -> usize {
+        let level = self.get_level(v);
+        self.adjacencies[v].iter().filter(|&&nb| self.get_level(nb) > level).count()
+    }
+
+    pub fn get_downdegree(&self, v: usize) -> usize {
+        let level = self.get_level(v);
+        self.adjacencies[v].iter().filter(|&&nb| self.get_level(nb) < level).count()
     }
 
     pub fn node_count(&self) -> usize {

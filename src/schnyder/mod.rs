@@ -612,6 +612,10 @@ impl SchnyderMap {
         return result;
     }
 
+    pub fn is_outer_triangular(&self) -> bool {
+        self.map.try_face(self.outer_face).expect("TODO").angles.len() == 3
+    }
+
     fn replace_color_nb(&self, nb: &NbVertex, color: SchnyderColor, sig: Signum) -> GraphResult<SchnyderEdgeDirection> {
         let effective_signum = match nb.end {
             Tail => sig,
@@ -1421,10 +1425,10 @@ impl SchnyderMap {
         let tail = "\\end{tikzpicture}\\end{document}";
         let mut mid = String::new();
 
-        //mid.push_str("\\tikzstyle{edges}=[->, shorten >= 2pt, thick]");
-        //mid.push_str("\\tikzstyle{biedges}=[->, thick]");
-        mid.push_str("\\tikzstyle{edges}=[line width=5pt, shorten >= 12pt]");
-        mid.push_str("\\tikzstyle{biedges}=[line width=5pt, shorten >= 1pt]");
+        mid.push_str("\\tikzstyle{edges}=[->, shorten >= 2pt, thick]");
+        mid.push_str("\\tikzstyle{biedges}=[->, thick]");
+        //mid.push_str("\\tikzstyle{edges}=[line width=5pt, shorten >= 12pt]");
+        //mid.push_str("\\tikzstyle{biedges}=[line width=5pt, shorten >= 1pt]");
 
         let max_red = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().0).max().unwrap();
         let max_green = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().1).max().unwrap();
