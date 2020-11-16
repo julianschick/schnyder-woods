@@ -23,7 +23,8 @@ use crate::graph::error::{IndexAccessError, GraphErr, GraphResult};
 use crate::graph::enums::{Signum, ClockDirection, Side};
 use crate::graph::data_holders::{NbVertex, Vertex, Face, Edge};
 
-static INVALID_WOOD : &str = "Assertion failed, invalid Schnyder wood detected.";
+static INVALID_WOOD: &str = "Assertion failed, invalid Schnyder wood detected.";
+static INTERNAL_ASSERTION: &str = "Internal assertion of class SchnyderMap failed.";
 
 #[macro_export]
 macro_rules! invalid_wood {
@@ -31,18 +32,11 @@ macro_rules! invalid_wood {
 }
 
 pub mod algorithm;
+pub mod io;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
     Red, Green, Blue
-}
-
-impl SchnyderColor {
-    pub fn to_tikz(&self) -> &str {
-        match self {
-            Red => "red", Green => "green", Blue => "blue"
-        }
-    }
 }
 
 impl IndexedEnum<SchnyderColor> for SchnyderColor {
@@ -544,8 +538,8 @@ impl SchnyderMap {
             return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
         }
 
-        DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts().unwrap());
-        DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
 
         let vertices1 = wood1.get_vertices_in_bfs_order(Red, CW);
         let vertices2 = wood2.get_vertices_in_bfs_order(Red, CW);
@@ -1337,7 +1331,7 @@ impl SchnyderMap {
         return Ok(result);
     }
 
-    pub fn calculate_face_counts(&self) -> GraphResult<HashMap<VertexI, (usize, usize, usize)>> {
+    pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
 
         let number_of_faces = self.map.face_count() - 1;
         let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(false);
@@ -1358,7 +1352,7 @@ impl SchnyderMap {
                 let mut counts = [0; 3];
 
                 for color in &[Red, Green, Blue] {
-                    let path: Vec<_> = self.color_path(vid, *color)?
+                    let path: Vec<_> = self.color_path(vid, *color).expect(INVALID_WOOD)
                         .iter().tuple_windows()
                         .map(|(&a, &b)| self.map.get_edge(a, b).unwrap())
                         .collect();
@@ -1372,12 +1366,12 @@ impl SchnyderMap {
                     *edge_to_edge.get(eid).unwrap()
                 ).collect();
 
-                for nb in &dual.try_vertex(*face_to_vertex.get(&self.outer_face).unwrap())?.neighbors {
+                for nb in &dual.try_vertex(*face_to_vertex.get(&self.outer_face).expect(INTERNAL_ASSERTION)).expect(INVALID_WOOD).neighbors {
                     dual_no_cross_edges.insert(nb.edge);
                 }
 
                 for color in SchnyderColor::all() {
-                    let e = self.map.try_edge(out_edge[color.index()])?;
+                    let e = self.map.try_edge(out_edge[color.index()]).expect(INVALID_WOOD);
                     let f = match e.get_signum_by_tail(vid) {
                         Forward => e.left_face,
                         Backward => e.right_face
@@ -1385,7 +1379,7 @@ impl SchnyderMap {
 
                     if f != self.outer_face {
                         let start_vertex = face_to_vertex.get(&f).unwrap();
-                        counts[color.index()] = dual.connected_component(*start_vertex, &dual_no_cross_edges).unwrap().len(); //TODO
+                        counts[color.index()] = dual.connected_component(*start_vertex, &dual_no_cross_edges).expect(INVALID_WOOD).len();
                     } else {
                         counts[color.index()] = 0;
                     }
@@ -1395,7 +1389,7 @@ impl SchnyderMap {
             }
         }
 
-        return Ok(result);
+        return result;
     }
 
     fn color_path(&self, vid: VertexI, color: SchnyderColor) -> GraphResult<Vec<VertexI>> {
@@ -1418,72 +1412,6 @@ impl SchnyderMap {
         } else {
             invalid_wood!()
         }
-    }
-
-    pub fn generate_tikz(&self, title: Option<&str>, face_labels: bool, face_counts: &HashMap<VertexI, (usize, usize, usize)>) -> String {
-        let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\\begin{document}\\tikzset{>=latex}\\usetikzlibrary{calc}\\begin{tikzpicture}[x=10mm, y=10mm]";
-        let tail = "\\end{tikzpicture}\\end{document}";
-        let mut mid = String::new();
-
-        mid.push_str("\\tikzstyle{edges}=[->, shorten >= 2pt, thick]");
-        mid.push_str("\\tikzstyle{biedges}=[->, thick]");
-        //mid.push_str("\\tikzstyle{edges}=[line width=5pt, shorten >= 12pt]");
-        //mid.push_str("\\tikzstyle{biedges}=[line width=5pt, shorten >= 1pt]");
-
-        let max_red = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().0).max().unwrap();
-        let max_green = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().1).max().unwrap();
-        let shear = max_red as f32 / (max_green as f32 * 2f32);
-
-
-        for v in self.map.vertices() {
-            let (r, g, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
-
-            mid.extend(format!("\\coordinate ({}) at ({},{});", v.id.0, *g as f32 + shear * *r as f32, *r as f32 * 0.86602540378).chars());
-            //mid.extend(format!("\\node at ({}) [above] {{${}$}};", v.id.0, v.id.0).chars());
-        }
-
-        for edge in self.map.edges() {
-            mid.extend(match edge.weight {
-                Unicolored(color, signum) => match signum {
-                    Forward => if face_labels {
-                        format!("\\draw[edges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.tail.0,  edge.left_face.unwrap().0,  edge.right_face.unwrap().0, edge.head.0)
-                    } else {
-                        format!("\\draw[edges, {}] ({}) -- ({});", color.to_tikz(), edge.tail.0, edge.head.0)
-                    },
-                    Backward => if face_labels {
-                        format!("\\draw[edges, {}] ({}) --  node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});", color.to_tikz(), edge.head.0, edge.right_face.unwrap().0, edge.left_face.unwrap().0, edge.tail.0)
-                    } else {
-                        format!("\\draw[edges, {}] ({}) -- ({});", color.to_tikz(), edge.head.0, edge.tail.0)
-                    }
-                }
-                Bicolored(fwd_c, bwd_c) => {
-                    let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
-
-                    if face_labels {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[biedges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\\draw[biedges, {}] ({}) -- ({});",
-                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
-                    } else {
-                        format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\\draw[biedges, {}] ({}) -- ({});\\draw[biedges, {}] ({}) -- ({});",
-                                mid_point, edge.tail.0, edge.head.0, fwd_c.to_tikz(), edge.tail.0, mid_point, bwd_c.to_tikz(), edge.head.0, mid_point)
-                    }
-                }
-            }.chars());
-        }
-
-        for v in self.map.vertices() {
-            //let (_, _, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
-            mid.extend(format!("\\fill ({}) circle (2pt);", v.id.0).chars());
-        }
-
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Red.to_tikz(),  Red.to_tikz(), self.red_vertex.0).chars());
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Green.to_tikz(),  Green.to_tikz(), self.green_vertex.0).chars());
-        mid.extend(format!("\\draw[{},fill={}] ({}) circle (1pt);", Blue.to_tikz(),  Blue.to_tikz(), self.blue_vertex.0).chars());
-
-        if let Some(title) = title {
-            mid.extend(format!("\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};", title).chars());
-        }
-
-        return format!("{}{}{}", preamble, mid, tail);
     }
 
     fn with_initialized_wood(mut self) -> GraphResult<Self> {

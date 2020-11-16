@@ -12,7 +12,6 @@ use std::sync::mpsc::channel;
 use bimap::BiMap;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
-use crate::DEBUG;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
@@ -178,6 +177,15 @@ pub struct Flipgraph {
     levels: Vec<u8>
 }
 
+//Frozen for ma-auxiliary/computations
+/*(#[derive(Debug, Serialize, Deserialize)]
+pub struct Flipgraph {
+    expected_average_degree: usize,
+    adjacencies: Vec<Vec<usize>>,
+    nodes_by_treecode: BiMap<Vec<u8>, usize>,
+    levels: Vec<u8>
+}*/
+
 impl Flipgraph {
 
     pub fn new(expected_average_degree: usize) -> Self {
@@ -186,6 +194,24 @@ impl Flipgraph {
             adjacencies: Vec::new(),
             nodes_by_treecode: BiMap::new(),
             levels: Vec::new()
+        }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.adjacencies.len()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        self.adjacencies.iter().enumerate().map(|(i, adj)|
+            adj.iter().filter(|&&j| i < j).count()
+        ).sum()
+    }
+
+    pub fn get_n(&self) -> usize {
+        if let Some((code, _)) = self.nodes_by_treecode.iter().next() {
+            code.len()  / 3
+        } else {
+            return 0;
         }
     }
 
@@ -236,16 +262,6 @@ impl Flipgraph {
     pub fn get_downdegree(&self, v: usize) -> usize {
         let level = self.get_level(v);
         self.adjacencies[v].iter().filter(|&&nb| self.get_level(nb) < level).count()
-    }
-
-    pub fn node_count(&self) -> usize {
-        self.adjacencies.len()
-    }
-
-    pub fn edge_count(&self) -> usize {
-        self.adjacencies.iter().enumerate().map(|(i, adj)|
-            adj.iter().filter(|&&j| i < j).count()
-        ).sum()
     }
 
     pub fn get_levels(&self) -> HashMap<u8, Vec<usize>> {

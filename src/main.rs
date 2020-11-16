@@ -10,7 +10,7 @@ use crate::schnyder::{SchnyderMap};
 use crate::util::debug::Debug;
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 use crate::algorithm::{find_sequence_2, find_sequence};
-use rustyline::Editor;
+use crate::repl::Repl;
 
 #[macro_use]
 extern crate lazy_static;
@@ -23,6 +23,7 @@ mod util;
 mod algorithm;
 //mod petgraph_ext;
 mod arraytree;
+mod repl;
 
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder"));
@@ -53,7 +54,7 @@ fn main() {
 
     match matches.subcommand() {
         Some(("build", matches))=> {
-            DEBUG.write().unwrap().activate();
+            //DEBUG.write().unwrap().activate();
 
             let n = str::parse::<usize>(matches.value_of("N").unwrap_or("3"))
                 .unwrap_or_else(|_| { println!("Bittaschön"); return 3 });
@@ -97,18 +98,30 @@ fn main() {
         },
         Some(("explore", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
-            let g: Flipgraph = serde_cbor::from_reader(File::open(flipgraph_file).unwrap()).expect("TODO");
-            DEBUG.write().unwrap().activate();
+
+            if let Ok(file) = File::open(flipgraph_file) {
+                println!("Reading flipgraph...");
+                if let Ok(g) = serde_cbor::from_reader(file) {
+                    let mut repl = Repl::new(g);
+                    repl.main_loop();
+                } else {
+                    println!("The specified file does not seem to contain a flipgraph.");
+                }
+
+            } else {
+                println!("File '{}' could not be opened for reading.", flipgraph_file);
+            }
+
+            /*DEBUG.write().unwrap().activate();
 
             for i in 0..g.node_count() {
-                if g.get_updegree(i)==15 && g.get_level(i)==12 {
+                if g.get_downdegree(i)==6 && g.get_level(i)==14 {
                     let wood = SchnyderMap::build_from_3tree_code(g.get_code(i)).unwrap();
                     //if wood.is_outer_triangular() {
                         DEBUG.write().unwrap().output("std", &wood, Some(&format!("|E|={}, deg = {}", wood.map.edge_count(), g.get_degree(i))), &wood.calculate_face_counts().unwrap());
                     //}
                 }
-            }
-
+            }*/
         },
         Some(("test", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
@@ -124,16 +137,16 @@ fn main() {
                 let mut wood = wood1.clone();
 
                 DEBUG.write().unwrap().activate();
-                DEBUG.write().unwrap().output("std", &wood1, Some("From"), &wood1.calculate_face_counts().unwrap());
-                DEBUG.write().unwrap().output("std", &wood2, Some("To"), &wood2.calculate_face_counts().unwrap());
+                DEBUG.write().unwrap().output("std", &wood1, Some("From"), &wood1.calculate_face_counts());
+                DEBUG.write().unwrap().output("std", &wood2, Some("To"), &wood2.calculate_face_counts());
 
                 let seq1 = find_sequence(&mut wood1, &mut wood2).unwrap();
                 let _seq2 = find_sequence_2(&mut wood1, &mut wood2, Red);
 
-                DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
+                DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts());
                 for op in &seq1 {
                     wood.do_operation(op).unwrap();//TODO
-                    DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts().unwrap());
+                    DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts());
                 }
             }
         }
@@ -159,7 +172,7 @@ fn test() {
 
     let wood = SchnyderMap::build_from_3tree_code(&code).unwrap();
     DEBUG.write().unwrap().activate();
-    DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts().unwrap());
+    DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 }
 
 #[allow(dead_code)]
@@ -182,17 +195,7 @@ fn main8() {
 
 fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, output_file: &Path) {
     let g = build_flipgraph(n, symmetry_breaking, thread_count);
-
-    let levels = g.get_levels();
-
-    print_header();
-    print_statistics("ALL", (0..g.node_count()).collect_vec(), &g);
-    for (level, indices) in levels.into_iter().sorted_by_key(|&(level, _)| -(level as isize)) {
-        print_statistics(&format!("Level {}", level), indices, &g);
-    }
-
-    eprintln!("NODES = {:?}", g.node_count());
-    eprintln!("EDGES = {:?}", g.edge_count());
+    print_flipgraph(&g);
 
     /*println!("{}", "Writing edge list...");
     {
@@ -225,6 +228,29 @@ fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, out
     }*/
 }
 
+fn print_flipgraph(g: &Flipgraph) {
+    let levels = g.get_levels();
+
+    println!();
+    println!("Flipgraph Statistics (n = {})", g.get_n());
+    println!("|V| = {}", g.node_count());
+    println!("|E| = {}", g.edge_count());
+    println!();
+
+    print_header();
+    print_statistics("*", (0..g.node_count()).collect_vec(), &g);
+    for (level, indices) in levels.into_iter().sorted_by_key(|&(level, _)| -(level as isize)) {
+        print_statistics(&format!("{}", level), indices, &g);
+    }
+    println!();
+
+}
+
+
+fn print_header() {
+    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "#Minima");
+}
+
 fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
 
     let degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).count()).collect_vec();
@@ -243,25 +269,4 @@ fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
     let avg_degree = degrees.iter().sum::<usize>() as f64 / degrees.len() as f64;
 
     println!("{:<10} {:>10} {:>10} {:>10.2} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", name, nodes.len(), min_degree, avg_degree, max_degree, min_up_degree, max_up_degree, min_down_degree, max_down_degree, minimums.len());
-}
-
-fn print_header() {
-    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "Cardinality", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "#Minima");
-}
-
-#[allow(dead_code)]
-fn explore_repl() {
-    let mut rl = Editor::<()>::new();
-
-    loop {
-        let line = rl.readline("> ");
-
-        match line {
-            Ok(l) => {
-                rl.add_history_entry(l);
-            }
-            _ => ()
-        }
-
-    }
 }

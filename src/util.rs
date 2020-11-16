@@ -181,12 +181,12 @@ pub mod debug {
             return result;
         }
 
-        pub fn output(&mut self, context: &str, wood: &SchnyderMap, title: Option<&str>, face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
+        pub fn output(&mut self, context: &str, wood: &SchnyderMap, title: Option<&str>, _face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
             if !self.active {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, false, face_counts);
+            let tikz_string = wood.generate_tikz(title, false);
             if !self.counters.contains_key(context) {
                 self.counters.insert(context.to_string(), 0);
             }

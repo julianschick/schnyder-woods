@@ -57,7 +57,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         }
     }
 
-    pub fn reindex(&mut self, old_index: &N, new_index: &N) -> bool {
+    /*fn reindex(&mut self, old_index: &N, new_index: &N) -> bool {
         if !self.is_available(new_index) {
             return false;
         }
@@ -77,7 +77,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap<N, V> {
         } else {
             false
         }
-    }
+    }*/
 
     pub fn free_index(&mut self, index: &N) -> Option<V> {
         if self.least_free_index > (*index).into()  {

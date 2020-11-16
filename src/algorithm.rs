@@ -219,7 +219,7 @@ fn lift_sequence(seq: &Vec<Operation>, ctr: &Contraction, wood: &mut SchnyderMap
             //println!("\tsector_faces = {:?}", sector_faces);
         //}
 
-        DEBUG.write().unwrap().output(&format!("level{}", lvl), &wood, Some(&format!("Step")), &wood.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", lvl), &wood, Some(&format!("Step")), &wood.calculate_face_counts());
     }
 
     //rewind
@@ -266,14 +266,14 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
 
         println!("best_color = {:?}; depth = {}", best_color, depth);
 
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1"), &wood1.calculate_face_counts().unwrap());
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2"), &wood2.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2"), &wood2.calculate_face_counts());
 
         let (contraction1, prep_seq1) = prepare_wood(wood1, &candidates1, *best_color).unwrap();
         let (contraction2, prep_seq2) =  prepare_wood(wood2, &candidates2, *best_color).unwrap();
 
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, contracted)"), &wood1.calculate_face_counts().unwrap());
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, contracted)"), &wood2.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, contracted)"), &wood1.calculate_face_counts());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, contracted)"), &wood2.calculate_face_counts());
 
         let (vertex_map, mut lifted_seq) = {
             let (mut vertex_map, mut seq) = find_sequence_(wood1, wood2, depth + 1)?;
@@ -310,21 +310,21 @@ fn find_sequence_(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, depth: usize
         };
 
         wood1.revert_schnyder_contraction(&contraction1)?;
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, uncontracted)"), &wood1.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (prepared, uncontracted)"), &wood1.calculate_face_counts());
         for op in prep_seq1.iter().rev() {
             wood1.do_operation(&op.inverted())?;
         }
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (re-unprepared, uncontracted)"), &wood1.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood1, Some("Wood1 (re-unprepared, uncontracted)"), &wood1.calculate_face_counts());
 
         wood2.revert_schnyder_contraction(&contraction2)?;
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, uncontracted)"), &wood2.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (prepared, uncontracted)"), &wood2.calculate_face_counts());
         let mut i = 1;
         for op in prep_seq2.iter().rev() {
             wood2.do_operation(&op.inverted())?;
-            DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some(&format!("Wood2 unprepare Step {}", i)), &wood2.calculate_face_counts().unwrap());
+            DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some(&format!("Wood2 unprepare Step {}", i)), &wood2.calculate_face_counts());
             i += 1;
         }
-        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (re-unprepared, uncontracted)"), &wood2.calculate_face_counts().unwrap());
+        DEBUG.write().unwrap().output(&format!("level{}", depth), &wood2, Some("Wood2 (re-unprepared, uncontracted)"), &wood2.calculate_face_counts());
 
         // final assembly of sequence
         lifted_seq.splice(0..0, prep_seq1);
@@ -360,8 +360,8 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
     let seq1 = to_apollonian_path(wood1, color).unwrap();
     let seq2 = to_apollonian_path(wood2, color).unwrap();
 
-    DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts().unwrap());
-    DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts().unwrap());
+    DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts());
+    DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts());
 
     let vertex_map = wood1.get_vertex_map(wood2).expect("TODO");
 
