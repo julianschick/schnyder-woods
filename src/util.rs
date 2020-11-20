@@ -186,7 +186,7 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, false);
+            let tikz_string = wood.generate_tikz(title, true, true, false, None);
             if !self.counters.contains_key(context) {
                 self.counters.insert(context.to_string(), 0);
             }

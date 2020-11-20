@@ -25,6 +25,10 @@ impl GraphErr {
     pub fn new_err<T>(problem: &str) -> Result<T, Self> {
         return Err(GraphErr::new(problem));
     }
+
+    pub fn get_message(&self) -> &str {
+        return &self.problem
+    }
 }
 
 impl Debug for GraphErr {

@@ -11,6 +11,7 @@ use crate::util::debug::Debug;
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 use crate::algorithm::{find_sequence_2, find_sequence};
 use crate::repl::Repl;
+use std::io::Read;
 
 #[macro_use]
 extern crate lazy_static;
@@ -43,8 +44,13 @@ fn main() {
                 .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
         )
         .subcommand(
-    App::new("explore")
+            App::new("explore")
                 .arg("<GRAPH> 'Flipgraph file'")
+        ).subcommand(
+            App::new("tikz")
+                .arg("<3CODE> 'ASCII-3-code file'")
+                .arg("<OUTPUT> 'Output file containing the tikz commands'")
+                .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to'")
         )
         .subcommand(
             App::new("test")
@@ -123,6 +129,13 @@ fn main() {
                 }
             }*/
         },
+        Some(("tikz", matches)) => {
+            let input_file = matches.value_of("3CODE").unwrap();
+            let output_file = matches.value_of("OUTPUT").unwrap();
+            let anchor = matches.value_of("anchor");
+
+            convert_to_tikz(input_file, output_file, anchor);
+        }
         Some(("test", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
@@ -191,6 +204,54 @@ fn main8() {
 
     eprintln!("NODES = {:?}", g.node_count());
     eprintln!("EDGES = {:?}", g.edge_count());
+}
+
+fn convert_to_tikz(input_filename: &str, output_filename: &str, anchor: Option<&str>) {
+
+    let mut code = Vec::new();
+
+    if let Ok(mut input_file) = File::open(input_filename) {
+        let mut str = String::new();
+        if let Ok(_) = input_file.read_to_string(&mut str) {
+
+            let mut comment = false;
+            for c in str.chars() {
+                if !comment {
+                    if let Some(digit) = c.to_digit(10) {
+                        code.push(digit as u8);
+                    }
+                }
+                if c == '\n' {
+                    comment = false;
+                }
+                if c == '#' {
+                    comment = true;
+                }
+            }
+
+        } else {
+            println!("Input file '{}' could not be read as text file.", input_filename);
+        }
+    } else {
+        println!("Input file '{}' could not be opened for reading.", input_filename);
+        return;
+    }
+
+    println!("{:?}", code);
+
+    match SchnyderMap::build_from_3tree_code(&code) {
+        Ok(wood) => {
+            if let Ok(mut output_file) = File::create(output_filename) {
+                if let Err(e) = wood.write_tikz(&mut output_file, None, false, true, anchor) {
+                    println!("Output file could not be written: {}", e);
+                }
+            } else {
+                println!("Output file '{}' could not be created or opened for writing.", output_filename);
+            }
+        }
+        Err(e) => println!("Input could not be interpreted: {}", e.get_message())
+    }
+
 }
 
 fn main7(n: usize, thread_count: usize, symmetry_breaking: SymmetryBreaking, output_file: &Path) {

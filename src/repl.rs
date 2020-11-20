@@ -174,8 +174,10 @@ impl Repl {
                 );
                 match File::create(path.join(&format!("{}.tex", v))) {
                     Ok(mut file) => {
-                        wood.write_tikz(&mut file, Some(title));
-                        printed += 1;
+                        match wood.write_tikz(&mut file, Some(title), true, true, None) {
+                            Ok(_) => printed += 1,
+                            Err(e) => println!("Error writing file: {}", e)
+                        }
                     }
                     Err(e) => {
                         println!("File could not be opened for writing: {}", e);
