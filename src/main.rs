@@ -3,7 +3,7 @@ use std::sync::RwLock;
 use std::path::Path;
 
 use itertools::Itertools;
-use clap::App;
+use clap::{App, ArgMatches};
 
 use crate::schnyder::SchnyderColor::{Red};
 use crate::schnyder::{SchnyderMap};
@@ -12,6 +12,8 @@ use crate::flipgraph::{build_flipgraph, SymmetryBreaking, Flipgraph};
 use crate::algorithm::{find_sequence_2, find_sequence};
 use crate::repl::Repl;
 use std::io::Read;
+use crate::schnyder::io::TikzOptions;
+use std::convert::TryFrom;
 
 #[macro_use]
 extern crate lazy_static;
@@ -49,8 +51,12 @@ fn main() {
         ).subcommand(
             App::new("tikz")
                 .arg("<3CODE> 'ASCII-3-code file'")
-                .arg("<OUTPUT> 'Output file containing the tikz commands'")
+                .arg("-o, --output [OUTPUT] 'Output file to be written, otherwise output goes to STDOUT'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to'")
+                .arg("-d, --doc 'Print standalone document'")
+                .arg("-e, --env 'Print tizpicture environment'")
+                .arg("-s, --styles 'Print style definitions'")
+                .arg("-i, --slanted 'Print Schnyder wood slanted, such that the top suspension node is centered'")
         )
         .subcommand(
             App::new("test")
@@ -130,11 +136,7 @@ fn main() {
             }*/
         },
         Some(("tikz", matches)) => {
-            let input_file = matches.value_of("3CODE").unwrap();
-            let output_file = matches.value_of("OUTPUT").unwrap();
-            let anchor = matches.value_of("anchor");
-
-            convert_to_tikz(input_file, output_file, anchor);
+            convert_to_tikz(matches);
         }
         Some(("test", matches)) => {
             let flipgraph_file = matches.value_of("GRAPH").unwrap();
@@ -206,8 +208,9 @@ fn main8() {
     eprintln!("EDGES = {:?}", g.edge_count());
 }
 
-fn convert_to_tikz(input_filename: &str, output_filename: &str, anchor: Option<&str>) {
+fn convert_to_tikz(matches: &ArgMatches) {
 
+    let input_filename = matches.value_of("3CODE").unwrap();
     let mut code = Vec::new();
 
     if let Ok(mut input_file) = File::open(input_filename) {
@@ -215,10 +218,21 @@ fn convert_to_tikz(input_filename: &str, output_filename: &str, anchor: Option<&
         if let Ok(_) = input_file.read_to_string(&mut str) {
 
             let mut comment = false;
+            let mut buf = String::new();
             for c in str.chars() {
                 if !comment {
-                    if let Some(digit) = c.to_digit(10) {
-                        code.push(digit as u8);
+                    if c.is_numeric() {
+                        buf.push(c);
+                    } else {
+                        if !buf.is_empty() {
+                            if let Ok(nr) = u8::try_from(buf.parse::<usize>().unwrap()) {
+                                code.push(nr);
+                                buf.clear();
+                            } else {
+                                println!("Input file contained numbers above 255, this cannot be a valid 3tree code.");
+                                return;
+                            }
+                        }
                     }
                 }
                 if c == '\n' {
@@ -239,14 +253,27 @@ fn convert_to_tikz(input_filename: &str, output_filename: &str, anchor: Option<&
 
     println!("{:?}", code);
 
+    let mut opts = TikzOptions::default();
+    opts.anchor = matches.value_of("anchor");
+    opts.print_document = matches.is_present("doc");
+    opts.print_environment = matches.is_present("env");
+    opts.print_styles = matches.is_present("styles");
+    opts.slanted = matches.is_present("slanted");
+
     match SchnyderMap::build_from_3tree_code(&code) {
         Ok(wood) => {
-            if let Ok(mut output_file) = File::create(output_filename) {
-                if let Err(e) = wood.write_tikz(&mut output_file, None, false, true, anchor) {
-                    println!("Output file could not be written: {}", e);
+            if let Some(output_filename) = matches.value_of("OUTPUT") {
+                if let Ok(mut output_file) = File::create(output_filename) {
+                    if let Err(e) = wood.write_tikz(&mut output_file, &opts) {
+                        println!("Output file could not be written: {}", e);
+                    }
+                } else {
+                    println!("Output file '{}' could not be created or opened for writing.", output_filename);
                 }
             } else {
-                println!("Output file '{}' could not be created or opened for writing.", output_filename);
+                if let Err(e) = wood.write_tikz(&mut std::io::stdout(), &opts) {
+                    println!("Output could not be written to STDOUT: {}", e);
+                }
             }
         }
         Err(e) => println!("Input could not be interpreted: {}", e.get_message())

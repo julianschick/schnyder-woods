@@ -6,6 +6,7 @@ use regex::Regex;
 use crate::print_flipgraph;
 use crate::schnyder::SchnyderMap;
 use std::path::Path;
+use crate::schnyder::io::TikzOptions;
 
 pub struct Repl {
     g: Flipgraph
@@ -174,7 +175,10 @@ impl Repl {
                 );
                 match File::create(path.join(&format!("{}.tex", v))) {
                     Ok(mut file) => {
-                        match wood.write_tikz(&mut file, Some(title), true, true, None) {
+                        let mut opts = TikzOptions::default();
+                        opts.title = Some(title);
+
+                        match wood.write_tikz(&mut file, &opts) {
                             Ok(_) => printed += 1,
                             Err(e) => println!("Error writing file: {}", e)
                         }

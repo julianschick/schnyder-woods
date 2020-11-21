@@ -127,6 +127,7 @@ pub mod debug {
     use std::collections::HashMap;
     use crate::graph::indices::VertexI;
     use std::io::Write;
+    use crate::schnyder::io::TikzOptions;
 
     pub struct Debug {
         base_dir: &'static str,
@@ -186,7 +187,10 @@ pub mod debug {
                 return;
             }
 
-            let tikz_string = wood.generate_tikz(title, true, true, false, None);
+            let mut opts = TikzOptions::default();
+            opts.title = title;
+
+            let tikz_string = wood.generate_tikz(&opts);
             if !self.counters.contains_key(context) {
                 self.counters.insert(context.to_string(), 0);
             }

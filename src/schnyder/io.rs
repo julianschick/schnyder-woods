@@ -2,6 +2,39 @@ use crate::schnyder::{SchnyderMap, SchnyderColor, SchnyderVertexType};
 use crate::schnyder::SchnyderEdgeDirection::{Unicolored, Bicolored};
 use crate::graph::enums::Signum;
 use std::io::Write;
+use std::collections::HashMap;
+use crate::graph::indices::VertexI;
+
+pub struct TikzOptions<'a> {
+    pub print_document: bool,
+    pub print_environment: bool,
+    pub print_styles: bool,
+    //
+    pub print_face_labels: bool,
+    //
+    pub anchor: Option<&'a str>,
+    pub title: Option<&'a str>,
+    //
+    pub face_count: Option<&'a HashMap<VertexI, (usize, usize, usize)>>,
+    pub drop_coord: SchnyderColor,
+    pub slanted: bool
+}
+
+impl<'a> Default for TikzOptions<'a> {
+    fn default() -> Self {
+        TikzOptions {
+            print_document: true,
+            print_environment: true,
+            print_styles: true,
+            print_face_labels: false,
+            anchor: None,
+            title: None,
+            face_count: None,
+            drop_coord: SchnyderColor::Blue,
+            slanted: false
+        }
+    }
+}
 
 fn color_to_tikz(color: &SchnyderColor) -> &str {
     match color {
@@ -13,42 +46,60 @@ fn color_to_tikz(color: &SchnyderColor) -> &str {
 
 impl SchnyderMap {
 
-    pub fn write_tikz(&self, writer: &mut dyn Write, title: Option<&str>, print_env: bool, print_styles: bool, anchor: Option<&str>) -> std::io::Result<()> {
-        let tikz_str = self.generate_tikz(title, print_env, print_styles, false, anchor);
+    pub fn write_tikz(&self, writer: &mut dyn Write, options: &TikzOptions) -> std::io::Result<()> {
+        let tikz_str = self.generate_tikz(options);
         writer.write_all(tikz_str.as_bytes())
     }
 
-    pub fn generate_tikz(&self, title: Option<&str>, print_env: bool, print_styles: bool, print_face_labels: bool, anchor: Option<&str>) -> String {
+    pub fn generate_tikz(&self, options: &TikzOptions) -> String {
 
-        let face_counts = self.calculate_face_counts();
+        let local_fc = match options.face_count {
+            Some(_) => HashMap::new(),
+            None => self.calculate_face_counts()
+        };
 
-        let preamble = "\\documentclass[crop,tikz,border=10pt]{standalone}\n\\begin{document}\n\\usetikzlibrary{calc}\n\\begin{tikzpicture}[x=10mm, y=10mm]\n";
-        let tail = "\\end{tikzpicture}\n\\end{document}\n";
+        let face_counts = match options.face_count {
+            Some(x) => x,
+            None => &local_fc
+        };
 
         let mut mid = String::new();
+        let indent_counter = if options.print_document { 1 } else { 0 } +
+            if options.print_environment { 1 } else { 0 };
+        let ind = "\t".repeat(indent_counter);
 
-        if print_styles {
-            mid.push_str("\\tikzset {\n");
-            mid.push_str("\tsws_edges_tail/.style = {},\n");
-            mid.push_str("\tsws_edges_head/.style = {-latex},\n");
-            mid.push_str("\tsws_bi_edges/.style = {-latex},\n");
-            mid.push_str("\tsws_red/.style = {color=red},\n");
-            mid.push_str("\tsws_green/.style = {color=green!80!black},\n");
-            mid.push_str("\tsws_blue/.style = {color=blue},\n");
-            mid.push_str("\tsws_red_suspension_vertex/.style = {circle, fill=black, scale=0.2},\n");
-            mid.push_str("\tsws_green_suspension_vertex/.style = {circle, fill=black, scale=0.2},\n");
-            mid.push_str("\tsws_blue_suspension_vertex/.style = {circle, fill=black, scale=0.2},\n");
-            mid.push_str("\tsws_normal_vertex/.style = {circle, fill=black, scale=0.2},\n");
-            mid.push_str("}\n");
+        if options.print_styles {
+            mid.push_str(&format!("{}\\tikzset {{\n", ind));
+            mid.push_str(&format!("{}\tsws_edges_tail/.style = {{}},\n", ind));
+            mid.push_str(&format!("{}\tsws_edges_head/.style = {{-latex}},\n", ind));
+            mid.push_str(&format!("{}\tsws_bi_edges/.style = {{-latex}},\n", ind));
+            mid.push_str(&format!("{}\tsws_red/.style = {{color=red}},\n", ind));
+            mid.push_str(&format!("{}\tsws_green/.style = {{color=green!80!black}},\n", ind));
+            mid.push_str(&format!("{}\tsws_blue/.style = {{color=blue}},\n", ind));
+            mid.push_str(&format!("{}\tsws_red_suspension_vertex/.style = {{circle, fill=black, scale=0.2}},\n", ind));
+            mid.push_str(&format!("{}\tsws_green_suspension_vertex/.style = {{circle, fill=black, scale=0.2}},\n", ind));
+            mid.push_str(&format!("{}\tsws_blue_suspension_vertex/.style = {{circle, fill=black, scale=0.2}},\n", ind));
+            mid.push_str(&format!("{}\tsws_normal_vertex/.style = {{circle, fill=black, scale=0.2}},\n", ind));
+            mid.push_str(&format!("{}}}\n", ind));
         }
 
         let max_red = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().0).max().unwrap();
         let max_green = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().1).max().unwrap();
         let shear = max_red as f32 / (max_green as f32 * 2f32);
 
-        for v in self.map.vertices() {
-            let (r, g, _) = face_counts.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
+        let positions: HashMap<_,_> = face_counts.iter().map(|(v, (r,g,b))| {
+            (v, match options.drop_coord {
+                SchnyderColor::Red => (b, g),
+                SchnyderColor::Green => (b, r),
+                SchnyderColor::Blue => (g, r)
+            })
+        }).collect();
 
+        let max_x = self.map.vertex_indices().map(|v| positions.get(v).unwrap().0).max().unwrap();
+        let max_y = self.map.vertex_indices().map(|v| positions.get(v).unwrap().1).max().unwrap();
+        let shear = *max_y as f32 / (*max_x as f32 * 2f32);
+
+        for v in self.map.vertices() {
             let style = match v.weight {
                 SchnyderVertexType::Normal(_) => "sws_normal_vertex",
                 SchnyderVertexType::Suspension(SchnyderColor::Red) => "sws_red_suspension_vertex",
@@ -56,26 +107,31 @@ impl SchnyderMap {
                 SchnyderVertexType::Suspension(SchnyderColor::Blue) => "sws_blue_suspension_vertex"
             };
 
-            let (x, y) = (*g as f32 + shear * *r as f32, *r as f32 * 0.86602540378);
+            let (x,y) = positions.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
 
-            let coord = if let Some(anchor) = anchor {
+            let (x, y) = match options.slanted {
+                true => (**x as f32 + shear * **y as f32, **y as f32 * 0.86602540378),
+                false => (**x as f32, **y as f32)
+            };
+
+            let coord = if let Some(anchor) = &options.anchor {
                 format!("($({}) + ({},{})$)", anchor, x, y)
             } else {
                 format!("({},{})", x, y)
             };
-            mid.extend(format!("\\node[{}] ({}) at {} {{}};\n", style, v.id.0, coord).chars());
+            mid.extend(format!("{}\\node[{}] ({}) at {} {{}};\n", ind, style, v.id.0, coord).chars());
         }
 
-        mid.extend("\n".chars());
+        mid.extend(format!("{}\n", ind).chars());
 
         // midpoint coordinates
         for edge in self.map.edges() {
             let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
-            let coord = format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\n", mid_point, edge.tail.0, edge.head.0);
+            let coord = format!("{}\\coordinate ({}) at ($({})!0.5!({})$) {{}};\n", ind, mid_point, edge.tail.0, edge.head.0);
             mid.extend(coord.chars());
         }
 
-        // edge heads
+        // edge heads (heads before tails in order to have a nice z-order next to the vertices)
         for edge in self.map.edges() {
             if let Unicolored(color, signum) = edge.weight {
                 let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
@@ -84,8 +140,8 @@ impl SchnyderMap {
                     Signum::Backward => edge.tail.0
                 };
 
-                mid.extend(format!("\\draw[sws_edges_head, {}] ({}) -- ({});\n",
-                        color_to_tikz(&color), mid_point, end).chars());
+                mid.extend(format!("{}\\draw[sws_edges_head, {}] ({}) -- ({});\n",
+                        ind, color_to_tikz(&color), mid_point, end).chars());
             }
         }
 
@@ -98,8 +154,8 @@ impl SchnyderMap {
                     Signum::Backward => edge.head.0
                 };
 
-                mid.extend(format!("\\draw[sws_edges_tail, {}] ({}) -- ({});\n",
-                                   color_to_tikz(&color), start, mid_point).chars());
+                mid.extend(format!("{}\\draw[sws_edges_tail, {}] ({}) -- ({});\n",
+                                   ind, color_to_tikz(&color), start, mid_point).chars());
             }
         }
 
@@ -108,26 +164,46 @@ impl SchnyderMap {
 
             if let  Bicolored(fwd_c, bwd_c) = edge.weight {
                 let mid_point = format!("{}_{}", edge.tail.0, edge.head.0);
-                let coord = format!("\\coordinate ({}) at ($({})!0.5!({})$) {{}};\n", mid_point, edge.tail.0, edge.head.0);
 
-                let str = if print_face_labels {
-                    format!("{}\\draw[sws_bi_edges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\n\\draw[sws_bi_edges, {}] ({}) -- ({});\n",
-                            coord, color_to_tikz(&fwd_c), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, color_to_tikz(&bwd_c), edge.head.0, mid_point)
+                let str = if options.print_face_labels {
+                    format!("{}\\draw[sws_bi_edges, {}] ({}) -- node[auto, inner sep=0pt] {{{}}} node[auto, swap, inner sep=0pt] {{{}}} ({});\n{}\\draw[sws_bi_edges, {}] ({}) -- ({});\n",
+                            ind, color_to_tikz(&fwd_c), edge.tail.0, edge.left_face.unwrap().0,  edge.right_face.unwrap().0, mid_point, ind, color_to_tikz(&bwd_c), edge.head.0, mid_point)
                 } else {
-                    format!("{}\\draw[sws_bi_edges, {}] ({}) -- ({});\n\\draw[sws_bi_edges, {}] ({}) -- ({});\n",
-                            coord, color_to_tikz(&fwd_c), edge.tail.0, mid_point, color_to_tikz(&bwd_c), edge.head.0, mid_point)
+                    format!("{}\\draw[sws_bi_edges, {}] ({}) -- ({});\n{}\\draw[sws_bi_edges, {}] ({}) -- ({});\n",
+                            ind, color_to_tikz(&fwd_c), edge.tail.0, mid_point, ind, color_to_tikz(&bwd_c), edge.head.0, mid_point)
                 };
 
                 mid.extend(str.chars());
             }
         }
 
-        if let Some(title) = title {
-            mid.extend(format!("\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};\n", title).chars());
+        if let Some(title) = options.title {
+            mid.extend(format!("{}\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};\n", ind, title).chars());
         }
 
-        if print_env {
-            format!("{}\n{}\n{}", preamble, mid, tail)
+        let preamble = {
+            if options.print_document {
+"\\documentclass[crop,tikz,border=10pt]{standalone}
+\\begin{document}
+\t\\usetikzlibrary{calc}
+\t\\begin{tikzpicture}[x=10mm, y=10mm]\n"
+            } else {
+                "\\begin{tikzpicture}\n"
+            }
+        };
+
+        let tail = if options.print_environment {
+            if options.print_document {
+                "\t\\end{tikzpicture}\n\\end{document}\n"
+            } else {
+                "\\end{tikzpicture}\n"
+            }
+        } else {
+            ""
+        };
+
+        if options.print_environment {
+            format!("{}{}{}", preamble, mid, tail)
         } else {
             mid
         }
