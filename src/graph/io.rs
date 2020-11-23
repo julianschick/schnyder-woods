@@ -94,7 +94,7 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
             }
 
             // transfer neighbor order from adjacency list into graph struct
-            for vid in result.vertices.get_map().keys().cloned().collect_vec() {
+            for vid in result.vertices.get_keys().cloned().collect_vec() {
                 let v = result.vertex_mut(vid);
                 v.neighbors.sort_by_key(|nb| nb.index);
 

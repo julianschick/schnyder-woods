@@ -16,6 +16,7 @@ use self::error::{IndexAccessError, NoSuchEdgeError};
 use data_holders::{Vertex, Edge, Face, NbVertex};
 use error::GraphErr;
 use crate::graph::error::GraphResult;
+use crate::graph::guarded_map2::GuardedMap2;
 
 #[macro_export]
 macro_rules! invalid_graph {
@@ -35,7 +36,8 @@ macro_rules! not_embedded {
 pub mod indices;
 pub mod io;
 pub mod error;
-pub mod guarded_map;
+mod guarded_map;
+mod guarded_map2;
 pub mod enums;
 pub mod data_holders;
 
@@ -49,9 +51,9 @@ pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
 }
 
 pub struct PlanarMap<N, E, F: Clone> {
-    vertices: GuardedMap<VertexI, Vertex<N>>,
-    edges: GuardedMap<EdgeI, Edge<E>>,
-    faces: GuardedMap<FaceI, Face<F>>,
+    vertices: GuardedMap2<VertexI, Vertex<N>>,
+    edges: GuardedMap2<EdgeI, Edge<E>>,
+    faces: GuardedMap2<FaceI, Face<F>>,
     //
     embedded: bool,
     enforce_simple: bool
@@ -61,9 +63,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
-            vertices: GuardedMap::new(),
-            edges: GuardedMap::new(),
-            faces: GuardedMap::new(),
+            vertices: GuardedMap2::new(),
+            edges: GuardedMap2::new(),
+            faces: GuardedMap2::new(),
             //
             embedded: false,
             enforce_simple: true
@@ -138,7 +140,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn faces(&self) -> impl Iterator<Item = &Face<F>> {
-        self.faces.get_map().values()
+        self.faces.get_values()
     }
 
     pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> FaceI {
@@ -175,13 +177,13 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn is_empty(&self) -> bool { self.vertices.get_map().is_empty() }
+    pub fn is_empty(&self) -> bool { self.vertices.is_empty() }
 
-    pub fn is_singleton(&self) -> bool { self.vertices.get_map().len() == 1 }
+    pub fn is_singleton(&self) -> bool { self.vertices.len() == 1 }
 
     pub fn is_simple(&self) -> bool {
-        let loops = self.edges.get_map().values().any(|e| e.is_loop());
-        let double_edges = self.edges.get_map().values().unique().count() < self.edges.get_map().len();
+        let loops = self.edges.get_values().any(|e| e.is_loop());
+        let double_edges = self.edges.get_values().unique().count() < self.edges.len();
 
         !loops && !double_edges
     }
@@ -189,14 +191,14 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn is_embedded(&self) -> bool { self.embedded }
 
     pub fn edges(&self) -> impl Iterator<Item=&Edge<E>> {
-        self.edges.get_map().values()
+        self.edges.get_values()
     }
 
     pub fn edge_indices(&self) -> impl Iterator<Item=&EdgeI> {
-        self.edges.get_map().keys()
+        self.edges.get_keys()
     }
 
-    pub fn edge_count(&self) -> usize { self.edges.get_map().len() }
+    pub fn edge_count(&self) -> usize { self.edges.len() }
 
     pub fn edge_contains(&self, eid: &EdgeI, vid: &VertexI) -> bool {
         let e = self.edge(*eid);
@@ -212,14 +214,14 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn vertex_count(&self) -> usize { self.vertices.get_map().len() }
+    pub fn vertex_count(&self) -> usize { self.vertices.len() }
 
     pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
-        self.vertices.get_map().keys()
+        self.vertices.get_keys()
     }
 
     pub fn vertices(&self) -> impl Iterator<Item = &Vertex<N>> {
-        self.vertices.get_map().values()
+        self.vertices.get_values()
     }
 
     pub fn vertex_cycle(&self, vid: VertexI, other: VertexI, wrap: bool, direction: ClockDirection) -> impl Iterator<Item=&NbVertex> {
@@ -238,7 +240,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("not embedded");
         }
 
-        self.faces.get_map().len()
+        self.faces.len()
     }
 
     pub fn sector_between(&self, center: VertexI, from: VertexI, to: VertexI, direction: ClockDirection) -> GraphResult<Vec<(EdgeI, VertexI)>> {
@@ -247,8 +249,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             .collect_vec())
     }
 
-    pub fn edge_endvertex(&self, edge: &EdgeI, end: EdgeEnd) -> Option<VertexI> {
-        let e = self.edges.get_map().get(&edge);
+    pub fn edge_endvertex(&self, edge: EdgeI, end: EdgeEnd) -> Option<VertexI> {
+        let e = self.try_edge(edge).ok();
         match end {
             Tail => e.map(|e| e.tail),
             Head => e.map(|e| e.head)
@@ -289,7 +291,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn is_triangulation(&self) -> bool {
-        self.faces.get_map().values().all(|f| f.angles.len() == 3)
+        self.faces.get_values().all(|f| f.angles.len() == 3)
     }
 
     pub fn connected_component(&self, vertex: VertexI, forbidden_edges: &HashSet<EdgeI>) -> GraphResult<Vec<VertexI>> {
@@ -318,7 +320,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let mut dist = HashMap::new();
         let mut pred = HashMap::new();
         let mut visited = HashSet::new();
-        let mut unvisited : HashSet<_> = self.vertices.get_map().values().map(|v| v.id).collect();
+        let mut unvisited : HashSet<_> = self.vertices.get_values().map(|v| v.id).collect();
 
         dist.insert(*from, 0);
         for forbidden in forbidden_vertices {
@@ -904,7 +906,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let mut edge_count = 0;
         let mut half_edge_count = 0;
 
-        for v in self.vertices.get_map().values() {
+        for v in self.vertices.get_values() {
             for nb in v.neighbors.iter() {
                 half_edge_count += 1;
                 let e = self.edge(nb.edge);
@@ -918,7 +920,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-        for e in self.edges.get_map().values() {
+        for e in self.edges.get_values() {
             edge_count += 1;
             self.vertex(e.tail);
             self.vertex(e.head);
@@ -931,7 +933,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         if self.embedded {
 
-            for e in self.edges.get_map().values() {
+            for e in self.edges.get_values() {
                 if let Some(f) = e.left_face {
                     self.face(f);
                 } else {
@@ -944,7 +946,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 }
             }
 
-            for f in self.faces.get_map().values() {
+            for f in self.faces.get_values() {
                 for &vid in f.angles.iter() {
                     self.vertex(vid);
 
@@ -971,7 +973,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("embedding already done");
         }
 
-        for eid in self.edges.get_map().keys().cloned().collect_vec() {
+        for eid in self.edges.get_keys().cloned().collect_vec() {
             if self.edge(eid).left_face.is_none() {
                 self.build_face_cycle(eid, Forward, f_weights);
             }
@@ -1045,8 +1047,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             self.try_vertex(*v)?;
         }
 
-        let n = self.vertices.get_map().len() as isize;
-        let m = self.edges.get_map().len() as isize;
+        let n = self.vertices.len() as isize;
+        let m = self.edges.len() as isize;
         let f = faces.len() as isize;
 
         if n - m + f != 2 {
@@ -1081,15 +1083,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         // check if each edge occurs exactly twice, one time as (a,b), one time as (b,a)
-        if fwd_occurence.len() < self.edges.get_map().len() {
+        if fwd_occurence.len() < self.edges.len() {
             return GraphErr::new_err("Not every edge occurs twice in the face cycles");
         }
-        if backwd_occurence.len() < self.edges.get_map().len() {
+        if backwd_occurence.len() < self.edges.len() {
             return GraphErr::new_err("Not every edge occurs twice in the face cycles");
         }
 
         // check if all vertices have a well-defined total order on their neighbors now
-        for i in self.vertices.get_map().keys().copied().collect_vec() {
+        for i in self.vertices.get_keys().cloned().collect_vec() {
             let v = self.vertex_mut(i);
             let vertex_angles = angles.get(&v.id).unwrap();
 
@@ -1185,12 +1187,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let mut primal_face_to_dual_vertex = HashMap::new();
         let mut primal_edge_to_dual_edge = HashMap::new();
 
-        for f in self.faces.get_map().values() {
+        for f in self.faces.get_values() {
             let dual_vid = dual_map.add_vertex(f.id);
             primal_face_to_dual_vertex.insert(f.id, dual_vid);
         }
 
-        for (vid, fid) in dual_map.vertices.get_map().values().map(|v| (v.id, v.weight)).collect_vec() {
+        for (vid, fid) in dual_map.vertices.get_values().map(|v| (v.id, v.weight)).collect_vec() {
             let f = self.face(fid);
             for (&v1, &v2) in f.angles.cycle(0, true).tuple_windows() {
                 let e = self.edge(self.get_edge(v1, v2).unwrap());
@@ -1205,7 +1207,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         if embedded {
             let mut face_cycles = vec![];
 
-            for v in self.vertices.get_map().values() {
+            for v in self.vertices.get_values() {
                 let cycle = v.neighbors.iter().map(|nb| {
                     let f = match nb.end {
                         Tail => self.edge(nb.edge).left_face.unwrap(),
@@ -1218,7 +1220,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
 
             dual_map.set_embedding_by_face_cycles(face_cycles).expect("TODO");
-            for dual_face in dual_map.faces.get_map().values() {
+            for dual_face in dual_map.faces.get_values() {
                 primal_vertex_to_dual_face.insert(dual_face.weight, dual_face.id);
             }
         }
@@ -1407,14 +1409,14 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
 impl<N, E, F: Clone> Debug for PlanarMap<N, E, F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for v in self.vertices.get_map().values().sorted_by_key(|v| v.id.0) {
+        for v in self.vertices.get_values().sorted_by_key(|v| v.id.0) {
             writeln!(f, "{:?}", v)?;
         }
-        for e in self.edges.get_map().values().sorted_by_key(|e| e.id.0) {
+        for e in self.edges.get_values().sorted_by_key(|e| e.id.0) {
             writeln!(f, "{:?}", e)?;
         }
         if self.embedded {
-            for face in self.faces.get_map().values().sorted_by_key(|f| f.id.0) {
+            for face in self.faces.get_values().sorted_by_key(|f| f.id.0) {
                 writeln!(f, "{:?}", face)?;
             }
         }

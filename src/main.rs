@@ -39,7 +39,7 @@ fn main() {
         .about("Algorithms for manipulating Schnyder woods")
         .subcommand(
             App::new("build")
-                .arg("<N> 'Number of vertices'")
+                .arg("<N> 'Number of vertices (at least 3 and at most 64)'")
                 .arg("<OUTPUT> 'Output file'")
                 .arg("-t --threads [t] 'Number of threads to start'")
                 .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
@@ -50,11 +50,11 @@ fn main() {
                 .arg("<GRAPH> 'Flipgraph file'")
         ).subcommand(
             App::new("tikz")
-                .arg("<3CODE> 'ASCII-3-code file'")
+                .arg("<3CODE> 'ASCII 3 tree code file'")
                 .arg("-o, --output [OUTPUT] 'Output file to be written, otherwise output goes to STDOUT'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to'")
-                .arg("-d, --doc 'Print standalone document'")
                 .arg("-e, --env 'Print tizpicture environment'")
+                .arg("-d, --doc 'Print standalone document (only effective, if -e/--env is specified)'")
                 .arg("-s, --styles 'Print style definitions'")
                 .arg("-i, --slanted 'Print Schnyder wood slanted, such that the top suspension node is centered'")
         )
@@ -66,12 +66,19 @@ fn main() {
 
     match matches.subcommand() {
         Some(("build", matches))=> {
-            //DEBUG.write().unwrap().activate();
 
-            let n = str::parse::<usize>(matches.value_of("N").unwrap_or("3"))
-                .unwrap_or_else(|_| { println!("Bittaschön"); return 3 });
-            let num_threads= str::parse::<usize>(matches.value_of("threads").unwrap_or("1"))
-                .unwrap_or_else(|_| { println!("Bittaschön!"); return 1});
+            let n = match str::parse::<usize>(matches.value_of("N").unwrap()) {
+                Ok(n) if n >= 3 && n <= 64 => n,
+                Ok(_) => { println!("N should be at least 3 and at most 64"); return; }
+                _ => { println!("N should be a positive number."); return; }
+            };
+
+            let num_threads = match str::parse::<usize>(matches.value_of("threads").unwrap_or("1")) {
+                Ok(n) if n >= 1 && n <= 64 => n,
+                Ok(_) => { println!("The number of threads should be at least 1 and at most 64"); return; }
+                _ => { println!("The number of threads should be a positive number."); return; }
+            };
+
 
             let brk_orientation = matches.is_present("break-orientation-symmetry");
             let brk_color = matches.is_present("break-color-symmetry");
@@ -336,7 +343,7 @@ fn print_flipgraph(g: &Flipgraph) {
 
 
 fn print_header() {
-    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min🠕Deg", "Max🠕Deg", "Min🠗Deg", "Max🠗Deg", "#Minima");
+    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min↑Deg", "Max↑Deg", "Min↓Deg", "Max↓Deg", "#Minima");
 }
 
 fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {

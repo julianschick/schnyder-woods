@@ -83,10 +83,6 @@ impl SchnyderMap {
             mid.push_str(&format!("{}}}\n", ind));
         }
 
-        let max_red = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().0).max().unwrap();
-        let max_green = self.map.vertex_indices().map(|v| face_counts.get(v).unwrap().1).max().unwrap();
-        let shear = max_red as f32 / (max_green as f32 * 2f32);
-
         let positions: HashMap<_,_> = face_counts.iter().map(|(v, (r,g,b))| {
             (v, match options.drop_coord {
                 SchnyderColor::Red => (b, g),
@@ -198,9 +194,7 @@ impl SchnyderMap {
             } else {
                 "\\end{tikzpicture}\n"
             }
-        } else {
-            ""
-        };
+        } else { "" };
 
         if options.print_environment {
             format!("{}{}{}", preamble, mid, tail)
