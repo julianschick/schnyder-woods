@@ -1,5 +1,5 @@
 use core::fmt;
-use super::guarded_map::Index;
+use crate::graph::index_store::Index;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct VertexI(pub usize);

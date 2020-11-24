@@ -1,12 +1,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-
-pub trait Index: From<usize> + Into<usize> + Copy + Clone + Eq + Hash { }
-
-pub trait Ideable<I> {
-    fn get_id(&self) -> I;
-    fn set_id(&mut self, id: I);
-}
+use crate::graph::index_store::{Index, Ideable};
 
 pub struct GuardedMap<N: Index, V: Ideable<N>> {
     map: HashMap<N, V>,

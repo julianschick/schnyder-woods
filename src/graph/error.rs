@@ -1,7 +1,7 @@
 use crate::graph::indices::{VertexI};
-use crate::graph::guarded_map::Index;
 use std::fmt::{Display, Formatter};
 use serde::export::fmt::Debug;
+use crate::graph::index_store::Index;
 
 pub type GraphResult<T> = Result<T, GraphErr>;
 

@@ -17,6 +17,7 @@ use data_holders::{Vertex, Edge, Face, NbVertex};
 use error::GraphErr;
 use crate::graph::error::GraphResult;
 use crate::graph::guarded_map2::GuardedMap2;
+use index_store::IndexStore;
 
 #[macro_export]
 macro_rules! invalid_graph {
@@ -36,10 +37,13 @@ macro_rules! not_embedded {
 pub mod indices;
 pub mod io;
 pub mod error;
-mod guarded_map;
-mod guarded_map2;
 pub mod enums;
 pub mod data_holders;
+
+mod guarded_map;
+mod guarded_map2;
+mod index_store;
+
 
 pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     if do_swap {
@@ -50,10 +54,10 @@ pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
     }
 }
 
-pub struct PlanarMap<N, E, F: Clone> {
-    vertices: GuardedMap2<VertexI, Vertex<N>>,
-    edges: GuardedMap2<EdgeI, Edge<E>>,
-    faces: GuardedMap2<FaceI, Face<F>>,
+pub struct PlanarMap<N: 'static, E: 'static, F: Clone + 'static> {
+    vertices: Box<dyn IndexStore<VertexI, Vertex<N>>>,
+    edges: Box<dyn IndexStore<EdgeI, Edge<E>>>,
+    faces: Box<dyn IndexStore<FaceI, Face<F>>>,
     //
     embedded: bool,
     enforce_simple: bool
@@ -63,9 +67,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
-            vertices: GuardedMap2::new(),
-            edges: GuardedMap2::new(),
-            faces: GuardedMap2::new(),
+            vertices: Box::new(GuardedMap2::new()),
+            edges: Box::new(GuardedMap2::new()),
+            faces: Box::new(GuardedMap2::new()),
             //
             embedded: false,
             enforce_simple: true
@@ -75,34 +79,43 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn clone_with_maps<Nn, Ee, Ff: Clone>(&self, vertex_map: fn(&N) -> Nn, edge_map: fn(&E) -> Ee, face_map: Option<fn(&F) -> Ff>) -> PlanarMap<Nn, Ee, Ff> {
         let mut cloned = PlanarMap::new();
 
-        cloned.vertices = self.vertices.clone_with_map(&|v: &Vertex<N>|
-               Vertex {
-                   id: v.id,
-                   neighbors: v.neighbors.clone(),
-                   weight: vertex_map(&v.weight)
-               }
-        );
+        cloned.vertices = Box::new(GuardedMap2::new());
+        for v in self.vertices.get_values() {
+            cloned.vertices.retrieve_index(
+                Vertex {
+                    id: v.id,
+                    neighbors: v.neighbors.clone(),
+                    weight: vertex_map(&v.weight)
+                }
+            );
+        }
 
-        cloned.edges = self.edges.clone_with_map(&|e: &Edge<E>|
-            Edge {
-                id: e.id,
-                weight: edge_map(&e.weight),
-                tail: e.tail,
-                head: e.head,
-                left_face: e.left_face,
-                right_face: e.right_face
-            }
-        );
+        cloned.edges = Box::new(GuardedMap2::new());
+        for e in self.edges.get_values() {
+            cloned.edges.retrieve_index(
+                Edge {
+                    id: e.id,
+                    weight: edge_map(&e.weight),
+                    tail: e.tail,
+                    head: e.head,
+                    left_face: e.left_face,
+                    right_face: e.right_face
+                }
+            );
+        }
 
         if self.is_embedded() {
             if let Some(fmap) = face_map {
-                cloned.faces = self.faces.clone_with_map(&|f: &Face<F>|
-                    Face {
-                        id: f.id,
-                        weight: fmap(&f.weight),
-                        angles: f.angles.clone()
-                    }
-                )
+                cloned.faces = Box::new(GuardedMap2::new());
+                for f in self.faces.get_values() {
+                    cloned.faces.retrieve_index(
+                        Face {
+                            id: f.id,
+                            weight: fmap(&f.weight),
+                            angles: f.angles.clone()
+                        }
+                    );
+                }
             } else {
                 panic!("cloning an embedded map needs a face mapping")
             }
@@ -286,7 +299,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             return true;
         }
 
-        let connected_component = self.connected_component(self.vertices.any_index().unwrap(), &HashSet::new()).unwrap();
+        let index = self.vertices.get_keys().next().unwrap();
+        let connected_component = self.connected_component(*index, &HashSet::new()).unwrap();
         return connected_component.len() == self.vertex_count();
     }
 
@@ -367,7 +381,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         };
 
         let index = self.vertices.retrieve_index(v);
-        self.vertices.get_mut(&index).unwrap().id = index;
+        //self.vertices.get_mut(&index).unwrap().id = index;
         return index;
     }
 

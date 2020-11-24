@@ -5,9 +5,9 @@ use crate::graph;
 use std::hash::{Hash, Hasher};
 use serde::export::fmt::Debug;
 use std::fmt::{Formatter, Display};
-use crate::graph::guarded_map::Ideable;
 use crate::util::iterators::cyclic::CyclicIterable;
 use itertools::Itertools;
+use crate::graph::index_store::Ideable;
 
 pub struct Edge<E> {
     pub id: EdgeI,
@@ -102,7 +102,6 @@ impl<E> Ideable<EdgeI> for Edge<E> {
     fn get_id(&self) -> EdgeI { self.id }
     fn set_id(&mut self, id: EdgeI) { self.id = id }
 }
-
 
 pub struct Vertex<N> {
     pub id: VertexI,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use crate::graph::guarded_map::{Index, Ideable};
 use std::marker::PhantomData;
+use crate::graph::index_store::{Index, Ideable, IndexStore};
 
 pub struct GuardedMap2<N: Index, V: Ideable<N>> {
     indices: Vec<N>,
@@ -11,7 +11,6 @@ pub struct GuardedMap2<N: Index, V: Ideable<N>> {
 }
 
 impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
-
     pub fn new() -> GuardedMap2<N, V> {
         GuardedMap2 {
             indices: Vec::new(),
@@ -20,9 +19,12 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
             p: PhantomData::default()
         }
     }
+}
 
-    pub fn clone_with_map<Vv: Ideable<N>>(&self, value_mapping: &dyn Fn(&V) -> Vv) -> GuardedMap2<N, Vv> {
-        GuardedMap2 {
+impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
+
+    /*fn clone_with_map<Vv: Ideable<N>>(&self, value_mapping: &dyn Fn(&V) -> Vv) -> Box<dyn IndexStore<N, Vv>> {
+        Box::new(GuardedMap2 {
             indices: self.indices.clone(),
             data: self.data.iter().map(|v|
                 match v {
@@ -32,14 +34,14 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
             ).collect(),
             least_free_index: self.least_free_index,
             p: PhantomData::default()
-        }
-    }
+        })
+    }*/
 
-    pub fn peek_index(&self) -> N {
+    fn peek_index(&self) -> N {
         N::from(self.least_free_index)
     }
 
-    pub fn retrieve_index(&mut self, mut item: V) -> N {
+    fn retrieve_index(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);
         if self.data.len() > self.least_free_index {
@@ -57,7 +59,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
         return result;
     }
 
-    pub fn insert_with_index(&mut self, item: V, index: &N) {
+    fn insert_with_index(&mut self, item: V, index: &N) {
         if !self.is_available(index) {
             panic!("index not available");
         }
@@ -100,7 +102,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
         }
     }*/
 
-    pub fn free_index(&mut self, index: &N) -> Option<V> {
+    fn free_index(&mut self, index: &N) -> Option<V> {
         let idx: usize = (*index).into();
 
         if self.least_free_index > idx  {
@@ -114,12 +116,12 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
         self.data[idx].take()
     }
 
-    pub fn is_valid_index(&self, index: &N) -> bool {
+    fn is_valid_index(&self, index: &N) -> bool {
         let index = (*index).into();
         index < self.data.len() && self.data[index].is_some()
     }
 
-    pub fn is_available(&self, index: &N) -> bool {
+    fn is_available(&self, index: &N) -> bool {
         let index: usize = (*index).into();
         index >= self.data.len() || self.data[index].is_none()
     }
@@ -136,18 +138,14 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
         self.map.len()
     }*/
 
-    pub fn get(&self, index: &N) -> Option<&V> {
+    fn get(&self, index: &N) -> Option<&V> {
         match self.data.get((*index).into()) {
             Some(Some(x)) => Some(x),
             _ => None
         }
     }
 
-    pub fn any_index(&self) -> Option<N> {
-        self.indices.first().map(|v| *v)
-    }
-
-    pub fn get_mut(&mut self, index: &N) -> Option<&mut V> {
+    fn get_mut(&mut self, index: &N) -> Option<&mut V> {
         let index = (*index).into();
         match self.data.get_mut(index)  {
             Some(Some(x)) => Some(x),
@@ -155,19 +153,19 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
         }
     }
 
-    pub fn get_values(&self) -> impl Iterator<Item=&V> {
-        self.data.iter().filter_map(|o| o.as_ref())
+    fn get_values<'a>(&'a self) -> Box<dyn Iterator<Item=&V> + 'a> {
+        Box::new(self.data.iter().filter_map(|o| o.as_ref()))
     }
 
-    pub fn get_keys(&self) -> impl Iterator<Item=&N> {
-        self.indices.iter()
+    fn get_keys<'a>(&'a self) ->  Box<dyn Iterator<Item=&N> + 'a> {
+        Box::new(self.indices.iter())
     }
 
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.indices.is_empty()
     }
 
-    pub fn len(&self) -> usize {
+    fn len(&self) -> usize {
         self.indices.len()
     }
 
