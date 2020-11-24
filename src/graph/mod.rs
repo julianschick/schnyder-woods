@@ -81,18 +81,18 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         cloned.vertices = Box::new(GuardedMap2::new());
         for v in self.vertices.get_values() {
-            cloned.vertices.retrieve_index(
+            cloned.vertices.insert_with_index(
                 Vertex {
                     id: v.id,
                     neighbors: v.neighbors.clone(),
                     weight: vertex_map(&v.weight)
-                }
+                }, &v.id
             );
         }
 
         cloned.edges = Box::new(GuardedMap2::new());
         for e in self.edges.get_values() {
-            cloned.edges.retrieve_index(
+            cloned.edges.insert_with_index(
                 Edge {
                     id: e.id,
                     weight: edge_map(&e.weight),
@@ -100,7 +100,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                     head: e.head,
                     left_face: e.left_face,
                     right_face: e.right_face
-                }
+                }, &e.id
             );
         }
 
@@ -108,12 +108,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             if let Some(fmap) = face_map {
                 cloned.faces = Box::new(GuardedMap2::new());
                 for f in self.faces.get_values() {
-                    cloned.faces.retrieve_index(
+                    cloned.faces.insert_with_index(
                         Face {
                             id: f.id,
                             weight: fmap(&f.weight),
                             angles: f.angles.clone()
-                        }
+                        }, &f.id
                     );
                 }
             } else {

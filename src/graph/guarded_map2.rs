@@ -23,24 +23,6 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
 
 impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
 
-    /*fn clone_with_map<Vv: Ideable<N>>(&self, value_mapping: &dyn Fn(&V) -> Vv) -> Box<dyn IndexStore<N, Vv>> {
-        Box::new(GuardedMap2 {
-            indices: self.indices.clone(),
-            data: self.data.iter().map(|v|
-                match v {
-                    Some(val) => Some(value_mapping(val)),
-                    None => None
-                }
-            ).collect(),
-            least_free_index: self.least_free_index,
-            p: PhantomData::default()
-        })
-    }*/
-
-    fn peek_index(&self) -> N {
-        N::from(self.least_free_index)
-    }
-
     fn retrieve_index(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);
@@ -68,9 +50,6 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
         if index < self.data.len() {
             self.data[index] = Some(item);
             self.indices.push(N::from(index));
-            while self.least_free_index < self.data.len() && self.data[self.least_free_index].is_some() {
-                self.least_free_index += 1;
-            }
         } else {
             while self.data.len() < index {
                 self.data.push(None);
@@ -78,29 +57,10 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
             self.data.push(Some(item));
             self.indices.push(N::from(self.data.len() - 1));
         }
+        while self.least_free_index < self.data.len() && self.data[self.least_free_index].is_some() {
+            self.least_free_index += 1;
+        }
     }
-
-    /*fn reindex(&mut self, old_index: &N, new_index: &N) -> bool {
-        if !self.is_available(new_index) {
-            return false;
-        }
-
-        if let Some(thing) = self.map.remove(old_index) {
-            self.map.insert(*new_index, thing);
-
-            if self.least_free_index > (*old_index).into()  {
-                self.least_free_index = (*old_index).into();
-            } else {
-                while self.map.contains_key(&N::from(self.least_free_index)) {
-                    self.least_free_index += 1;
-                }
-            }
-
-            true
-        } else {
-            false
-        }
-    }*/
 
     fn free_index(&mut self, index: &N) -> Option<V> {
         let idx: usize = (*index).into();
@@ -116,6 +76,10 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
         self.data[idx].take()
     }
 
+    fn peek_index(&self) -> N {
+        N::from(self.least_free_index)
+    }
+
     fn is_valid_index(&self, index: &N) -> bool {
         let index = (*index).into();
         index < self.data.len() && self.data[index].is_some()
@@ -125,18 +89,6 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
         let index: usize = (*index).into();
         index >= self.data.len() || self.data[index].is_none()
     }
-
-    //pub fn get_map(&self) -> &HashMap<N, V> {
-        //&self.map
-    //}
-
-    /*fn is_empty(&self) -> bool {
-        self.map.is_empty()
-    }*/
-
-    /*fn len(&self) -> usize {
-        self.map.len()
-    }*/
 
     fn get(&self, index: &N) -> Option<&V> {
         match self.data.get((*index).into()) {
