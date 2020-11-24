@@ -40,14 +40,15 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
     }
 
     fn insert(&mut self, item: V, index: &N) {
-        if !self.is_available(index) {
-            panic!("index not available");
-        }
         let index = (*index).into();
 
         if index < self.data.len() {
-            self.data[index] = Some(item);
-            self.indices.push(N::from(index));
+            if let Some(_) = self.data[index] {
+                panic!("Index not available.");
+            } else {
+                self.data[index] = Some(item);
+                self.indices.push(N::from(index));
+            }
         } else {
             while self.data.len() < index {
                 self.data.push(None);

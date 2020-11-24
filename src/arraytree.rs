@@ -1,4 +1,6 @@
 use crate::graph::error::{GraphErr, GraphResult};
+use std::fmt::{Debug, Error};
+use serde::export::Formatter;
 
 pub struct ArrayTree {
     size: usize,
@@ -159,5 +161,13 @@ impl ArrayTree {
         println!("{:#?}", self.children);
     }
 
+}
 
+impl Debug for ArrayTree {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        f.debug_struct("ArrayTree")
+            .field("parents", &self.parents)
+            .field("children", &self.children)
+            .finish()
+    }
 }

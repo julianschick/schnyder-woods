@@ -357,8 +357,8 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
     let tri_seq1 = arbitrary_triangulation(wood1).unwrap(); //TODO
     let tri_seq2 = arbitrary_triangulation(wood2).unwrap(); //TODO
 
-    let seq1 = to_apollonian_path(wood1, color).unwrap();
-    let seq2 = to_apollonian_path(wood2, color).unwrap();
+    let seq1 = to_simple_stack(wood1, color).unwrap();
+    let seq2 = to_simple_stack(wood2, color).unwrap();
 
     DEBUG.write().unwrap().output("to_canonical", &wood1, Some("Canonical1"), &wood1.calculate_face_counts());
     DEBUG.write().unwrap().output("to_canonical", &wood2, Some("Canonical2"), &wood2.calculate_face_counts());
@@ -380,10 +380,10 @@ pub fn find_sequence_2(wood1: &mut SchnyderMap, wood2: &mut SchnyderMap, color: 
     return seq;
 }
 
-pub fn to_apollonian_path(wood: &mut SchnyderMap, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
+pub fn to_simple_stack(wood: &mut SchnyderMap, color: SchnyderColor) -> GraphResult<Vec<Operation>> {
 
     if !wood.map.is_triangulation() {
-        return GraphErr::new_err("Only triangulations can be transformed to an apollonian path.");
+        return GraphErr::new_err("Only triangulations can be transformed to a simple stack.");
     }
 
     let mut pivot = wood.get_suspension_vertex(color);
@@ -395,7 +395,7 @@ pub fn to_apollonian_path(wood: &mut SchnyderMap, color: SchnyderColor) -> Graph
         if let Some(v) = wood.get_incoming_sector(pivot, color, false).first() {
             pivot = *v;
         } else {
-            panic!("Invalid thingy!");
+            panic!("Invalid Schnyder wood detected.");
         }
     }
 

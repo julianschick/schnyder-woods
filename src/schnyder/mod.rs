@@ -229,9 +229,9 @@ impl SchnyderMap {
         }
     }
 
-    pub fn build_apollonian_path(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
+    pub fn build_simple_stack(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
         if vertex_count < 3 {
-            return GraphErr::new_err("Apollonian paths can not be constructed less than 3 vertices.");
+            return GraphErr::new_err("Simple stacks cannot be constructed less than 3 vertices.");
         }
 
         let mut map = PlanarMap::new();

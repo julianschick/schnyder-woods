@@ -47,7 +47,7 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
         //let mut known = known.lock().unwrap();
         let mut stack = stack.lock().unwrap();
 
-        let wood1 = SchnyderMap::build_apollonian_path(n, Red).expect("TODO");
+        let wood1 = SchnyderMap::build_simple_stack(n, Red).expect("TODO");
         let code = wood1.compute_3tree_code();
         let index = g.add_node(code, wood1.map.edge_count() as u8);
         stack.push(index);

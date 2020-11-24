@@ -31,7 +31,7 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
 
     fn insert(&mut self, item: V, index: &N) {
         if !self.is_available(index) {
-            panic!("index not available");
+            panic!("Index not available.");
         }
 
         self.map.insert(*index, item);
