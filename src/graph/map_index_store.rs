@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use crate::graph::index_store::{Index, Ideable, IndexStore};
 
 pub struct MapIndexStore<N: Index, V: Ideable<N>> {
@@ -17,7 +16,8 @@ impl<N:Index, V: Ideable<N>> MapIndexStore<N,V> {
 }
 
 impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
-    fn retrieve_index(&mut self, mut item: V) -> N {
+
+    fn push(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);
         self.map.insert(result, item);
@@ -29,7 +29,7 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
         return result;
     }
 
-    fn insert_with_index(&mut self, item: V, index: &N) {
+    fn insert(&mut self, item: V, index: &N) {
         if !self.is_available(index) {
             panic!("index not available");
         }
@@ -41,22 +41,12 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
         }
     }
 
-    fn free_index(&mut self, index: &N) -> Option<V> {
+    fn remove(&mut self, index: &N) -> Option<V> {
         if self.least_free_index > (*index).into()  {
             self.least_free_index = (*index).into();
         }
         self.map.remove(&index)
     }
-
-    fn peek_index(&self) -> N {
-        N::from(self.least_free_index)
-    }
-
-    fn is_valid_index(&self, index: &N) -> bool {
-        self.map.contains_key(index)
-    }
-
-    fn is_available(&self, index: &N) -> bool { !self.map.contains_key(index) }
 
     fn get(&self, index: &N) -> Option<&V> {
         self.map.get(index)
@@ -70,9 +60,19 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
         Box::new(self.map.values())
     }
 
-    fn get_keys<'a>(&'a self) -> Box<dyn Iterator<Item=&N> + 'a> {
+    fn get_indices<'a>(&'a self) -> Box<dyn Iterator<Item=&N> + 'a> {
         Box::new(self.map.keys())
     }
+
+    fn next_index(&self) -> N {
+        N::from(self.least_free_index)
+    }
+
+    fn is_valid_index(&self, index: &N) -> bool {
+        self.map.contains_key(index)
+    }
+
+    fn is_available(&self, index: &N) -> bool { !self.map.contains_key(index) }
 
     fn is_empty(&self) -> bool {
         self.map.is_empty()

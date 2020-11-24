@@ -44,7 +44,7 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
             // iterate byte stream to identify number of vertices and their neighbors
             // neighbors are given in clockwise order, so that the embedding is implied
             for i in 1..n+1 {
-                let weight = v_weights(result.vertices.peek_index());
+                let weight = v_weights(result.vertices.next_index());
                 index_list.push(result.add_vertex(weight));
 
                 let mut nb = Vec::new();
@@ -83,7 +83,7 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
                     let pos1 = neighbors[i-1].iter().position(|&k| k == j);
                     let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
 
-                    let weight = e_weights(result.edges.peek_index());
+                    let weight = e_weights(result.edges.next_index());
 
                     if let None = pos1.and(pos2) {
                         panic!("invalid data");
@@ -94,7 +94,7 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
             }
 
             // transfer neighbor order from adjacency list into graph struct
-            for vid in result.vertices.get_keys().cloned().collect_vec() {
+            for vid in result.vertices.get_indices().cloned().collect_vec() {
                 let v = result.vertex_mut(vid);
                 v.neighbors.sort_by_key(|nb| nb.index);
 

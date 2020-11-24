@@ -40,7 +40,7 @@ pub mod error;
 pub mod enums;
 pub mod data_holders;
 
-mod map_index_store;
+pub mod map_index_store;
 mod vec_index_store;
 mod index_store;
 
@@ -67,9 +67,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
-            vertices: Box::new(MapIndexStore::new()),
-            edges: Box::new(MapIndexStore::new()),
-            faces: Box::new(MapIndexStore::new()),
+            vertices: Box::new(VecIndexStore::new()),
+            edges: Box::new(VecIndexStore::new()),
+            faces: Box::new(VecIndexStore::new()),
             //
             embedded: false,
             enforce_simple: true
@@ -81,7 +81,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         cloned.vertices = Box::new(MapIndexStore::new());
         for v in self.vertices.get_values() {
-            cloned.vertices.insert_with_index(
+            cloned.vertices.insert(
                 Vertex {
                     id: v.id,
                     neighbors: v.neighbors.clone(),
@@ -90,9 +90,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             );
         }
 
-        cloned.edges = Box::new(MapIndexStore::new());
+        cloned.edges = Box::new(VecIndexStore::new());
         for e in self.edges.get_values() {
-            cloned.edges.insert_with_index(
+            cloned.edges.insert(
                 Edge {
                     id: e.id,
                     weight: edge_map(&e.weight),
@@ -106,9 +106,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         if self.is_embedded() {
             if let Some(fmap) = face_map {
-                cloned.faces = Box::new(MapIndexStore::new());
+                cloned.faces = Box::new(VecIndexStore::new());
                 for f in self.faces.get_values() {
-                    cloned.faces.insert_with_index(
+                    cloned.faces.insert(
                         Face {
                             id: f.id,
                             weight: fmap(&f.weight),
@@ -208,7 +208,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn edge_indices(&self) -> impl Iterator<Item=&EdgeI> {
-        self.edges.get_keys()
+        self.edges.get_indices()
     }
 
     pub fn edge_count(&self) -> usize { self.edges.len() }
@@ -230,7 +230,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn vertex_count(&self) -> usize { self.vertices.len() }
 
     pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
-        self.vertices.get_keys()
+        self.vertices.get_indices()
     }
 
     pub fn vertices(&self) -> impl Iterator<Item = &Vertex<N>> {
@@ -299,7 +299,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             return true;
         }
 
-        let index = self.vertices.get_keys().next().unwrap();
+        let index = self.vertices.get_indices().next().unwrap();
         let connected_component = self.connected_component(*index, &HashSet::new()).unwrap();
         return connected_component.len() == self.vertex_count();
     }
@@ -380,7 +380,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             id: VertexI(0), neighbors: Vec::new(), weight
         };
 
-        let index = self.vertices.retrieve_index(v);
+        let index = self.vertices.push(v);
         //self.vertices.get_mut(&index).unwrap().id = index;
         return index;
     }
@@ -405,7 +405,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         let e = Edge { id : EdgeI(0), tail: v1, head: v2, weight, left_face: None, right_face: None };
-        let id = self.edges.retrieve_index(e);
+        let id = self.edges.push(e);
 
         // v1 --> v2 (v1 = tail, v2 = head)
         let index = match v1_nb_index {
@@ -484,7 +484,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             self.restore_nb_indices(v2);
         }
 
-        let old_face = self.faces.free_index(&face).unwrap();
+        let old_face = self.faces.remove(&face).unwrap();
 
         let mut f1 = Face {
             id: FaceI(0),
@@ -508,8 +508,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             if vid == v1 { break }
         }
 
-        let fid1 = self.faces.retrieve_index(f1);
-        let fid2 = self.faces.retrieve_index(f2);
+        let fid1 = self.faces.push(f1);
+        let fid2 = self.faces.push(f2);
 
         //self.edges.get_mut(&e).right_face = Some(id1);
         //self.edges.get_mut(&e).left_face = Some(id2);
@@ -523,7 +523,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     fn remove_edge_(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<Edge<E>> {
         let eid = self.get_edge(v1, v2)?;
 
-        let e = self.edges.free_index(&eid).unwrap();
+        let e = self.edges.remove(&eid).unwrap();
         self.vertex_mut(v1).neighbors.retain(|nb| nb.other != v2);
         self.vertex_mut(v2).neighbors.retain(|nb|nb.other != v1);
 
@@ -554,8 +554,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let e = self.remove_edge_(v1, v2)?;
 
         // two faces must be merged
-        let left_face = self.faces.free_index(&e.left_face.unwrap()).unwrap();
-        let right_face = self.faces.free_index(&e.right_face.unwrap()).unwrap();
+        let left_face = self.faces.remove(&e.left_face.unwrap()).unwrap();
+        let right_face = self.faces.remove(&e.right_face.unwrap()).unwrap();
 
         let weight = merge_weights(left_face.weight, right_face.weight);
 
@@ -571,7 +571,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             weight
         };
 
-        let fid = self.faces.retrieve_index(f);
+        let fid = self.faces.push(f);
         self.restore_face_refs(fid);
 
         return Ok((e.id, fid));
@@ -667,8 +667,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             (v_dropped, v_kept)
         };
 
-        let dropped_edge = self.edges.free_index(&contracted_eid).unwrap();
-        let dropped_vertex = self.vertices.free_index(&v_dropped).unwrap();
+        let dropped_edge = self.edges.remove(&contracted_eid).unwrap();
+        let dropped_vertex = self.vertices.remove(&v_dropped).unwrap();
 
         // patch edges at the dropped and of the contracted edge and their adjacent vertices
         for nb in dropped_vertex.neighbors.iter().filter(|nb| nb.other != v_kept) {
@@ -791,10 +791,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             if !self.vertices.is_available(&idx) {
                 return GraphErr::new_err("Desired vertex index is not available");
             }
-            self.vertices.insert_with_index(new_vertex, &idx);
+            self.vertices.insert(new_vertex, &idx);
             idx
         } else {
-            self.vertices.retrieve_index(new_vertex)
+            self.vertices.push(new_vertex)
         };
 
         let new_edge = Edge {
@@ -810,10 +810,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             if !self.edges.is_available(&idx) {
                 return GraphErr::new_err("Desired edge index is not available");
             }
-            self.edges.insert_with_index(new_edge, &idx);
+            self.edges.insert(new_edge, &idx);
             idx
         } else {
-            self.edges.retrieve_index(new_edge)
+            self.edges.push(new_edge)
         };
 
         // set indices of new edge and vertex
@@ -987,7 +987,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             panic!("embedding already done");
         }
 
-        for eid in self.edges.get_keys().cloned().collect_vec() {
+        for eid in self.edges.get_indices().cloned().collect_vec() {
             if self.edge(eid).left_face.is_none() {
                 self.build_face_cycle(eid, Forward, f_weights);
             }
@@ -1009,7 +1009,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     /// signum -> right face
     fn build_face_cycle(&mut self, eid: EdgeI, signum: Signum, f_weights: fn(FaceI) -> F) {
         let mut cycle = Vec::new();
-        let fid = self.faces.peek_index();
+        let fid = self.faces.next_index();
 
         let mut next = {
             let e = self.edge_mut(eid);
@@ -1045,7 +1045,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         let face = Face { id: FaceI(0), weight: f_weights(fid), angles: cycle };
-        self.faces.retrieve_index(face);
+        self.faces.push(face);
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
@@ -1105,7 +1105,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         // check if all vertices have a well-defined total order on their neighbors now
-        for i in self.vertices.get_keys().cloned().collect_vec() {
+        for i in self.vertices.get_indices().cloned().collect_vec() {
             let v = self.vertex_mut(i);
             let vertex_angles = angles.get(&v.id).unwrap();
 
@@ -1146,7 +1146,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         for (face_cycle_vec, weight) in faces {
             let l = face_cycle_vec.len();
             let f = Face { id: FaceI(0), angles: face_cycle_vec.clone(), weight };
-            let id = self.faces.retrieve_index(f);
+            let id = self.faces.push(f);
 
             for i in 0..l {
                 let v1 = face_cycle_vec[i];
