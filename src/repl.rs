@@ -3,10 +3,11 @@ use crate::flipgraph::Flipgraph;
 use std::fs::File;
 use std::str::FromStr;
 use regex::Regex;
-use crate::print_flipgraph;
 use crate::schnyder::SchnyderMap;
 use std::path::Path;
 use crate::schnyder::io::TikzOptions;
+use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
+use std::io::stdout;
 
 pub struct Repl {
     g: Flipgraph
@@ -195,7 +196,7 @@ impl Repl {
     }
 
     fn cmd_statistics(&self) {
-        print_flipgraph(&self.g);
+        write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable).unwrap();
     }
 
     fn cmd_load(&mut self, args: &mut dyn Iterator<Item=&str>) {

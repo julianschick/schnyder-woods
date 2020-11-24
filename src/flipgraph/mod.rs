@@ -13,6 +13,8 @@ use bimap::BiMap;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
 
+pub mod io;
+
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
     None, BreakOrientation, BreakColourRotation, BreakAll
@@ -44,7 +46,6 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
 
     {
         let mut g = g.lock().unwrap();
-        //let mut known = known.lock().unwrap();
         let mut stack = stack.lock().unwrap();
 
         let wood1 = SchnyderMap::build_simple_stack(n, Red).expect("TODO");
@@ -96,16 +97,17 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                 nodes_checked += 1;
 
                 if i == 0 && !informed_others && len > thread_count*2 {
-                    tx.send(true).expect("TODO");
+                    tx.send(true).expect("Multithreading did not work as expected");
                 }
 
-                let admissible_ops = current.get_admissible_ops().expect("TODO").into_iter()
+                let admissible_ops = current.get_admissible_ops()
+                    .expect("Admissible operations could not be listed").into_iter()
                     .filter(|op| 3*n - 7 == current.map.edge_count() || op.is_downwards())
                     .collect_vec();
 
                 let neighbors = admissible_ops.iter().map(|op| {
                     let mut neighbor = current.clone();
-                    neighbor.do_operation(&op).expect("TODO");
+                    neighbor.do_operation(&op).expect("Admissible operation not successful");
                     let nb_ids: VecDeque<_> = symmetry_breaking.expand(&Red, &CW)
                         .iter().map(|(c, d)| neighbor.compute_3tree_code_with_rotation(**c, **d)).collect();
                     return (nb_ids, neighbor);

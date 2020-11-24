@@ -1,7 +1,6 @@
 use std::fs::File;
 use std::sync::RwLock;
 
-use itertools::Itertools;
 use clap::{App, ArgMatches};
 
 use crate::schnyder::SchnyderColor::{Red};
@@ -123,47 +122,4 @@ fn test(matches: &ArgMatches) {
             DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts());
         }
     }
-}
-
-fn print_flipgraph(g: &Flipgraph) {
-    let levels = g.get_levels();
-
-    println!();
-    println!("Flipgraph Statistics (n = {})", g.get_n());
-    println!("|V| = {}", g.node_count());
-    println!("|E| = {}", g.edge_count());
-    println!();
-
-    print_header();
-    print_statistics("*", (0..g.node_count()).collect_vec(), &g);
-    for (level, indices) in levels.into_iter().sorted_by_key(|&(level, _)| -(level as isize)) {
-        print_statistics(&format!("{}", level), indices, &g);
-    }
-    println!();
-
-}
-
-
-fn print_header() {
-    println!("{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min↑Deg", "Max↑Deg", "Min↓Deg", "Max↓Deg", "#Minima");
-}
-
-fn print_statistics(name: &str, nodes: Vec<usize>, g: &Flipgraph) {
-
-    let degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).count()).collect_vec();
-    let down_degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).filter(|&&nb| g.get_level(nb) < g.get_level(*idx)).count()).collect_vec();
-    let up_degrees = nodes.iter().map(|idx| g.get_neighbors(*idx).filter(|&&nb| g.get_level(nb) > g.get_level(*idx)).count()).collect_vec();
-
-    let min_degree = degrees.iter().min().unwrap();
-    let max_degree = degrees.iter().max().unwrap();
-
-    let minimums = nodes.iter().filter(|idx| g.get_neighbors(**idx).filter(|&&nb| g.get_level(nb) < g.get_level(**idx)).count() == 0).collect_vec();
-
-    let min_up_degree = up_degrees.iter().min().unwrap();
-    let max_up_degree = up_degrees.iter().max().unwrap();
-    let min_down_degree = down_degrees.iter().min().unwrap();
-    let max_down_degree = down_degrees.iter().max().unwrap();
-    let avg_degree = degrees.iter().sum::<usize>() as f64 / degrees.len() as f64;
-
-    println!("{:<10} {:>10} {:>10} {:>10.2} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", name, nodes.len(), min_degree, avg_degree, max_degree, min_up_degree, max_up_degree, min_down_degree, max_down_degree, minimums.len());
 }

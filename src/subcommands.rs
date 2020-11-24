@@ -1,13 +1,13 @@
 use std::fs::File;
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
-use crate::print_flipgraph;
 use crate::repl::Repl;
 use clap::ArgMatches;
 use std::path::Path;
-use std::io::Read;
+use std::io::{Read, stdout};
 use std::convert::TryFrom;
 use crate::schnyder::io::TikzOptions;
 use crate::schnyder::SchnyderMap;
+use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 
 pub fn convert_to_tikz(matches: &ArgMatches) {
 
@@ -130,15 +130,18 @@ pub fn build(matches: &ArgMatches) {
     }
 
     let g = build_flipgraph(n, symmetry_breaking, num_threads);
-    print_flipgraph(&g);
+    write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable).unwrap();
 
-    println!("Writing Flipgraph to file '{}'...", output.to_str().unwrap());
+    println!("\nWriting Flipgraph to file '{}'...", output.to_str().unwrap());
     {
-        let file = File::create(output).expect("TODO");
-        serde_cbor::to_writer(file, &g).expect("TODO");
+        match File::create(output) {
+            Ok(file) => match serde_cbor::to_writer(file, &g) {
+                Err(e) => println!("Flipgraph could not be written: {}", e),
+                _ => println!("...done.")
+            },
+            Err(e) => println!("File '{}' could not be opened for writing: {}", output.to_str().unwrap(), e)
+        }
     }
-    println!("...done.");
-
 }
 
 pub fn explore(matches: &ArgMatches) {
