@@ -80,7 +80,7 @@ impl ArrayTree {
 
     pub fn from_tree_code(code: &[u8]) -> GraphResult<Self> {
         if code.len() > 256 {
-            return GraphErr::new_err("Invalid tree code: More than 255 vertices are not supported.");
+            return GraphErr::new_err("Invalid tree code: More than 256 vertices are not supported.");
         }
         if code.iter().enumerate().filter(|(index, &k)| (*index) as u8 == k).count() != 1 {
             return GraphErr::new_err("Invalid tree code: Exactly one root expected.");

@@ -80,6 +80,13 @@ impl Repl {
 
     fn parse_line(&mut self, line: &str) -> bool {
 
+        /*let m = App::new("test")
+            .setting(AppSettings::NoBinaryName)
+            .subcommand( App::new("execute"))
+            .get_matches_from(split(line).unwrap());
+
+        println!("{:?}", m);*/
+
         let mut iter = line.split_whitespace();
 
         if let Some(command) = iter.next() {
@@ -93,6 +100,7 @@ impl Repl {
                 "count-trees" => self.cmd_count_trees(&mut iter),
                 "load" => self.cmd_load(&mut iter),
                 "stats" => self.cmd_statistics(),
+                "csv" => self.cmd_csv(),
                 _ => println!("Invalid command {}", command)
             }
         }
@@ -131,6 +139,7 @@ impl Repl {
                 conditions.push(cond);
             } else {
                 println!("Usage: count-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
+                println!("If multiple conditions are given, they are joined with a logical 'and'.");
                 return;
             }
         }
@@ -150,6 +159,7 @@ impl Repl {
                 Path::new(p)
             } else {
                 println!("Usage: print-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
+                println!("If multiple conditions are given, they are joined with a logical 'and'.");
                 return;
             }
         };
@@ -159,6 +169,7 @@ impl Repl {
                 conditions.push(cond);
             } else {
                 println!("Usage: print-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
+                println!("If multiple conditions are given, they are joined with a logical 'and'.");
                 return;
             }
         }
@@ -197,6 +208,10 @@ impl Repl {
 
     fn cmd_statistics(&self) {
         write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable).unwrap();
+    }
+
+    fn cmd_csv(&self) {
+        write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV).unwrap();
     }
 
     fn cmd_load(&mut self, args: &mut dyn Iterator<Item=&str>) {

@@ -99,23 +99,19 @@ pub fn build(matches: &ArgMatches) {
     let brk_orientation = matches.is_present("break-orientation-symmetry");
     let brk_color = matches.is_present("break-color-symmetry");
 
-    let output = Path::new(matches.value_of("OUTPUT").unwrap());
+    let output_arg = matches.value_of("OUTPUT").unwrap();
+    let output_path = Path::new(output_arg);
 
-    if output.is_file() {
-        println!("already present");
+    if output_path.is_dir() {
+        println!("The given output path is a directory.");
         return;
     }
-    if output.is_dir() {
-        println!("directory given");
-        return;
-    }
-    if let Some(parent) = output.parent() {
-        if !parent.is_dir() {
-            println!("can't write there");
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.is_dir() {
+            println!("The given output path is not in an existing and writeable directory.");
             return;
         }
     }
-
 
     let symmetry_breaking = match (brk_orientation, brk_color) {
         (false, false) => SymmetryBreaking::None,
@@ -132,14 +128,14 @@ pub fn build(matches: &ArgMatches) {
     let g = build_flipgraph(n, symmetry_breaking, num_threads);
     write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable).unwrap();
 
-    println!("\nWriting Flipgraph to file '{}'...", output.to_str().unwrap());
+    println!("\nWriting Flipgraph to file '{}'...", output_arg);
     {
-        match File::create(output) {
+        match File::create(output_path) {
             Ok(file) => match serde_cbor::to_writer(file, &g) {
                 Err(e) => println!("Flipgraph could not be written: {}", e),
                 _ => println!("...done.")
             },
-            Err(e) => println!("File '{}' could not be opened for writing: {}", output.to_str().unwrap(), e)
+            Err(e) => println!("File '{}' could not be opened for writing: {}", output_arg, e)
         }
     }
 }
