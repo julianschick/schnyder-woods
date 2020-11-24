@@ -10,13 +10,13 @@ use enums::EdgeEnd::{Head, Tail};
 use enums::Signum::{Backward, Forward};
 use enums::Side::{Left, Right};
 use enums::{Side, EdgeEnd, Signum, ClockDirection};
-use self::guarded_map::{GuardedMap};
+use self::map_index_store::{MapIndexStore};
 use self::indices::{EdgeI, VertexI, FaceI};
 use self::error::{IndexAccessError, NoSuchEdgeError};
 use data_holders::{Vertex, Edge, Face, NbVertex};
 use error::GraphErr;
 use crate::graph::error::GraphResult;
-use crate::graph::guarded_map2::GuardedMap2;
+use crate::graph::vec_index_store::VecIndexStore;
 use index_store::IndexStore;
 
 #[macro_export]
@@ -40,8 +40,8 @@ pub mod error;
 pub mod enums;
 pub mod data_holders;
 
-mod guarded_map;
-mod guarded_map2;
+mod map_index_store;
+mod vec_index_store;
 mod index_store;
 
 
@@ -67,9 +67,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
-            vertices: Box::new(GuardedMap2::new()),
-            edges: Box::new(GuardedMap2::new()),
-            faces: Box::new(GuardedMap2::new()),
+            vertices: Box::new(MapIndexStore::new()),
+            edges: Box::new(MapIndexStore::new()),
+            faces: Box::new(MapIndexStore::new()),
             //
             embedded: false,
             enforce_simple: true
@@ -79,7 +79,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     pub fn clone_with_maps<Nn, Ee, Ff: Clone>(&self, vertex_map: fn(&N) -> Nn, edge_map: fn(&E) -> Ee, face_map: Option<fn(&F) -> Ff>) -> PlanarMap<Nn, Ee, Ff> {
         let mut cloned = PlanarMap::new();
 
-        cloned.vertices = Box::new(GuardedMap2::new());
+        cloned.vertices = Box::new(MapIndexStore::new());
         for v in self.vertices.get_values() {
             cloned.vertices.insert_with_index(
                 Vertex {
@@ -90,7 +90,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             );
         }
 
-        cloned.edges = Box::new(GuardedMap2::new());
+        cloned.edges = Box::new(MapIndexStore::new());
         for e in self.edges.get_values() {
             cloned.edges.insert_with_index(
                 Edge {
@@ -106,7 +106,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         if self.is_embedded() {
             if let Some(fmap) = face_map {
-                cloned.faces = Box::new(GuardedMap2::new());
+                cloned.faces = Box::new(MapIndexStore::new());
                 for f in self.faces.get_values() {
                     cloned.faces.insert_with_index(
                         Face {

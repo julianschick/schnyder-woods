@@ -3,16 +3,16 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use crate::graph::index_store::{Index, Ideable, IndexStore};
 
-pub struct GuardedMap2<N: Index, V: Ideable<N>> {
+pub struct VecIndexStore<N: Index, V: Ideable<N>> {
     indices: Vec<N>,
     data: Vec<Option<V>>,
     least_free_index: usize,
     p: PhantomData<N>
 }
 
-impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
-    pub fn new() -> GuardedMap2<N, V> {
-        GuardedMap2 {
+impl<N: Index, V: Ideable<N>> VecIndexStore<N, V> {
+    pub fn new() -> VecIndexStore<N, V> {
+        VecIndexStore {
             indices: Vec::new(),
             data: Vec::new(),
             least_free_index: 0,
@@ -21,7 +21,7 @@ impl<N: Index, V: Ideable<N>> GuardedMap2<N, V> {
     }
 }
 
-impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
+impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
 
     fn retrieve_index(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
@@ -123,9 +123,9 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for GuardedMap2<N, V> {
 
 }
 
-impl<N: Index+Clone, V: Ideable<N> + Clone> Clone for GuardedMap2<N, V>{
+impl<N: Index+Clone, V: Ideable<N> + Clone> Clone for VecIndexStore<N, V>{
     fn clone(&self) -> Self {
-        GuardedMap2 {
+        VecIndexStore {
             indices: self.indices.clone(),
             data: self.data.clone(),
             least_free_index: self.least_free_index,
