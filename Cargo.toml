@@ -1,6 +1,6 @@
 [package]
 name = "schnyderflip"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Julian Schick <julian.schick@posteo.de>"]
 edition = "2018"
 

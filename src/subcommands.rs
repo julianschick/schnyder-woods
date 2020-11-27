@@ -52,8 +52,6 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
         return;
     }
 
-    println!("{:?}", code);
-
     let mut opts = TikzOptions::default();
     opts.anchor = matches.value_of("anchor");
     opts.print_document = matches.is_present("doc");

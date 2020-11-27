@@ -95,19 +95,11 @@ impl SchnyderMap {
         let max_y = self.map.vertex_indices().map(|v| positions.get(v).unwrap().1).max().unwrap();
         let shear = *max_y as f32 / (*max_x as f32 * 2f32);
 
-        for v in self.map.vertices() {
-            let style = match v.weight {
-                SchnyderVertexType::Normal(_) => "sws_normal_vertex",
-                SchnyderVertexType::Suspension(SchnyderColor::Red) => "sws_red_suspension_vertex",
-                SchnyderVertexType::Suspension(SchnyderColor::Green) => "sws_green_suspension_vertex",
-                SchnyderVertexType::Suspension(SchnyderColor::Blue) => "sws_blue_suspension_vertex"
-            };
-
-            let (x,y) = positions.get(&v.id).expect(&format!("No face counts for vertex {} given", v.id.0));
-
+        // coordinates
+        for (v, (x,y)) in positions {
             let (x, y) = match options.slanted {
-                true => (**x as f32 + shear * **y as f32, **y as f32 * 0.86602540378),
-                false => (**x as f32, **y as f32)
+                true => (*x as f32 + shear * *y as f32, *y as f32 * 0.86602540378),
+                false => (*x as f32, *y as f32)
             };
 
             let coord = if let Some(anchor) = &options.anchor {
@@ -115,7 +107,20 @@ impl SchnyderMap {
             } else {
                 format!("({},{})", x, y)
             };
-            mid.extend(format!("{}\\node[{}] ({}) at {} {{}};\n", ind, style, v.id.0, coord).chars());
+            mid.extend(format!("{}\\coordinate (c_{}) at {} {{}};\n", ind, v.0, coord).chars());
+        }
+
+        mid.extend(format!("{}\n", ind).chars());
+
+        // nodes
+        for v in self.map.vertices() {
+            let style = match v.weight {
+                SchnyderVertexType::Normal(_) => "sws_normal_vertex",
+                SchnyderVertexType::Suspension(SchnyderColor::Red) => "sws_red_suspension_vertex",
+                SchnyderVertexType::Suspension(SchnyderColor::Green) => "sws_green_suspension_vertex",
+                SchnyderVertexType::Suspension(SchnyderColor::Blue) => "sws_blue_suspension_vertex"
+            };
+            mid.extend(format!("{}\\node[{}] ({}) at (c_{}) {{}};\n", ind, style, v.id.0, v.id.0).chars());
         }
 
         mid.extend(format!("{}\n", ind).chars());
