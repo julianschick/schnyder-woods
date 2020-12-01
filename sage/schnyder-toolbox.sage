@@ -1,4 +1,5 @@
 import numpy as np
+from sage.combinat.posets.posets import FinitePoset
 
 class Flipgraph:
 
@@ -30,6 +31,20 @@ class Flipgraph:
 
 	def plot(self, iterations=10000):
 		self.g.plot(save_pos=True,partition=self.levels_partition, iterations=iterations, vertex_labels=True, vertex_size=400)
+
+	def poset(self):
+		if self.levels is None:
+			print("Flipgraph must have level information for building the poset")
+			return
+
+		arcs = []
+		for (v1, v2, weight) in self.g.edges():
+			v1, v2 = (v1, v2) if self.levels[v1] < self.levels[v2] else (v2, v1)
+			arcs.append((v1,v2))
+
+		digraph = DiGraph(arcs)
+		return FinitePoset(digraph)
+
 
 	def tikz(self):
 		if self.levels is None:
