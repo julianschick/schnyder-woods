@@ -9,6 +9,7 @@ class Flipgraph:
 		edges_count = edges_raw[0]
 		edges = [(edges_raw[i*2 + 1], edges_raw[i*2 + 2]) for i in range(0, edges_count)]
 		self.g =  Graph(edges)
+		self.levels = None
 
 		if level_path:
 			self.load_levels(level_path)

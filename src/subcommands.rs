@@ -87,6 +87,24 @@ pub fn build(matches: &ArgMatches) {
         _ => { println!("N should be a positive number."); return; }
     };
 
+    let min_level = match matches.value_of("min-level").map(|m|  str::parse::<usize>(m)) {
+        Some(Ok(k)) => Some(k),
+        None => None,
+        _ => { println!("Level should be a positive number."); return; }
+    };
+
+    let max_level = match matches.value_of("max-level").map(|m|  str::parse::<usize>(m)) {
+        Some(Ok(k)) => Some(k),
+        None => None,
+        _ => { println!("Level should be a positive number."); return; }
+    };
+
+    if let (Some(min), Some(max)) = (min_level, max_level) {
+        if min > max {
+            println!("Minimal level has to be less than or equal to maximal level."); return;
+        }
+    }
+
     let num_threads = match str::parse::<usize>(matches.value_of("threads").unwrap_or("1")) {
         Ok(n) if n >= 1 && n <= 64 => n,
         Ok(_) => { println!("The number of threads should be at least 1 and at most 64"); return; }
@@ -123,7 +141,7 @@ pub fn build(matches: &ArgMatches) {
         return;
     }
 
-    let g = build_flipgraph(n, symmetry_breaking, num_threads);
+    let g = build_flipgraph(n, min_level, max_level, symmetry_breaking, num_threads);
     write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable).unwrap();
 
     println!("\nWriting Flipgraph to file '{}'...", output_arg);

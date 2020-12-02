@@ -231,7 +231,7 @@ impl SchnyderMap {
 
     pub fn build_simple_stack(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
         if vertex_count < 3 {
-            return GraphErr::new_err("Simple stacks cannot be constructed less than 3 vertices.");
+            return GraphErr::new_err("Simple stacks cannot be constructed on less than 3 vertices.");
         }
 
         let mut map = PlanarMap::new();
@@ -273,6 +273,88 @@ impl SchnyderMap {
         faces.push((vec![*susp.get(&color.prev()).unwrap(), *susp.get(&color.next()).unwrap(), *path.last().unwrap()], ()));
         map.set_embedding_by_face_cycles(faces)?;
 
+        return SchnyderMap::try_from(map);
+    }
+
+    pub fn build_min_edge_wood(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
+        if vertex_count < 3 {
+            return GraphErr::new_err("Minimal edge woods cannot be constructed on less than 3 vertices.");
+        }
+
+        // comments are from the perspective of color=Green
+        let n = vertex_count;
+        let mut map = PlanarMap::new();
+
+        let r = map.add_vertex(Suspension(color.prev()));
+        let g = map.add_vertex(Suspension(color));
+        let b = map.add_vertex(Suspension(color.next()));
+
+        // 'upper' and 'lower' section of the outer face boundary
+        let m = (n - 3) / 2;
+        let mut upper = Vec::with_capacity(m + 2); upper.push(r);
+        let mut lower = Vec::with_capacity(m + 2); lower.push(b);
+
+        for _ in 0..m {
+            upper.push(map.add_vertex(Normal(0)));
+            lower.push(map.add_vertex(Normal(0)));
+        }
+        upper.push(g); lower.push(g);
+
+        // outer edges
+        for (v1, v2) in upper.iter().tuple_windows() {
+            map.add_edge(*v1, *v2, Bicolored(color, color.prev()));
+        }
+        for (v1, v2) in lower.iter().tuple_windows() {
+            map.add_edge(*v1, *v2, Bicolored(color, color.next()));
+        }
+
+        // non-outer edges
+        for i in 1..=m {
+            map.add_edge(lower[i], upper[i], Bicolored(color.prev(), color.next()));
+        }
+
+        // special vertex 'eve' for even case
+        let eve = if n % 2 == 0 {
+            Some(map.add_vertex(Normal(0)))
+        } else {
+            None
+        };
+
+        // left outer edge (or two edges in the even case)
+        if let Some(eve) = eve {
+            map.add_edge(b, eve, Bicolored(color.prev(), color.next()));
+            map.add_edge(eve, r, Bicolored(color.prev(), color.next()));
+            map.add_edge(eve, lower[1], Unicolored(color, Forward));
+        } else {
+            map.add_edge(b, r, Bicolored(color.prev(), color.next()));
+        }
+
+        let mut faces = Vec::new();
+
+        // outer face
+        let mut outer_face = upper.iter().cloned().collect_vec();
+        outer_face.extend(lower.iter().rev().skip(1).collect_vec());
+        if let Some(fill_vertex) = eve {
+            outer_face.push(fill_vertex);
+        }
+        faces.push((outer_face, ()));
+
+        // inner faces
+        for i in 0..m {
+            let mut face = vec![upper[i], lower[i], lower[i+1], upper[i+1]];
+            if let Some(fill_vertex) = eve {
+                if i == 0 {
+                    face[1] = fill_vertex;
+                    faces.push((vec![fill_vertex, b, lower[1]], ()));
+                }
+            }
+            faces.push((face, ()));
+        }
+
+        // triangular face in the right bottom corner
+        faces.push((vec![upper[m], lower[m], upper[m + 1]], ()));
+
+        map.set_embedding_by_face_cycles(faces)?;
         return SchnyderMap::try_from(map);
     }
 
@@ -895,6 +977,20 @@ impl SchnyderMap {
         self.map.set_edge_weight(eid, data.remaining_color)?;
 
         Ok(Operation::split(hinge_vid, self.map.edge_opposite_vertex(eid,hinge_vid)?, effective_target))
+    }
+
+    pub fn split_any(&mut self) -> bool {
+        let admissible_ops = self.get_admissible_ops().expect("TODO");
+        let split = admissible_ops.iter().find(|op| op.is_upwards());
+
+        return if let Some(split) = split {
+            if let Err(e) = self.do_operation(split) {
+                panic!("Internal assertion failed: {}", e);
+            }
+            true
+        } else {
+            false
+        }
     }
 
     pub fn merge_and_resplit(&mut self, source: EdgeI, target: EdgeI, resplit_target: Option<VertexI>) -> GraphResult<Vec<Operation>> {

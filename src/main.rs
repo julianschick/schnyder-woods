@@ -1,14 +1,15 @@
 use std::fs::File;
 use std::sync::RwLock;
-
+use std::io::stdout;
 use clap::{App, ArgMatches};
 
 use crate::schnyder::SchnyderColor::{Red};
-use crate::schnyder::{SchnyderMap};
+use crate::schnyder::{SchnyderMap, SchnyderColor};
 use crate::util::debug::Debug;
 use crate::algorithm::{find_sequence_2, find_sequence};
 use crate::subcommands::{build, explore, convert_to_tikz};
 use crate::flipgraph::Flipgraph;
+use crate::schnyder::io::TikzOptions;
 
 #[macro_use]
 extern crate lazy_static;
@@ -40,6 +41,8 @@ fn main() {
                 .arg("-t --threads [t] 'Number of threads to start'")
                 .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
                 .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
+                .arg("--min-level [LEVEL] 'Do not include levels below the given level.'")
+                .arg("--max-level [LEVEL] 'Do not include levels above the given level.'")
         )
         .subcommand(
             App::new("explore")
@@ -56,7 +59,6 @@ fn main() {
         )
         .subcommand(
             App::new("test")
-                .arg("<GRAPH> 'Flipgraph file'")
         )
         .get_matches();
 
@@ -97,7 +99,10 @@ fn main() {
 }*/
 
 fn test(matches: &ArgMatches) {
-    let flipgraph_file = matches.value_of("GRAPH").unwrap();
+    let wood = SchnyderMap::build_min_edge_wood(8, SchnyderColor::Blue).unwrap();
+    wood.write_tikz(&mut stdout(), &TikzOptions::default());
+
+    /*let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
     println!("Reading CBOR...");
     {
@@ -121,5 +126,5 @@ fn test(matches: &ArgMatches) {
             wood.do_operation(op).unwrap();//TODO
             DEBUG.write().unwrap().output("ops", &wood, Some("Intermediate"), &wood.calculate_face_counts());
         }
-    }
+    }*/
 }

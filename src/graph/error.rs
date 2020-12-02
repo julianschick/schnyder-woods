@@ -37,6 +37,12 @@ impl Debug for GraphErr {
     }
 }
 
+impl Display for GraphErr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{}", self.problem))
+    }
+}
+
 impl<T: Index + Display> From<IndexAccessError<T>> for GraphErr {
     fn from(cause: IndexAccessError<T>) -> Self {
         return GraphErr::new(&format!("Access to invalid index {} occurred.", cause.get_index()))

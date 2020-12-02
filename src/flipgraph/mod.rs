@@ -39,7 +39,13 @@ impl SymmetryBreaking {
     }
 }
 
-pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_count: usize) -> Flipgraph {
+pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usize>, symmetry_breaking: SymmetryBreaking, thread_count: usize) -> Flipgraph {
+
+    if let (Some(min), Some(max)) = (min_level, max_level) {
+        if min > max {
+            panic!("Invalid min/max levels given.");
+        }
+    }
 
     let g = Arc::new(Mutex::new(Flipgraph::new(n)));
     let stack = Arc::new(Mutex::new(Vec::new()));
@@ -48,9 +54,19 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
         let mut g = g.lock().unwrap();
         let mut stack = stack.lock().unwrap();
 
-        let wood1 = SchnyderMap::build_simple_stack(n, Red).expect("TODO");
-        let code = wood1.compute_3tree_code();
-        let index = g.add_node(code, wood1.map.edge_count() as u8);
+        let seed = match max_level {
+            Some(max_level) if max_level < 3*n-6 => {
+                let mut seed = SchnyderMap::build_min_edge_wood(n, Red).expect("TODO");
+                while seed.map.edge_count() < max_level + 1 && seed.map.edge_count() < 3*n - 6 {
+                    seed.split_any();
+                }
+                seed
+            },
+            _ => SchnyderMap::build_simple_stack(n, Red).expect("TODO")
+        };
+
+        let code = seed.compute_3tree_code();
+        let index = g.add_node(code, seed.map.edge_count() as u8);
         stack.push(index);
     }
 
@@ -58,6 +74,12 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
     let (tx, rx) = channel();
 
     println!("Traversing the flipgraph for n = {}, using {} threads.", n, thread_count);
+    if let Some(min_level) = min_level {
+        println!("CAUTION: minimal level set to {}", min_level);
+    }
+    if let Some(max_level) = max_level {
+        println!("CAUTION: maximal level set to {}", max_level);
+    }
 
     for i in 0..thread_count {
         let stack = Arc::clone(&stack);
@@ -100,10 +122,29 @@ pub fn build_flipgraph(n: usize, symmetry_breaking: SymmetryBreaking, thread_cou
                     tx.send(true).expect("Multithreading did not work as expected");
                 }
 
+                let current_level = current.map.edge_count();
+
                 let admissible_ops = current.get_admissible_ops()
                     .expect("Admissible operations could not be listed").into_iter()
-                    .filter(|op| 3*n - 7 == current.map.edge_count() || op.is_downwards())
-                    .collect_vec();
+                    .filter(|op|
+                        if op.is_upwards() {
+                            if let Some(max_level) = max_level {
+                                if max_level < 3*n - 6 {
+                                    current_level == max_level
+                                } else {
+                                    current_level == 3*n - 7
+                                }
+                            } else {
+                                current_level == 3*n - 7
+                            }
+                        } else {
+                            if let Some(min_level) = min_level {
+                                current_level >= min_level
+                            } else {
+                                true
+                            }
+                        }
+                    ).collect_vec();
 
                 let neighbors = admissible_ops.iter().map(|op| {
                     let mut neighbor = current.clone();
