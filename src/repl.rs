@@ -8,6 +8,9 @@ use std::path::Path;
 use crate::schnyder::io::TikzOptions;
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use std::io::stdout;
+use clap::{App, AppSettings, ArgMatches};
+use shellwords::split;
+use crate::schnyder::algorithm::check_triangle;
 
 pub struct Repl {
     g: Flipgraph
@@ -80,36 +83,145 @@ impl Repl {
 
     fn parse_line(&mut self, line: &str) -> bool {
 
-        /*let m = App::new("test")
-            .setting(AppSettings::NoBinaryName)
-            .subcommand( App::new("execute"))
-            .get_matches_from(split(line).unwrap());
+        if line.trim().is_empty() {
+            return true;
+        }
 
-        println!("{:?}", m);*/
+        if line.trim() == "execute order 66" {
+            println!("The order of the galaxy will be restored.");
+            return true;
+        }
 
-        let mut iter = line.split_whitespace();
+        if let Ok(tokens) = split(line) {
+            let matches = App::new("")
+                .setting(AppSettings::NoBinaryName)
+                .subcommand(
+                    App::new("save")
+                        .about("Write graph to file in EDGE64 format.")
+                        .arg("-e, --edges 'Write a file containing the graph in EDGE64 format. The suffix \'.edges\' is appended to the base name.")
+                        .arg("-l, --levels 'Write a file containing the vertex levels in LEVEL8 format. The suffix \'.levels\' is appended to the base name.")
+                        .arg("-w, --woods 'Write a file containing the graph in L3TREECODE8 format. The suffix \'.woods\' is appended to the base name.")
+                        .arg("<FILE> 'Base name for the file(s) to be written'")
+                )
+                .subcommand(
+                    App::new("select")
+                        .about("Selects nodes from the flipgraph that fulfill a set of conditions. If no output flags are set, just the count of matches is printed.")
+                        .arg("-d, --dir [DIR] 'Output directory. Without the output directory given, the other output flags do not have any effect.'")
+                        .arg("-a, --ascii 'Write woods in ASCII 3TREECODE. File ending will be \'.a3t\'.'")
+                        .arg("-b, --binary 'Write woods in binary 3TREECODE8. File ending will be \'.b3t\'.'")
+                        .arg("-t, --tikz 'Write woods as LaTeX/Tikz directives. File ending will be \'.tex\'.'")
+                        .arg("[CONDITION]... 'Conditions for selection of woods. The conditions must be formatted as follows: (level|deg|updeg|downdeg)(<|<=|=|=>|>)(NUMBER). If multiple conditions are given, they are joined by a logical \'AND\'.'")
+                )
+                .subcommand(
+                    App::new("load")
+                        .about("Loads a new flipgraph to explore from a file. Replaces the previously loaded one.")
+                        .arg("[FILE] 'Source file.'")
+                )
+                .subcommand(
+                    App::new("stats")
+                        .about("Print statistics about the currently loaded flipgraph")
+                        .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format.'")
+                )
+                .subcommand(
+                    App::new("exit")
+                        .about("Exits the application (if a large flipgraph is loaded, memory cleanup will take a bit of time).")
+                )
+                .try_get_matches_from(tokens);
 
-        if let Some(command) = iter.next() {
-            match command {
-                "exit" => return false,
-                "execute" => self.cmd_execute_order_66(&mut iter),
-                "write-edges" => self.cmd_write_edges(&mut iter),
-                "write-levels" => self.cmd_write_levels(&mut iter),
-                "write-codes" => self.cmd_write_codes(&mut iter),
-                "print-trees" => self.cmd_print_trees(&mut iter),
-                "count-trees" => self.cmd_count_trees(&mut iter),
-                "load" => self.cmd_load(&mut iter),
-                "stats" => self.cmd_statistics(),
-                "csv" => self.cmd_csv(),
-                _ => println!("Invalid command {}", command)
+            if let Err(e) = matches {
+                println!("{}", e);
+                return true;
             }
+
+            match matches.unwrap().subcommand() {
+                Some(("save", matches)) => self.cmd_save(matches),
+                Some(("stats", matches)) => self.cmd_stats(matches),
+                Some(("select", matches)) => self.cmd_select(matches),
+                Some(("load", matches)) => self.cmd_load(matches),
+                Some(("exit", _)) => return false,
+                _ => println!("No valid command specified. Type 'schnyderflip help' for a list of valid commands.")
+            }
+        } else {
+            println!("You got your quotes all messed up. Ignoring command.");
         }
 
         return true;
     }
 
+    fn cmd_select(&self, matches: &ArgMatches) {
+        let cond_strings = match matches.values_of_lossy("CONDITION") {
+            Some(c) => c,
+            None => Vec::new()
+        };
+
+        let mut conditions = Vec::with_capacity(cond_strings.len());
+        for cond_str in cond_strings {
+            let condition = self.extract_condition(&cond_str);
+            if let Some(c) = condition {
+                conditions.push(c);
+            } else {
+                println!("Condition '{}' could not be interpreted. Aborting command.", cond_str);
+                return;
+            }
+        }
+
+        let output_folder = matches.value_of("dir").map(|s| Path::new(s));
+
+        let mut count = 0;
+        for v in 0..self.g.node_count() {
+            let select = conditions.iter().fold(true, |acc, c| acc && c.apply(&self.g, v));
+
+            if select {
+                count += 1;
+
+                if let Some(output_folder) = output_folder {
+                    if matches.is_present("tikz") {
+                        self.select_tikz_out(v, output_folder);
+                    }
+                    if matches.is_present("ascii") {
+                        self.select_ascii_out(v, output_folder);
+                    }
+                    if matches.is_present("binary") {
+                        self.select_binary_out(v, output_folder);
+                    }
+                }
+            };
+        }
+
+        println!("{} woods matched.", count);
+    }
+
+    fn select_tikz_out(&self, v: usize, folder: &Path) {
+        let wood = SchnyderMap::build_from_3tree_code(self.g.get_code(v)).unwrap();
+        let title = &format!("|E| = {}, deg = {}, updeg = {}, downdeg = {}",
+                             self.g.get_level(v),
+                             self.g.get_degree(v),
+                             self.g.get_updegree(v),
+                             self.g.get_downdegree(v)
+        );
+        match File::create(folder.join( &format!("{}.tex", v))) {
+            Ok(mut file) => {
+                let mut opts = TikzOptions::default();
+                opts.title = Some(title);
+
+                if let Err(e) = wood.write_tikz(&mut file, &opts) {
+                    println!("Error writing file: {}", e);
+                }
+            },
+            Err(e) => println!("File could not be opened for writing: {}", e)
+        }
+    }
+
+    fn select_ascii_out(&self, v: usize, folder: &Path) {
+
+    }
+
+    fn select_binary_out(&self, v: usize, folder: &Path) {
+
+    }
+
     fn extract_condition(&self, str: &str) -> Option<Condition> {
-        let r = Regex::new(r"^(level|updeg|downdeg|deg)(<|>|<=|>=|=)([0-9]+)$").unwrap();
+        let r = Regex::new(r"^\s*(level|updeg|downdeg|deg)\s*(<|>|<=|>=|=)\s*([0-9]+)\s*$").unwrap();
 
         if let Some(cap) = r.captures(str) {
             let prop = match &cap[1] {
@@ -132,164 +244,55 @@ impl Repl {
         }
     }
 
-    fn cmd_count_trees(&self, args: &mut dyn Iterator<Item=&str>) {
-        let mut conditions = Vec::new();
-        for arg in args {
-            if let Some(cond) = self.extract_condition(arg) {
-                conditions.push(cond);
-            } else {
-                println!("Usage: count-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
-                println!("If multiple conditions are given, they are joined with a logical 'and'.");
-                return;
-            }
+    fn cmd_stats(&self, matches: &ArgMatches) {
+        if matches.is_present("csv") {
+            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV).unwrap();
+        } else {
+            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable).unwrap();
         }
-
-        let count = (0..self.g.node_count()).filter(
-            |&v| conditions.iter().fold(true, |acc, c| acc && c.apply(&self.g, v))
-        ).count();
-
-        println!("{}", count);
     }
 
-    fn cmd_print_trees(&self, args: &mut dyn Iterator<Item=&str>) {
-        let mut conditions = Vec::new();
+    fn cmd_load(&mut self, matches: &ArgMatches) {
 
-        let path = {
-            if let Some(p) = args.next() {
-                Path::new(p)
-            } else {
-                println!("Usage: print-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
-                println!("If multiple conditions are given, they are joined with a logical 'and'.");
-                return;
-            }
-        };
+        let filename = matches.value_of("FILE").unwrap();
 
-        for arg in args {
-            if let Some(cond) = self.extract_condition(arg) {
-                conditions.push(cond);
+        if let Ok(file) = File::open(filename) {
+            if let Ok(g) = serde_cbor::from_reader(file) {
+                self.g = g;
             } else {
-                println!("Usage: print-trees [PATH] [level|deg|updeg|downdeg][<|<=|=|=>|>][NUMBER] ...");
-                println!("If multiple conditions are given, they are joined with a logical 'and'.");
-                return;
+                println!("The specified file does not seem to contain a flipgraph.");
             }
+        } else {
+            println!("File '{}' could not be opened for reading.", filename);
         }
+    }
 
-        let mut printed = 0;
-        for v in 0..self.g.node_count() {
-            let print = conditions.iter().fold(true, |acc, c| acc && c.apply(&self.g, v));
-            if print {
-                let wood = SchnyderMap::build_from_3tree_code(self.g.get_code(v)).unwrap();
-                let title = &format!("|E| = {}, deg = {}, updeg = {}, downdeg = {}",
-                    self.g.get_level(v),
-                    self.g.get_degree(v),
-                    self.g.get_updegree(v),
-                    self.g.get_downdegree(v)
-                );
-                match File::create(path.join(&format!("{}.tex", v))) {
+    fn cmd_save(&self, matches: &ArgMatches) {
+        let base_name = matches.value_of("FILE").unwrap();
+        let targets = ["edges", "levels", "woods"];
+
+        for target in &targets {
+            if matches.is_present(target) {
+                let file_name = format!("{}.{}", base_name, target);
+
+                match File::create(file_name) {
                     Ok(mut file) => {
-                        let mut opts = TikzOptions::default();
-                        opts.title = Some(title);
+                        let result = match *target {
+                            "edges" => self.g.to_edge_list(&mut file),
+                            "levels" => self.g.to_level_list(&mut file),
+                            "woods" => self.g.to_code_list(&mut file),
+                            _ => panic!("Internal assertion failed.")
+                        };
 
-                        match wood.write_tikz(&mut file, &opts) {
-                            Ok(_) => printed += 1,
-                            Err(e) => println!("Error writing file: {}", e)
+                        if let Err(e) = result {
+                            println!("Error writing file: {}", e);
                         }
-                    }
+                    },
                     Err(e) => {
                         println!("File could not be opened for writing: {}", e);
-                        return;
                     }
                 }
             }
-        }
-
-        println!("{} trees printed.", printed);
-    }
-
-    fn cmd_statistics(&self) {
-        write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable).unwrap();
-    }
-
-    fn cmd_csv(&self) {
-        write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV).unwrap();
-    }
-
-    fn cmd_load(&mut self, args: &mut dyn Iterator<Item=&str>) {
-        if let Some(filename) = args.next() {
-            if let Ok(file) = File::open(filename) {
-                if let Ok(g) = serde_cbor::from_reader(file) {
-                    self.g = g;
-                } else {
-                    println!("The specified file does not seem to contain a flipgraph.");
-                }
-            } else {
-                println!("File '{}' could not be opened for reading.", filename);
-            }
-        } else {
-            println!("Usage: load [FILENAME]");
-        }
-    }
-
-    fn cmd_execute_order_66(&self, args: &mut dyn Iterator<Item=&str>) {
-        if let (Some(arg1), Some(arg2)) = (args.next(), args.next()) {
-            if arg1 == "order" && arg2 == "66" {
-                println!("The order of the galaxy will be restored.");
-            } else {
-                println!("Execution failed.")
-            }
-        } else {
-            println!("Execution failed.")
-        }
-    }
-
-    fn cmd_write_edges(&self, args: &mut dyn Iterator<Item=&str>) {
-        if let Some(arg) = args.next() {
-            match File::create(arg) {
-                Ok(mut file) => {
-                    if let Err(e) = self.g.to_edge_list(&mut file) {
-                        println!("Error writing file: {}", e);
-                    }
-                },
-                Err(e) => {
-                    println!("File could not be opened for writing: {}", e);
-                }
-            }
-        } else {
-            println!("Usage: write-edges [FILENAME]");
-        }
-    }
-
-    fn cmd_write_codes(&self, args: &mut dyn Iterator<Item=&str>) {
-        if let Some(arg) = args.next() {
-            match File::create(arg) {
-                Ok(mut file) => {
-                    if let Err(e) = self.g.to_code_list(&mut file) {
-                        println!("Error writing file: {}", e);
-                    }
-                },
-                Err(e) => {
-                    println!("File could not be opened for writing: {}", e);
-                }
-            }
-        } else {
-            println!("Usage: write-codes [FILENAME]");
-        }
-    }
-
-    fn cmd_write_levels(&self, args: &mut dyn Iterator<Item=&str>) {
-        if let Some(arg) = args.next() {
-            match File::create(arg) {
-                Ok(mut file) => {
-                    if let Err(e) = self.g.to_level_list(&mut file) {
-                        println!("Error writing file: {}", e);
-                    }
-                },
-                Err(e) => {
-                    println!("File could not be opened for writing: {}", e);
-                }
-            }
-        } else {
-            println!("Usage: write-levels [FILENAME]");
         }
     }
 
