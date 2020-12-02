@@ -5,12 +5,12 @@ use std::str::FromStr;
 use regex::Regex;
 use crate::schnyder::SchnyderMap;
 use std::path::Path;
-use crate::schnyder::io::TikzOptions;
+use crate::schnyder::tikz::TikzOptions;
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use std::io::stdout;
 use clap::{App, AppSettings, ArgMatches};
 use shellwords::split;
-use crate::schnyder::algorithm::check_triangle;
+use crate::schnyder::io::{write_as_ascii_representation, write_as_binary_representation};
 
 pub struct Repl {
     g: Flipgraph
@@ -213,11 +213,25 @@ impl Repl {
     }
 
     fn select_ascii_out(&self, v: usize, folder: &Path) {
-
+        match File::create(folder.join( &format!("{}.a3t", v))) {
+            Ok(mut file) => {
+                if let Err(e) = write_as_ascii_representation(&mut file, self.g.get_code(v)) {
+                    println!("Error writing file: {}", e);
+                }
+            },
+            Err(e) => println!("File could not be opened for writing: {}", e)
+        }
     }
 
     fn select_binary_out(&self, v: usize, folder: &Path) {
-
+        match File::create(folder.join( &format!("{}.b3t", v))) {
+            Ok(mut file) => {
+                if let Err(e) =  write_as_binary_representation(&mut file, self.g.get_code(v)) {
+                    println!("Error writing file: {}", e);
+                }
+            },
+            Err(e) => println!("File could not be opened for writing: {}", e)
+        }
     }
 
     fn extract_condition(&self, str: &str) -> Option<Condition> {

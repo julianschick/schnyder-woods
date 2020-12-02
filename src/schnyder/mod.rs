@@ -32,6 +32,7 @@ macro_rules! invalid_wood {
 }
 
 pub mod algorithm;
+pub mod tikz;
 pub mod io;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

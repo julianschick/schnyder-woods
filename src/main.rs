@@ -1,15 +1,10 @@
 use std::fs::File;
 use std::sync::RwLock;
-use std::io::stdout;
 use clap::{App, ArgMatches};
 
-use crate::schnyder::SchnyderColor::{Red};
 use crate::schnyder::{SchnyderMap, SchnyderColor};
 use crate::util::debug::Debug;
-use crate::algorithm::{find_sequence_2, find_sequence};
 use crate::subcommands::{build, explore, convert_to_tikz};
-use crate::flipgraph::Flipgraph;
-use crate::schnyder::io::TikzOptions;
 
 #[macro_use]
 extern crate lazy_static;
@@ -49,8 +44,8 @@ fn main() {
                 .arg("<GRAPH> 'Flipgraph file'")
         ).subcommand(
             App::new("tikz")
-                .arg("<3CODE> 'ASCII 3 tree code file'")
-                .arg("-o, --output [OUTPUT] 'Output file to be written, otherwise output goes to STDOUT'")
+                .arg("<FILE> '3-treecode file to be read.'")
+                .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to'")
                 .arg("-e, --env 'Print tizpicture environment'")
                 .arg("-d, --doc 'Print standalone document (only effective, if -e/--env is specified)'")
@@ -98,9 +93,14 @@ fn main() {
     DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
 }*/
 
-fn test(matches: &ArgMatches) {
-    let wood = SchnyderMap::build_min_edge_wood(8, SchnyderColor::Blue).unwrap();
-    wood.write_tikz(&mut stdout(), &TikzOptions::default());
+fn test(_matches: &ArgMatches) {
+    let wood = SchnyderMap::build_min_edge_wood(42, SchnyderColor::Red).unwrap();
+    //wood.write_tikz(&mut stdout(), &TikzOptions::default());
+    let mut f = File::create("/tmp/test.out").unwrap();
+    wood.write_ascii_3treecode(&mut f).expect("TODO");
+    drop(f);
+    let wood_r = SchnyderMap::read_3treecode(&mut File::open("/tmp/test.out").unwrap()).unwrap();
+    eprintln!("eq = {:?}", wood == wood_r);
 
     /*let flipgraph_file = matches.value_of("GRAPH").unwrap();
 

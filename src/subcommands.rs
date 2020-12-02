@@ -3,80 +3,46 @@ use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
 use crate::repl::Repl;
 use clap::ArgMatches;
 use std::path::Path;
-use std::io::{Read, stdout};
-use std::convert::TryFrom;
-use crate::schnyder::io::TikzOptions;
+use std::io::stdout;
+use crate::schnyder::tikz::TikzOptions;
 use crate::schnyder::SchnyderMap;
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 
 pub fn convert_to_tikz(matches: &ArgMatches) {
 
-    let input_filename = matches.value_of("3CODE").unwrap();
-    let mut code = Vec::new();
+    let input_filename = matches.value_of("FILE").unwrap();
 
     if let Ok(mut input_file) = File::open(input_filename) {
-        let mut str = String::new();
-        if let Ok(_) = input_file.read_to_string(&mut str) {
 
-            let mut comment = false;
-            let mut buf = String::new();
-            for c in str.chars() {
-                if !comment {
-                    if c.is_numeric() {
-                        buf.push(c);
-                    } else {
-                        if !buf.is_empty() {
-                            if let Ok(nr) = u8::try_from(buf.parse::<usize>().unwrap()) {
-                                code.push(nr);
-                                buf.clear();
-                            } else {
-                                println!("Input file contained numbers above 255, this cannot be a valid 3tree code.");
-                                return;
-                            }
+        match SchnyderMap::read_3treecode(&mut input_file) {
+            Ok(wood) => {
+                let mut opts = TikzOptions::default();
+                opts.anchor = matches.value_of("anchor");
+                opts.print_document = matches.is_present("doc");
+                opts.print_environment = matches.is_present("env");
+                opts.print_styles = matches.is_present("styles");
+                opts.slanted = matches.is_present("slanted");
+
+                if let Some(output_filename) = matches.value_of("OUTPUT") {
+                    if let Ok(mut output_file) = File::create(output_filename) {
+                        if let Err(e) = wood.write_tikz(&mut output_file, &opts) {
+                            println!("Output file could not be written: {}", e);
                         }
+                    } else {
+                        println!("Output file '{}' could not be created or opened for writing.", output_filename);
+                    }
+                } else {
+                    if let Err(e) = wood.write_tikz(&mut std::io::stdout(), &opts) {
+                        println!("Output could not be written to STDOUT: {}", e);
                     }
                 }
-                if c == '\n' {
-                    comment = false;
-                }
-                if c == '#' {
-                    comment = true;
-                }
-            }
-
-        } else {
-            println!("Input file '{}' could not be read as text file.", input_filename);
+            },
+            Err(e) => println!("{}", e)
         }
     } else {
         println!("Input file '{}' could not be opened for reading.", input_filename);
-        return;
     }
 
-    let mut opts = TikzOptions::default();
-    opts.anchor = matches.value_of("anchor");
-    opts.print_document = matches.is_present("doc");
-    opts.print_environment = matches.is_present("env");
-    opts.print_styles = matches.is_present("styles");
-    opts.slanted = matches.is_present("slanted");
-
-    match SchnyderMap::build_from_3tree_code(&code) {
-        Ok(wood) => {
-            if let Some(output_filename) = matches.value_of("OUTPUT") {
-                if let Ok(mut output_file) = File::create(output_filename) {
-                    if let Err(e) = wood.write_tikz(&mut output_file, &opts) {
-                        println!("Output file could not be written: {}", e);
-                    }
-                } else {
-                    println!("Output file '{}' could not be created or opened for writing.", output_filename);
-                }
-            } else {
-                if let Err(e) = wood.write_tikz(&mut std::io::stdout(), &opts) {
-                    println!("Output could not be written to STDOUT: {}", e);
-                }
-            }
-        }
-        Err(e) => println!("Input could not be interpreted: {}", e.get_message())
-    }
 
 }
 

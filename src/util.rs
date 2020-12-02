@@ -127,7 +127,7 @@ pub mod debug {
     use std::collections::HashMap;
     use crate::graph::indices::VertexI;
     use std::io::Write;
-    use crate::schnyder::io::TikzOptions;
+    use crate::schnyder::tikz::TikzOptions;
 
     pub struct Debug {
         base_dir: &'static str,
