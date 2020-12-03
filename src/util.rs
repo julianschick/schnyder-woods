@@ -1,13 +1,6 @@
 use itertools::Itertools;
 use crate::util::iterators::cyclic::CyclicIterable;
 
-pub mod macros {
-    #[macro_export]
-    macro_rules! ge {
-        ($e:expr) => { return Err(GraphErr::new($e)) };
-    }
-}
-
 pub mod iterators {
 
     pub mod cyclic {

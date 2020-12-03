@@ -28,9 +28,10 @@ fn main() {
     let matches = App::new("schnyderflip")
         .version("1.0.1")
         .author("Julian Schick <julian.schick@posteo.de>")
-        .about("Algorithms for manipulating Schnyder woods")
+        .about("Algorithms for manipulating Schnyder woods with split and merge.")
         .subcommand(
             App::new("build")
+                .about("Builds a flipgraph and stores it to a file.")
                 .arg("<N> 'Number of vertices (at least 3 and at most 64)'")
                 .arg("<OUTPUT> 'Output file'")
                 .arg("-t --threads [t] 'Number of threads to start'")
@@ -41,16 +42,24 @@ fn main() {
         )
         .subcommand(
             App::new("explore")
+                .about("Loads a flipgraph into memory for exploration.")
                 .arg("<GRAPH> 'Flipgraph file'")
         ).subcommand(
             App::new("tikz")
+                .about("Reads a Schnyder wood from a 3-treecode file and generates LaTeX/TikZ directives.")
                 .arg("<FILE> '3-treecode file to be read.'")
-                .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT'")
-                .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to'")
-                .arg("-e, --env 'Print tizpicture environment'")
-                .arg("-d, --doc 'Print standalone document (only effective, if -e/--env is specified)'")
-                .arg("-s, --styles 'Print style definitions'")
-                .arg("-i, --slanted 'Print Schnyder wood slanted, such that the top suspension node is centered'")
+                .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
+                .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to.'")
+                .arg("-e, --env 'Print tizpicture environment.'")
+                .arg("-d, --doc 'Print standalone document (only effective, if -e/--env is specified).'")
+                .arg("-s, --styles 'Print style definitions.'")
+                .arg("-i, --slanted 'Print Schnyder wood slanted, such that the top suspension node is centered.'")
+        ).subcommand(
+            App::new("path")
+                .arg("<FROM> '3-treecode file to be read as starting Schnyder wood.'")
+                .arg("<TO> '3-treecode file to be read as ending Schnyder wood.'")
+                .arg("<ALGO> 'Algorithm to use, can be \'simplestack\' or \'contraction\''")
+                .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
         )
         .subcommand(
             App::new("test")
@@ -58,40 +67,16 @@ fn main() {
         .get_matches();
 
     match matches.subcommand() {
-        Some(("build", matches))=> {
-            build(matches);
-        },
-        Some(("explore", matches)) => {
-            explore(matches);
-        },
-        Some(("tikz", matches)) => {
-            convert_to_tikz(matches);
-        }
-        Some(("test", matches)) => {
-            test(matches);
-        },
+        Some(("build", matches))=> build(matches),
+        Some(("explore", matches)) => explore(matches),
+        Some(("tikz", matches)) => convert_to_tikz(matches),
+        Some(("test", matches)) => test(matches),
+        Some(("path", matches)) => {},
         _ => {
             println!("No valid command specified. Type 'schnyderflip help' for a list of valid commands.");
         }
     }
 }
-
-// Simple stack from 3code
-/*fn test() {
-    let n = 5u8;
-    let mut code = Vec::with_capacity(n as usize * 3);
-    code.extend(&[0, 0, 0]);
-    code.extend((3..5).map(|x| match x { 3 => 0, 4 => 2, _ => 0}));
-    code.extend((5..n).map(|x|x-1));
-    code.extend((0..n).map(|_| 1));
-    code.extend((0..n).map(|_| if n == 3 { 2 } else { 3 }));
-
-    let code = SchnyderMap::build_simple_stack(5, Red).unwrap().compute_3tree_code();
-
-    let wood = SchnyderMap::build_from_3tree_code(&code).unwrap();
-    DEBUG.write().unwrap().activate();
-    DEBUG.write().unwrap().output("std", &wood, Some("Wood"), &wood.calculate_face_counts());
-}*/
 
 fn test(_matches: &ArgMatches) {
     let wood = SchnyderMap::build_min_edge_wood(42, SchnyderColor::Red).unwrap();
