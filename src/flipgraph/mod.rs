@@ -14,6 +14,7 @@ use std::io::Write;
 use serde::{Serialize, Deserialize};
 
 pub mod io;
+pub mod stats;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {

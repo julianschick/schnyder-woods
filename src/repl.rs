@@ -121,6 +121,7 @@ impl Repl {
                     App::new("stats")
                         .about("Print statistics about the currently loaded flipgraph")
                         .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format.'")
+                        .arg("-d, --check 'Checks the stats against the known formulas.'")
                 )
                 .subcommand(
                     App::new("exit")
@@ -259,10 +260,12 @@ impl Repl {
     }
 
     fn cmd_stats(&self, matches: &ArgMatches) {
+        let with_check = matches.is_present("check");
+
         if matches.is_present("csv") {
-            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV).unwrap();
+            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV, with_check).unwrap();
         } else {
-            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable).unwrap();
+            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable, with_check).unwrap();
         }
     }
 

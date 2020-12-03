@@ -34,6 +34,7 @@ macro_rules! invalid_wood {
 pub mod algorithm;
 pub mod tikz;
 pub mod io;
+pub mod figures;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {

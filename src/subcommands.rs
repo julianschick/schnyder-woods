@@ -108,7 +108,7 @@ pub fn build(matches: &ArgMatches) {
     }
 
     let g = build_flipgraph(n, min_level, max_level, symmetry_breaking, num_threads);
-    write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable).unwrap();
+    write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable, false).unwrap();
 
     println!("\nWriting Flipgraph to file '{}'...", output_arg);
     {
