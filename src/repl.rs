@@ -121,7 +121,7 @@ impl Repl {
                     App::new("stats")
                         .about("Print statistics about the currently loaded flipgraph")
                         .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format.'")
-                        .arg("-d, --check 'Checks the stats against the known formulas.'")
+                        .arg("-d, --check 'Checks the stats against the proven formulas. The program is terminated with an assertion failure if any formula fails.'")
                 )
                 .subcommand(
                     App::new("exit")

@@ -5,6 +5,7 @@ use clap::{App, ArgMatches};
 use crate::schnyder::{SchnyderMap, SchnyderColor};
 use crate::util::debug::Debug;
 use crate::subcommands::{build, explore, convert_to_tikz};
+use crate::subcommands::random_walk;
 
 #[macro_use]
 extern crate lazy_static;
@@ -62,6 +63,10 @@ fn main() {
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
         )
         .subcommand(
+            App::new("random-walk")
+                .arg("<N> 'Number of vertices (at least 3 and at most 200)'")
+        )
+        .subcommand(
             App::new("test")
         )
         .get_matches();
@@ -70,6 +75,7 @@ fn main() {
         Some(("build", matches))=> build(matches),
         Some(("explore", matches)) => explore(matches),
         Some(("tikz", matches)) => convert_to_tikz(matches),
+        Some(("random-walk", matches)) => random_walk(matches),
         Some(("test", matches)) => test(matches),
         Some(("path", matches)) => {},
         _ => {

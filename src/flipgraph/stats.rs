@@ -15,7 +15,6 @@ pub struct Stats {
     pub minima: usize
 }
 
-
 impl Flipgraph {
 
     pub fn compute_stats(&self, with_check: bool) -> Vec<Stats> {

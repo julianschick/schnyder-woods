@@ -4,6 +4,7 @@ use crate::repl::Repl;
 use clap::ArgMatches;
 use std::path::Path;
 use std::io::stdout;
+use std::time::Duration;
 use crate::schnyder::tikz::TikzOptions;
 use crate::schnyder::SchnyderMap;
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
@@ -23,7 +24,16 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                 opts.print_styles = matches.is_present("styles");
                 opts.slanted = matches.is_present("slanted");
 
-                if let Some(output_filename) = matches.value_of("OUTPUT") {
+                let ops = wood.get_admissible_ops().expect("TODO");
+                let title = &format!("|E| = {}, deg = {}, updeg = {}, downdeg = {}",
+                                     wood.map.edge_count(),
+                                     ops.len(),
+                                     ops.iter().filter(|op| op.is_upwards()).count(),
+                                     ops.iter().filter(|op| op.is_downwards()).count()
+                );
+                opts.title = Some(title);
+
+                if let Some(output_filename) = matches.value_of("output") {
                     if let Ok(mut output_file) = File::create(output_filename) {
                         if let Err(e) = wood.write_tikz(&mut output_file, &opts) {
                             println!("Output file could not be written: {}", e);
@@ -47,11 +57,11 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
 }
 
 pub fn build(matches: &ArgMatches) {
-    let n = match str::parse::<usize>(matches.value_of("N").unwrap()) {
-        Ok(n) if n >= 3 && n <= 64 => n,
-        Ok(_) => { println!("N should be at least 3 and at most 64"); return; }
-        _ => { println!("N should be a positive number."); return; }
+    let n = match retrieve_n(matches, 64) {
+        Some(n) => n,
+        None => return
     };
+
 
     let min_level = match matches.value_of("min-level").map(|m|  str::parse::<usize>(m)) {
         Some(Ok(k)) => Some(k),
@@ -137,5 +147,21 @@ pub fn explore(matches: &ArgMatches) {
     } else {
         println!("File '{}' could not be opened for reading.", flipgraph_file);
     }
+}
 
+pub fn random_walk(matches: &ArgMatches) {
+    let n = match retrieve_n(matches, 200) {
+        Some(n) => n,
+        None => return
+    };
+
+    crate::flipgraph::random_walk::random_walk(n, 4, Some(Duration::from_secs(60*60)), None);
+}
+
+fn retrieve_n(matches: &ArgMatches, upper_bound: usize) -> Option<usize> {
+    match str::parse::<usize>(matches.value_of("N").unwrap()) {
+        Ok(n) if n >= 3 && n <= upper_bound => Some(n),
+        Ok(_) => { println!("N should be at least 3 and at most {}", upper_bound); None }
+        _ => { println!("N should be a positive number."); None }
+    }
 }

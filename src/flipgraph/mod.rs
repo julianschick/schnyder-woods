@@ -5,7 +5,7 @@ use crate::graph::enums::ClockDirection;
 use crate::graph::enums::ClockDirection::{CW, CCW};
 use crate::schnyder::SchnyderColor::{Red, Green, Blue};
 use crate::schnyder::SchnyderMap;
-use std::time::{Instant};
+use std::time::{Instant, Duration};
 use std::thread;
 use itertools::Itertools;
 use std::sync::mpsc::channel;
@@ -15,6 +15,7 @@ use serde::{Serialize, Deserialize};
 
 pub mod io;
 pub mod stats;
+pub mod random_walk;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
@@ -46,6 +47,10 @@ pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usi
         if min > max {
             panic!("Invalid min/max levels given.");
         }
+    }
+
+    if n < 3 {
+        panic!("n must be at least 3.");
     }
 
     let g = Arc::new(Mutex::new(Flipgraph::new(n)));
@@ -182,7 +187,7 @@ pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usi
 
                 }
 
-                if last_print.elapsed().as_secs() > 5 {
+                if last_print.elapsed().as_millis() >= 5000 {
 
                     if i == 0 {
                         println!("{:<8}|{:>14}|{:>14}|", "TOTAL", "NODES", "STACKLEN");

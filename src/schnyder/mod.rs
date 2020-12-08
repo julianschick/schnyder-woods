@@ -1120,6 +1120,7 @@ impl SchnyderMap {
         Ok(Operation::ext_merge(hinge, opposite))
     }
 
+    // TODO this should not be a result but a plain vector
     pub fn get_admissible_ops(&self) -> GraphResult<Vec<Operation>> {
 
         let mut result = Vec::new();

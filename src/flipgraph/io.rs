@@ -28,6 +28,15 @@ pub fn write_flipgraph(g: &Flipgraph, w: &mut dyn Write, format: FlipgraphOutput
     Ok(())
 }
 
+pub fn write_random_walk(w: &mut dyn Write, format: FlipgraphOutputFormat, stats: &Vec<Stats>, with_check: bool) -> std::io::Result<()> {
+    write_stats_header(w, format)?;
+    for stats_entry in stats {
+        write_stats_line(w, format, &stats_entry)?;
+    }
+
+    Ok(())
+}
+
 
 fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::io::Result<()> {
     match format {
