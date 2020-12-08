@@ -1,6 +1,6 @@
 use crate::flipgraph::Flipgraph;
 use std::io::Write;
-use crate::flipgraph::stats::Stats;
+use crate::flipgraph::stats::{Stats, StatsLine};
 
 #[derive(Copy, Clone)]
 pub enum FlipgraphOutputFormat {
@@ -20,23 +20,31 @@ pub fn write_flipgraph(g: &Flipgraph, w: &mut dyn Write, format: FlipgraphOutput
     writeln!(w, "{}|E| = {}", prefix, g.edge_count())?;
     writeln!(w, "{}", prefix)?;
 
-    write_stats_header(w, format)?;
-    for stats_entry in g.compute_stats(with_check) {
-        write_stats_line(w, format, &stats_entry)?;
-    }
+    let stats = g.compute_stats();
+    write_stats(w, &stats, format)?;
+    if with_check { stats.check(false); }
 
     Ok(())
 }
 
-pub fn write_random_walk(w: &mut dyn Write, format: FlipgraphOutputFormat, stats: &Vec<Stats>, with_check: bool) -> std::io::Result<()> {
+/*pub fn write_random_walk(w: &mut dyn Write, format: FlipgraphOutputFormat, stats: &Vec<Stats>, with_check: bool) -> std::io::Result<()> {
     write_stats_header(w, format)?;
     for stats_entry in stats {
         write_stats_line(w, format, &stats_entry)?;
     }
 
     Ok(())
-}
+}*/
 
+fn write_stats(w: &mut dyn Write, stats: &Stats, format: FlipgraphOutputFormat) -> std::io::Result<()> {
+    write_stats_header(w, format)?;
+    write_stats_line(w, &stats.total,  format,"*")?;
+    for level in stats.min_level..=stats.max_level {
+        write_stats_line(w, &stats.levels[&level], format, &level.to_string())?;
+    }
+
+    Ok(())
+}
 
 fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::io::Result<()> {
     match format {
@@ -47,12 +55,7 @@ fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::
     }
 }
 
-fn write_stats_line(w: &mut dyn Write, format: FlipgraphOutputFormat, stats: &Stats) -> std::io::Result<()> {
-
-    let name = match stats.level {
-        None => "*".to_string(),
-        Some(nr) => nr.to_string()
-    };
+fn write_stats_line(w: &mut dyn Write, stats: &StatsLine, format: FlipgraphOutputFormat, name: &str) -> std::io::Result<()> {
 
     match format {
         FlipgraphOutputFormat::TabbedTable =>

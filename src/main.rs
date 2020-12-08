@@ -33,11 +33,11 @@ fn main() {
         .subcommand(
             App::new("build")
                 .about("Builds a flipgraph and stores it to a file.")
-                .arg("<N> 'Number of vertices (at least 3 and at most 64)'")
+                .arg("<N> 'Number of vertices (at least 3 and at most 64).'")
                 .arg("<OUTPUT> 'Output file'")
-                .arg("-t --threads [t] 'Number of threads to start'")
-                .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph'")
-                .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph'")
+                .arg("-t --threads [t] 'Number of threads use for the traversal.'")
+                .arg("-c --break-color-symmetry 'Interpret Schnyder woods that differ only in color rotation as the same node of the flip graph.'")
+                .arg("-o --break-orientation-symmetry 'Interpret Schnyder woods that differ only in orientation as the same node of the flip graph.'")
                 .arg("--min-level [LEVEL] 'Do not include levels below the given level.'")
                 .arg("--max-level [LEVEL] 'Do not include levels above the given level.'")
         )
@@ -47,24 +47,25 @@ fn main() {
                 .arg("<GRAPH> 'Flipgraph file'")
         ).subcommand(
             App::new("tikz")
-                .about("Reads a Schnyder wood from a 3-treecode file and generates LaTeX/TikZ directives.")
+                .about("Reads a Schnyder wood from an ascii or binary 3-treecode file and generates LaTeX/TikZ directives.")
                 .arg("<FILE> '3-treecode file to be read.'")
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to.'")
-                .arg("-e, --env 'Print tizpicture environment.'")
-                .arg("-d, --doc 'Print standalone document (only effective, if -e/--env is specified).'")
+                .arg("-e, --env 'Print tikzpicture environment.'")
+                .arg("-d, --doc 'Wrap picture environment in standalone document (only effective, if -e/--env is specified).'")
                 .arg("-s, --styles 'Print style definitions.'")
-                .arg("-i, --slanted 'Print Schnyder wood slanted, such that the top suspension node is centered.'")
+                .arg("-i, --slanted 'Shear the drawing in x-direction so that the outer triangle is equilateral.'")
         ).subcommand(
             App::new("path")
                 .arg("<FROM> '3-treecode file to be read as starting Schnyder wood.'")
                 .arg("<TO> '3-treecode file to be read as ending Schnyder wood.'")
-                .arg("<ALGO> 'Algorithm to use, can be \'simplestack\' or \'contraction\''")
+                .arg("<ALGO> 'Algorithm to use, can be \'simplestack\' or \'contraction\'.'")
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
+                .arg("-s, --steps [DIR] 'Output directory for all intermediate Schnyder woods.'")
         )
         .subcommand(
             App::new("random-walk")
-                .arg("<N> 'Number of vertices (at least 3 and at most 200)'")
+                .arg("<N> 'Number of vertices (at least 3 and at most 200).'")
         )
         .subcommand(
             App::new("test")
@@ -76,8 +77,8 @@ fn main() {
         Some(("explore", matches)) => explore(matches),
         Some(("tikz", matches)) => convert_to_tikz(matches),
         Some(("random-walk", matches)) => random_walk(matches),
+        Some(("path", _matches)) => {},
         Some(("test", matches)) => test(matches),
-        Some(("path", matches)) => {},
         _ => {
             println!("No valid command specified. Type 'schnyderflip help' for a list of valid commands.");
         }

@@ -136,7 +136,7 @@ pub fn explore(matches: &ArgMatches) {
     let flipgraph_file = matches.value_of("GRAPH").unwrap();
 
     if let Ok(file) = File::open(flipgraph_file) {
-        println!("Reading flipgraph...");
+        //println!("Reading flipgraph...");
         if let Ok(g) = serde_cbor::from_reader(file) {
             let mut repl = Repl::new(g);
             repl.main_loop();

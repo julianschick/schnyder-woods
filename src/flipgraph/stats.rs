@@ -1,9 +1,17 @@
 use crate::flipgraph::Flipgraph;
 use itertools::Itertools;
 use crate::schnyder::figures::{min_level, max_level, min_degree_lb, min_degree_ub, min_updegree_lb_by_level, min_updegree_ub_by_level, min_downdegree_lb_by_level, min_downdegree_ub_by_level};
+use std::collections::HashMap;
 
 pub struct Stats {
-    pub level: Option<u8>,
+    pub n: u8,
+    pub total: StatsLine,
+    pub levels: HashMap<u8, StatsLine>,
+    pub min_level: u8,
+    pub max_level: u8
+}
+
+pub struct StatsLine {
     pub cardinality: usize,
     pub min_deg: usize,
     pub avg_deg: f64,
@@ -15,30 +23,97 @@ pub struct Stats {
     pub minima: usize
 }
 
-impl Flipgraph {
-
-    pub fn compute_stats(&self, with_check: bool) -> Vec<Stats> {
-        let levels = self.get_levels();
-
-        let mut result = Vec::with_capacity(levels.len() + 1);
-        result.push(self.compute_stats_for_subset(&(0..self.node_count()).collect_vec(), None, with_check));
-
-        for level in levels.keys().sorted_by_key(|l| -(**l as i16)) {
-            result.push(self.compute_stats_for_subset(&levels.get(level).unwrap(), Some(*level), with_check));
+macro_rules! check_eq {
+    ($name:literal, $e1: expr, $name1:literal, $e2: expr, $name2: literal) => {
+        if $e1 != $e2 {
+            println!("Check '{}' failed: {}: {} = {} :{}", $name, $name1, $e1, $e2, $name2);
         }
+    }
+}
 
-        if with_check {
-            let n = self.get_n();
-            assert_eq!(*levels.keys().min().unwrap(), min_level(n) as u8);
-            assert_eq!(*levels.keys().max().unwrap(), max_level(n) as u8);
-            assert!(result[0].min_deg as isize >= min_degree_lb(n));
-            assert!(result[0].min_deg <= min_degree_ub(n));
+macro_rules! check_geq {
+    ($name:literal, $e1: expr, $name1:literal, $e2: expr, $name2: literal) => {
+        if $e1 < $e2 {
+            println!("Check '{}' failed: {}: {} >= {} :{}", $name, $name1, $e1, $e2, $name2);
         }
+    }
+}
 
-        result
+macro_rules! check_leq {
+    ($name:literal, $e1: expr, $name1:literal, $e2: expr, $name2: literal) => {
+        if $e1 > $e2 {
+            println!("Check '{}' failed: {}: {} <= {} :{}", $name, $name1, $e1, $e2, $name2);
+        }
+    }
+}
+
+impl Stats {
+    pub fn check(&self, enveloppe_only: bool) {
+        self.enveloppe_check();
+        if !enveloppe_only {
+            self.inner_check()
+        }
     }
 
-    fn compute_stats_for_subset(&self, subset: &Vec<usize>, level: Option<u8>, with_check: bool) -> Stats {
+    fn enveloppe_check(&self) {
+        let n = self.n as usize;
+        check_geq!("MINDEG_LB", self.total.min_deg as isize, "minimum degree", min_degree_lb(n), "lower bound on minimum degree");
+        check_geq!("MINLEVEL_ENV", self.min_level, "actual minimum level", min_level(n) as u8, "calculated minimum level");
+        check_leq!("MAXLEVEL_ENV", self.max_level, "actual maximum level", max_level(n) as u8, "calculated maximum level");
+    }
+
+    fn inner_check(&self) {
+        let n = self.n as usize;
+        check_eq!("MINLEVEL", self.min_level, "actual minimum level", min_level(n) as u8, "calculated minimum level");
+        check_eq!("MAXLEVEL", self.max_level, "actual maximum level", max_level(n) as u8, "calculated maximum level");
+        check_leq!("MINDEG_UB", self.total.min_deg, "minimum degree", min_degree_ub(n), "upper bound on minimum degree");
+    }
+}
+
+impl StatsLine {
+    pub fn check(&self, n: u8, level: u8, enveloppe_only: bool) {
+        self.enveloppe_check(n, level);
+        if !enveloppe_only {
+            self.inner_check(n, level)
+        }
+    }
+
+    fn enveloppe_check(&self, n: u8, level: u8) {
+        let n = n as usize;
+        let l = level as usize;
+
+        check_geq!("MINUPDEG_LB", self.min_up_deg, "minimal up-degree", min_updegree_lb_by_level(n, l), "lower bound on minimal up-degree");
+        check_geq!("MINDOWNDEG_LB", self.min_down_deg, "minimal down-degree", min_downdegree_lb_by_level(n, l), "lower bound on minimal down-degree");
+    }
+
+    fn inner_check(&self, n: u8, level: u8) {
+        let n = n as usize;
+        let l = level as usize;
+
+        check_leq!("MINUPDEG_UB", self.min_up_deg, "minimal up-degree", min_updegree_ub_by_level(n, l), "upper bound on minimal up-degree");
+        check_leq!("MINDOENDEG_UB", self.min_down_deg, "minimal down-degree", min_downdegree_ub_by_level(n, l), "upper bound on minimal down-degree");
+    }
+}
+
+impl Flipgraph {
+
+    pub fn compute_stats(&self) -> Stats {
+        let total_stats = self.compute_stats_line(&(0..self.node_count()).collect_vec());
+        let level_stats: HashMap<_,_> = self.get_levels().iter()
+            .map(|(level, vertices)| (*level, self.compute_stats_line(vertices)))
+            .collect();
+        let min_level = *level_stats.keys().min().unwrap();
+        let max_level = *level_stats.keys().max().unwrap();
+
+        Stats {
+            n: self.get_n(),
+            levels: level_stats,
+            total: total_stats,
+            min_level, max_level
+        }
+    }
+
+    fn compute_stats_line(&self, subset: &Vec<usize>) -> StatsLine {
 
         let degrees = subset.iter().map(|idx| self.get_neighbors(*idx).count()).collect_vec();
         let down_degrees = subset.iter().map(|idx| self.get_neighbors(*idx).filter(|&&nb| self.get_level(nb) < self.get_level(*idx)).count()).collect_vec();
@@ -57,20 +132,7 @@ impl Flipgraph {
 
         let cardinality = subset.len();
 
-        if with_check {
-            if let Some(l) = level {
-                let n = self.get_n();
-                let l = l as usize;
-
-                assert!(min_up_deg >= min_updegree_lb_by_level(n, l));
-                assert!(min_up_deg <= min_updegree_ub_by_level(n, l));
-                assert!(min_down_deg >= min_downdegree_lb_by_level(n, l));
-                assert!(min_down_deg <= min_downdegree_ub_by_level(n, l));
-            }
-        }
-
-        Stats {
-            level,
+        StatsLine {
             cardinality, min_deg, avg_deg, max_deg,
             min_up_deg, max_up_deg,
             min_down_deg, max_down_deg,

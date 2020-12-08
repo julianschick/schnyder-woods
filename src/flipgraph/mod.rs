@@ -1,17 +1,18 @@
 use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, VecDeque};
-use crate::schnyder::SchnyderColor;
-use crate::graph::enums::ClockDirection;
-use crate::graph::enums::ClockDirection::{CW, CCW};
-use crate::schnyder::SchnyderColor::{Red, Green, Blue};
-use crate::schnyder::SchnyderMap;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 use std::thread;
 use itertools::Itertools;
 use std::sync::mpsc::channel;
 use bimap::BiMap;
 use std::io::Write;
 use serde::{Serialize, Deserialize};
+
+use crate::schnyder::SchnyderColor;
+use crate::graph::enums::ClockDirection;
+use crate::graph::enums::ClockDirection::{CW, CCW};
+use crate::schnyder::SchnyderColor::{Red, Green, Blue};
+use crate::schnyder::SchnyderMap;
 
 pub mod io;
 pub mod stats;
@@ -256,9 +257,9 @@ impl Flipgraph {
         ).sum()
     }
 
-    pub fn get_n(&self) -> usize {
+    pub fn get_n(&self) -> u8 {
         if let Some((code, _)) = self.nodes_by_treecode.iter().next() {
-            code.len()  / 3
+            (code.len()  / 3) as u8
         } else {
             return 0;
         }
@@ -321,13 +322,13 @@ impl Flipgraph {
 
     pub fn to_edge_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         let n = self.edge_count();
-        writer.write_all(&n.to_le_bytes())?;
+        writer.write_all(&(n as u64).to_le_bytes())?;
 
         for v1 in 0..self.adjacencies.len() {
             for &v2 in &self.adjacencies[v1] {
                 if v1 < v2 {
-                    writer.write_all(&v1.to_le_bytes())?;
-                    writer.write_all(&v2.to_le_bytes())?;
+                    writer.write_all(&(v1 as u64).to_le_bytes())?;
+                    writer.write_all(&(v2 as u64).to_le_bytes())?;
                 }
             }
         }
@@ -337,7 +338,7 @@ impl Flipgraph {
 
     pub fn to_code_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         if let Some((code, _)) = self.nodes_by_treecode.iter().next() {
-            writer.write_all(&code.len().to_le_bytes())?;
+            writer.write_all(&(code.len() as u64).to_le_bytes())?;
 
             for v in 0..self.adjacencies.len() {
                 writer.write_all(&self.nodes_by_treecode.get_by_right(&v).unwrap())?;

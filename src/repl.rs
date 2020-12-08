@@ -1,16 +1,15 @@
-use rustyline::Editor;
-use crate::flipgraph::Flipgraph;
 use std::fs::File;
 use std::str::FromStr;
-use regex::Regex;
-use crate::schnyder::SchnyderMap;
 use std::path::Path;
-use crate::schnyder::tikz::TikzOptions;
-use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use std::io::stdout;
+use regex::Regex;
+use rustyline::Editor;
 use clap::{App, AppSettings, ArgMatches};
 use shellwords::split;
+
+use crate::flipgraph::Flipgraph;
 use crate::schnyder::io::{write_as_ascii_representation, write_as_binary_representation};
+use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 
 pub struct Repl {
     g: Flipgraph
@@ -92,24 +91,28 @@ impl Repl {
             return true;
         }
 
+        if line.trim() == "execute order 42" {
+            println!("You're confusing some things.");
+            return true;
+        }
+
         if let Ok(tokens) = split(line) {
             let matches = App::new("")
                 .setting(AppSettings::NoBinaryName)
                 .subcommand(
                     App::new("save")
-                        .about("Write graph to file in EDGE64 format.")
+                        .about("Write flip graph to file(s) in data interchange formats.")
                         .arg("-e, --edges 'Write a file containing the graph in EDGE64 format. The suffix \'.edges\' is appended to the base name.")
                         .arg("-l, --levels 'Write a file containing the vertex levels in LEVEL8 format. The suffix \'.levels\' is appended to the base name.")
                         .arg("-w, --woods 'Write a file containing the graph in L3TREECODE8 format. The suffix \'.woods\' is appended to the base name.")
-                        .arg("<FILE> 'Base name for the file(s) to be written'")
+                        .arg("<FILE> 'Base name for the file(s) to be written.'")
                 )
                 .subcommand(
                     App::new("select")
                         .about("Selects nodes from the flipgraph that fulfill a set of conditions. If no output flags are set, just the count of matches is printed.")
                         .arg("-d, --dir [DIR] 'Output directory. Without the output directory given, the other output flags do not have any effect.'")
-                        .arg("-a, --ascii 'Write woods in ASCII 3TREECODE. File ending will be \'.a3t\'.'")
-                        .arg("-b, --binary 'Write woods in binary 3TREECODE8. File ending will be \'.b3t\'.'")
-                        .arg("-t, --tikz 'Write woods as LaTeX/Tikz directives. File ending will be \'.tex\'.'")
+                        .arg("-a, --ascii 'Write woods in ASCII 3TREECODE to the file \'<NODE NR>.a3t\'.'")
+                        .arg("-b, --binary 'Write woods in binary 3TREECODE8 to the file \'<NODE NR>.b3t\'.'")
                         .arg("[CONDITION]... 'Conditions for selection of woods. The conditions must be formatted as follows: (level|deg|updeg|downdeg)(<|<=|=|=>|>)(NUMBER). If multiple conditions are given, they are joined by a logical \'AND\'.'")
                 )
                 .subcommand(
@@ -176,9 +179,6 @@ impl Repl {
                 count += 1;
 
                 if let Some(output_folder) = output_folder {
-                    if matches.is_present("tikz") {
-                        self.select_tikz_out(v, output_folder);
-                    }
                     if matches.is_present("ascii") {
                         self.select_ascii_out(v, output_folder);
                     }
@@ -190,27 +190,6 @@ impl Repl {
         }
 
         println!("{} woods matched.", count);
-    }
-
-    fn select_tikz_out(&self, v: usize, folder: &Path) {
-        let wood = SchnyderMap::build_from_3tree_code(self.g.get_code(v)).unwrap();
-        let title = &format!("|E| = {}, deg = {}, updeg = {}, downdeg = {}",
-                             self.g.get_level(v),
-                             self.g.get_degree(v),
-                             self.g.get_updegree(v),
-                             self.g.get_downdegree(v)
-        );
-        match File::create(folder.join( &format!("{}.tex", v))) {
-            Ok(mut file) => {
-                let mut opts = TikzOptions::default();
-                opts.title = Some(title);
-
-                if let Err(e) = wood.write_tikz(&mut file, &opts) {
-                    println!("Error writing file: {}", e);
-                }
-            },
-            Err(e) => println!("File could not be opened for writing: {}", e)
-        }
     }
 
     fn select_ascii_out(&self, v: usize, folder: &Path) {

@@ -1,22 +1,19 @@
-use crate::schnyder::{SchnyderMap, SchnyderColor};
 use std::time::{Duration, Instant};
-use rand::{thread_rng, Rng};
-use super::stats::Stats;
-use crate::schnyder::algorithm::Operation;
 use std::cmp::{min, max};
-use itertools::Itertools;
-use crate::flipgraph::io::FlipgraphOutputFormat::TabbedTable;
-use crate::flipgraph::io::write_random_walk;
-use std::io::stdout;
 use std::thread;
 use std::fs::File;
+use rand::{thread_rng, Rng};
+use itertools::Itertools;
 use chrono::Local;
 
-impl Stats {
+use super::stats::StatsLine;
+use crate::schnyder::algorithm::Operation;
+use crate::schnyder::{SchnyderMap, SchnyderColor};
 
-    pub fn neutral() -> Stats {
-        Stats {
-            level: None,
+impl StatsLine {
+
+    pub fn neutral() -> StatsLine {
+        StatsLine {
             cardinality: 0,
             min_deg: usize::max_value(),
             avg_deg: 0f64,
@@ -29,12 +26,11 @@ impl Stats {
         }
     }
 
-    pub fn from_schnyder_wood(wood: &SchnyderMap, admissible_ops: &Vec<Operation>) -> Stats {
+    pub fn from_admissible_ops(admissible_ops: &Vec<Operation>) -> StatsLine {
         let up = admissible_ops.iter().filter(|op| op.is_upwards()).count();
         let down = admissible_ops.iter().filter(|op| op.is_downwards()).count();
 
-        Stats {
-            level: Some(wood.map.edge_count() as u8),
+        StatsLine {
             cardinality: 1,
             min_deg: admissible_ops.len(),
             avg_deg: admissible_ops.len() as f64,
@@ -47,7 +43,7 @@ impl Stats {
         }
     }
 
-    pub fn aggregate(&mut self, other: &Stats) {
+    pub fn aggregate(&mut self, other: &StatsLine) {
 
         let n1 = self.cardinality as f64;
         let n2 = other.cardinality as f64;
@@ -82,7 +78,7 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
     let max_level = crate::schnyder::figures::max_level(n);
     let number_of_levels = max_level - min_level + 1;
 
-    for i in 0..thread_count {
+    for _ in 0..thread_count {
         let walk_start_instant = Instant::now();
         let mut sample_count = 0;
         //
@@ -90,9 +86,9 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
         let mut samples_since_last_log = 0;
         //
         let mut sample_bins = (0..number_of_levels)
-            .map(|_| Stats::neutral())
+            .map(|_| StatsLine::neutral())
             .collect_vec();
-        let mut overall_sample_bin = Stats::neutral();
+        let mut overall_sample_bin = StatsLine::neutral();
 
         let handle = thread::spawn(move || {
             let mut rand = thread_rng();
@@ -107,18 +103,17 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
 
             loop {
 
-                for mut cur in current.iter_mut() {
+                for cur in current.iter_mut() {
                     let admissible_ops = cur.get_admissible_ops().expect("TODO");
 
                     if admissible_ops.len() >= 45 {
-                        let mut f = File::create(&format!("/tmp/randomout/{}", Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")));
+                        let  f = File::create(&format!("/tmp/randomout/{}", Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")));
                         if let Ok(mut f) = f {
-
                             cur.write_binary_3treecode(&mut f);
                         }
                     }
 
-                    let sample = Stats::from_schnyder_wood(&cur, &admissible_ops);
+                    let sample = StatsLine::from_admissible_ops(&admissible_ops);
                     overall_sample_bin.aggregate(&sample);
                     sample_bins[cur.map.edge_count() - min_level].aggregate(&sample);
 
@@ -156,10 +151,10 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
         handles.push(handle);
     }
 
-    let mut sample_bins = (0..=number_of_levels).map(|_| Stats::neutral()).collect_vec();
-    for i in 1..=number_of_levels {
+    let mut sample_bins = (0..=number_of_levels).map(|_| StatsLine::neutral()).collect_vec();
+    /*for i in 1..=number_of_levels {
         sample_bins[i].level = Some((max_level - (i - 1)) as u8);
-    }
+    }*/
 
     for handle in handles {
         let bins = handle.join().unwrap();
@@ -170,5 +165,5 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
 
 
     println!("Done. {} samples collected.", sample_bins[0].cardinality);
-    write_random_walk(&mut stdout(), TabbedTable, &sample_bins, false);
+    //write_random_walk(&mut stdout(), TabbedTable, &sample_bins, false);
 }
