@@ -1,14 +1,12 @@
 use std::fs::File;
-use std::sync::RwLock;
 use clap::{App, ArgMatches};
-
 use crate::schnyder::{SchnyderMap, SchnyderColor};
-use crate::util::debug::Debug;
 use crate::subcommands::{build, explore, convert_to_tikz, path};
 use crate::subcommands::random_walk;
 
-#[macro_use]
-extern crate lazy_static;
+#[cfg(debug_assertions)] use crate::util::debug::Debug;
+#[cfg(debug_assertions)] use std::sync::RwLock;
+#[cfg(debug_assertions)] #[macro_use] extern crate lazy_static;
 
 pub mod flipgraph;
 pub mod graph;
@@ -21,6 +19,7 @@ mod arraytree;
 mod repl;
 mod subcommands;
 
+#[cfg(debug_assertions)]
 lazy_static! {
     static ref DEBUG: RwLock<Debug> = RwLock::new(Debug::new("/tmp/schnyder"));
 }

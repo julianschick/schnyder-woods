@@ -113,6 +113,7 @@ pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
     }
 }
 
+#[cfg(debug_assertions)]
 pub mod debug {
     use std::path::Path;
     use std::fs::{create_dir, File, remove_dir_all};
