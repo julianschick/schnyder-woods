@@ -5,11 +5,20 @@ use pad::{PadStr, Alignment};
 use itertools::Itertools;
 use std::convert::TryFrom;
 use crate::graph::error::{GraphErr, GraphResult};
+use std::fs::File;
 
 impl SchnyderMap {
 
+    pub fn write_binary_3treecode_to_file(&self, path: &str) -> Result<()> {
+        self.write_binary_3treecode(&mut File::create(path)?)
+    }
+
     pub fn write_binary_3treecode(&self, w: &mut dyn Write) -> Result<()> {
         return write_as_binary_representation(w, &self.compute_3tree_code());
+    }
+
+    pub fn write_ascii_3treecode_to_file(&self, path: &str) -> Result<()> {
+        self.write_ascii_3treecode(&mut File::create(path)?)
     }
 
     pub fn write_ascii_3treecode(&self, w: &mut dyn Write) -> Result<()> {

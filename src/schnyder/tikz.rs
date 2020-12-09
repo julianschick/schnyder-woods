@@ -179,7 +179,7 @@ impl SchnyderMap {
         }
 
         if let Some(title) = options.title {
-            mid.extend(format!("{}\\node[yshift=2em, align=center, font=\\large\\bfseries] at (current bounding box.north) {{{}}};\n", ind, title).chars());
+            mid.extend(format!("{}\\node[yshift=-1.5em, align=center] at (current bounding box.south) {{{}}};\n", ind, title).chars());
         }
 
         let preamble = {

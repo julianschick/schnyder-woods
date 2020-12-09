@@ -49,9 +49,9 @@ fn write_stats(w: &mut dyn Write, stats: &Stats, format: FlipgraphOutputFormat) 
 fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::io::Result<()> {
     match format {
         FlipgraphOutputFormat::TabbedTable =>
-            writeln!(w, "{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min↑Deg", "Max↑Deg", "Min↓Deg", "Max↓Deg", "#Minima"),
+            writeln!(w, "{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}", "#Edges", "#Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min↑Deg", "Max↑Deg", "Min↓Deg", "Max↓Deg", "#Minimums"),
         FlipgraphOutputFormat::CSV =>
-            writeln!(w, "{};{};{};{};{};{};{};{};{};{}", "Edges", "Woods", "MinDeg", "AvgDeg", "MaxDeg", "Min↑Deg", "Max↑Deg", "Min↓Deg", "Max↓Deg", "Minima")
+            writeln!(w, "{};{};{};{};{};{};{};{};{};{}", "Edges", "Woods", "MinDeg", "AvgDeg", "MaxDeg", "MinUpDeg", "MaxUpDeg", "MinDownDeg", "MaxDownDeg", "Minimums")
     }
 }
 

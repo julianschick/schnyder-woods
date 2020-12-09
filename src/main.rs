@@ -4,7 +4,7 @@ use clap::{App, ArgMatches};
 
 use crate::schnyder::{SchnyderMap, SchnyderColor};
 use crate::util::debug::Debug;
-use crate::subcommands::{build, explore, convert_to_tikz};
+use crate::subcommands::{build, explore, convert_to_tikz, path};
 use crate::subcommands::random_walk;
 
 #[macro_use]
@@ -55,6 +55,7 @@ fn main() {
                 .arg("-d, --doc 'Wrap picture environment in standalone document (only effective, if -e/--env is specified).'")
                 .arg("-s, --styles 'Print style definitions.'")
                 .arg("-i, --slanted 'Shear the drawing in x-direction so that the outer triangle is equilateral.'")
+                .arg("-f, --stats 'Include number of edges, degree, down-degree and up-degree as text.'")
         ).subcommand(
             App::new("path")
                 .arg("<FROM> '3-treecode file to be read as starting Schnyder wood.'")
@@ -62,6 +63,7 @@ fn main() {
                 .arg("<ALGO> 'Algorithm to use, can be \'simplestack\' or \'contraction\'.'")
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
                 .arg("-s, --steps [DIR] 'Output directory for all intermediate Schnyder woods.'")
+                .arg("-c, --color [COLOR] 'In case of the simple stack algorithm being used, choose the color of the simple stack. Can be red, green or blue. Default is red.'")
         )
         .subcommand(
             App::new("random-walk")
@@ -77,7 +79,7 @@ fn main() {
         Some(("explore", matches)) => explore(matches),
         Some(("tikz", matches)) => convert_to_tikz(matches),
         Some(("random-walk", matches)) => random_walk(matches),
-        Some(("path", _matches)) => {},
+        Some(("path", matches)) => path(matches),
         Some(("test", matches)) => test(matches),
         _ => {
             println!("No valid command specified. Type 'schnyderflip help' for a list of valid commands.");

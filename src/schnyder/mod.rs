@@ -22,6 +22,7 @@ use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::error::{IndexAccessError, GraphErr, GraphResult};
 use crate::graph::enums::{Signum, ClockDirection, Side};
 use crate::graph::data_holders::{NbVertex, Vertex, Face, Edge};
+use std::str::FromStr;
 
 static INVALID_WOOD: &str = "Assertion failed, invalid Schnyder wood detected.";
 static INTERNAL_ASSERTION: &str = "Internal assertion of class SchnyderMap failed.";
@@ -57,6 +58,19 @@ impl IndexedEnum<SchnyderColor> for SchnyderColor {
 
     fn number() -> usize {
         3
+    }
+}
+
+impl FromStr for SchnyderColor {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "r" | "red" => Ok(SchnyderColor::Red),
+            "g" |"green" => Ok(SchnyderColor::Green),
+            "b" | "blue" => Ok(SchnyderColor::Blue),
+            _ => Err(())
+        }
     }
 }
 
@@ -604,16 +618,6 @@ impl SchnyderMap {
         }
 
         return SchnyderMap::try_from(smap);
-    }
-
-    pub fn clone(&self) -> SchnyderMap {
-        SchnyderMap {
-            map: self.map.clone_with_maps(|v| *v, |e| *e, Some(|_|())),
-            outer_face: self.outer_face,
-            red_vertex: self.red_vertex,
-            green_vertex: self.green_vertex,
-            blue_vertex: self.blue_vertex
-        }
     }
 
     pub fn get_vertex_map(&self, wood2: &SchnyderMap) -> GraphResult<BiMap<VertexI, VertexI>> {
@@ -1693,4 +1697,16 @@ impl PartialEq for SchnyderMap {
 
 impl Eq for SchnyderMap {
     // an equivalence relation it is
+}
+
+impl Clone for SchnyderMap {
+    fn clone(&self) -> SchnyderMap {
+        SchnyderMap {
+            map: self.map.clone_with_maps(|v| *v, |e| *e, Some(|_|())),
+            outer_face: self.outer_face,
+            red_vertex: self.red_vertex,
+            green_vertex: self.green_vertex,
+            blue_vertex: self.blue_vertex
+        }
+    }
 }

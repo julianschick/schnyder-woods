@@ -4,10 +4,12 @@ use crate::repl::Repl;
 use clap::ArgMatches;
 use std::path::Path;
 use std::io::stdout;
+use std::str::FromStr;
 use std::time::Duration;
 use crate::schnyder::tikz::TikzOptions;
-use crate::schnyder::SchnyderMap;
+use crate::schnyder::{SchnyderMap, SchnyderColor};
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
+use crate::algorithm::{find_sequence_2, find_sequence};
 
 pub fn convert_to_tikz(matches: &ArgMatches) {
 
@@ -31,7 +33,7 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                                      ops.iter().filter(|op| op.is_upwards()).count(),
                                      ops.iter().filter(|op| op.is_downwards()).count()
                 );
-                opts.title = Some(title);
+                opts.title = if matches.is_present("stats") { Some(title) } else { None };
 
                 if let Some(output_filename) = matches.value_of("output") {
                     if let Ok(mut output_file) = File::create(output_filename) {
@@ -149,6 +151,86 @@ pub fn explore(matches: &ArgMatches) {
     }
 }
 
+enum PathAlgo {
+    SimpleStack, Contraction
+}
+
+pub fn path(matches: &ArgMatches) {
+    let paths = [
+        matches.value_of("FROM").unwrap(),
+        matches.value_of("TO").unwrap()
+    ];
+    let algo = match matches.value_of("ALGO").unwrap().to_lowercase().as_str() {
+        "simplestack" => PathAlgo::SimpleStack,
+        "contraction" => PathAlgo::Contraction,
+        str => {
+            println!("Algorithm '{}' not known.", str);
+            return;
+        }
+    };
+    let step_path = matches.value_of("steps");
+    let color = matches.value_of("color").map(|c| {
+        match SchnyderColor::from_str(c) {
+            Ok(c) => c, Err(_) => SchnyderColor::Red
+        }
+    }).unwrap_or(SchnyderColor::Red);
+
+    let mut woods = Vec::with_capacity(2);
+    for &path in &paths {
+        if let Ok(mut file) = File::open(path) {
+            if let Ok(wood) = SchnyderMap::read_3treecode(&mut file) {
+                woods.push(wood);
+            } else {
+                println!("File '{}' does not seem to contain a Schnyder wood.", path);
+                return;
+            }
+        } else {
+            println!("File '{}' could not be opened for reading.", path);
+            return;
+        }
+    }
+
+    let woods = woods; //in order to make immutable
+    let mut wood_from = woods[0].clone();
+    let mut wood_to = woods[1].clone();
+
+    let seq = match algo {
+        PathAlgo::SimpleStack => find_sequence_2(&mut wood_from, &mut wood_to, color),
+        PathAlgo::Contraction => find_sequence(&mut wood_from, &mut wood_to).expect("TODO")
+    };
+
+
+    let mut cur = woods[0].clone();
+
+    if let Some(step_path) = step_path {
+        if !Path::new(step_path).is_dir() {
+            println!("The given directory '{}' for the intermediate woods is not a directory.", step_path);
+            return;
+        }
+    }
+
+    write_out(&woods[0], step_path, "a_from");
+    write_out(&woods[1], step_path, "a_to");
+
+    let mut i = 0;
+    write_out(&cur, step_path, &format!("step{}", i));
+
+    if let Some(step_path) = step_path {
+        let file_path = &format!("{}/step{}.b3t", step_path, i);
+        let result = cur.write_binary_3treecode_to_file(file_path);
+        if let Err(e) = result {
+            println!("Error writing 3treecode file: {}", e);
+        }
+    }
+
+    for op in &seq {
+        cur.do_operation(op);
+        i += 1;
+        write_out(&cur, step_path, &format!("step{}", i));
+    }
+
+}
+
 pub fn random_walk(matches: &ArgMatches) {
     let n = match retrieve_n(matches, 200) {
         Some(n) => n,
@@ -156,6 +238,16 @@ pub fn random_walk(matches: &ArgMatches) {
     };
 
     crate::flipgraph::random_walk::random_walk(n, 4, Some(Duration::from_secs(60*60)), None);
+}
+
+fn write_out(wood: &SchnyderMap, path: Option<&str>, name: &str) {
+    if let Some(path) = path {
+        let file_path = &format!("{}/{}.b3t", path, name);
+        let result = wood.write_binary_3treecode_to_file(file_path);
+        if let Err(e) = result {
+            println!("Error writing 3treecode file: {}", e);
+        }
+    }
 }
 
 fn retrieve_n(matches: &ArgMatches, upper_bound: usize) -> Option<usize> {
