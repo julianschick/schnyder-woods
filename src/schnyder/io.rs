@@ -1,14 +1,13 @@
-use crate::schnyder::SchnyderMap;
-use std::io::{Write, Read};
-use std::io::Result;
-use pad::{PadStr, Alignment};
-use itertools::Itertools;
-use std::convert::TryFrom;
 use crate::graph::error::{GraphErr, GraphResult};
+use crate::schnyder::SchnyderMap;
+use itertools::Itertools;
+use pad::{Alignment, PadStr};
+use std::convert::TryFrom;
 use std::fs::File;
+use std::io::Result;
+use std::io::{Read, Write};
 
 impl SchnyderMap {
-
     pub fn write_binary_3treecode_to_file(&self, path: &str) -> Result<()> {
         self.write_binary_3treecode(&mut File::create(path)?)
     }
@@ -27,7 +26,8 @@ impl SchnyderMap {
 
     pub fn read_3treecode(r: &mut dyn Read) -> GraphResult<SchnyderMap> {
         let mut data = Vec::new();
-        r.read_to_end(&mut data).map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
+        r.read_to_end(&mut data)
+            .map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
 
         if let Some(s) = data.get(0..13) {
             if let Ok(s) = String::from_utf8(s.to_vec()) {
@@ -50,7 +50,8 @@ impl SchnyderMap {
 
     pub fn read_ascii_3treecode(r: &mut dyn Read) -> GraphResult<SchnyderMap> {
         let mut str = String::new();
-        r.read_to_string(&mut str).map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
+        r.read_to_string(&mut str)
+            .map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
 
         if !str.starts_with("#<3TREECODE:ASCII>") {
             return GraphErr::new_err("Not an ASCII 3-treecode.");
@@ -75,30 +76,32 @@ impl SchnyderMap {
                 }
             }
 
-            if c == '\n' {  comment = false; }
-            if c == '#'  {  comment = true;  }
+            if c == '\n' {
+                comment = false;
+            }
+            if c == '#' {
+                comment = true;
+            }
         }
 
         return SchnyderMap::build_from_3tree_code(&code);
     }
 
     pub fn read_binary_3treecode(r: &mut dyn Read) -> GraphResult<SchnyderMap> {
-        let mut buf = [0u8;13];
-        r.read(&mut buf).map_err(|e|
-            GraphErr::new(&format!("Problem reading from stream: {}", e))
-        )?;
+        let mut buf = [0u8; 13];
+        r.read(&mut buf)
+            .map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
 
         return match String::from_utf8(buf.to_vec()) {
             Ok(s) if s == "<3TREECODE:8>" => {
                 let mut code = Vec::new();
-                r.read_to_end(&mut code).map_err(|e|
-                    GraphErr::new(&format!("Problem reading from stream: {}", e))
-                )?;
+                r.read_to_end(&mut code)
+                    .map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
                 SchnyderMap::build_from_3tree_code(&code)
-            },
+            }
             Err(e) => GraphErr::new_err(&format!("Problem reading from stream: {}", e)),
-            _ => GraphErr::new_err("Not a binary 3-treecode.")
-        }
+            _ => GraphErr::new_err("Not a binary 3-treecode."),
+        };
     }
 }
 
@@ -110,18 +113,21 @@ pub fn write_as_binary_representation(w: &mut dyn Write, code: &Vec<u8>) -> Resu
 
 pub fn write_as_ascii_representation(w: &mut dyn Write, code: &Vec<u8>) -> Result<()> {
     let n = code.len() / 3;
-    let pad = ((n-1) as f64).log(10.0) as usize + 1;
+    let pad = ((n - 1) as f64).log(10.0) as usize + 1;
 
     writeln!(w, "#<3TREECODE:ASCII>")?;
-    let heading = (0..n).map(|k|
-        k.to_string().pad(pad, ' ', Alignment::Right, false)
-    ).join(" ");
+    let heading = (0..n)
+        .map(|k| k.to_string().pad(pad, ' ', Alignment::Right, false))
+        .join(" ");
     writeln!(w, "# {}", heading)?;
 
     for c in 0..3 {
-        let str = code.get(c*n..(c+1)*n).unwrap().iter().map(|k|
-            k.to_string().pad(pad, ' ', Alignment::Right, false)
-        ).join(" ");
+        let str = code
+            .get(c * n..(c + 1) * n)
+            .unwrap()
+            .iter()
+            .map(|k| k.to_string().pad(pad, ' ', Alignment::Right, false))
+            .join(" ");
         writeln!(w, "  {}", str)?;
     }
 

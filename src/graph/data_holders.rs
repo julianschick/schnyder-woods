@@ -1,13 +1,13 @@
-use crate::graph::indices::{EdgeI, VertexI, FaceI};
-use crate::graph::enums::{EdgeEnd, Signum, ClockDirection};
-use crate::graph::enums::Signum::{Forward, Backward};
 use crate::graph;
-use std::hash::{Hash, Hasher};
-use serde::export::fmt::Debug;
-use std::fmt::{Formatter, Display};
+use crate::graph::enums::Signum::{Backward, Forward};
+use crate::graph::enums::{ClockDirection, EdgeEnd, Signum};
+use crate::graph::index_store::Ideable;
+use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::util::iterators::cyclic::CyclicIterable;
 use itertools::Itertools;
-use crate::graph::index_store::Ideable;
+use serde::export::fmt::Debug;
+use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 
 type Result = std::fmt::Result;
 
@@ -17,14 +17,15 @@ pub struct Edge<E> {
     pub head: VertexI,
     pub right_face: Option<FaceI>,
     pub left_face: Option<FaceI>,
-    pub weight: E
+    pub weight: E,
 }
 
 impl<E> Edge<E> {
-    pub fn get_other(&self, this: VertexI) -> VertexI {//TODO error handling
+    pub fn get_other(&self, this: VertexI) -> VertexI {
+        //TODO error handling
         match self.get_signum_by_tail(this) {
             Forward => return self.head,
-            Backward => return self.tail
+            Backward => return self.tail,
         }
     }
 
@@ -35,7 +36,7 @@ impl<E> Edge<E> {
     pub fn get_vertex(&self, end: EdgeEnd) -> VertexI {
         match end {
             EdgeEnd::Head => self.head,
-            EdgeEnd::Tail => self.tail
+            EdgeEnd::Tail => self.tail,
         }
     }
 
@@ -44,9 +45,13 @@ impl<E> Edge<E> {
             panic!("signum not defined")
         }
 
-        if v1 == self.tail { return Forward }
-        else if v1 == self.head { return Backward }
-        else { panic!("assertion failed") }
+        if v1 == self.tail {
+            return Forward;
+        } else if v1 == self.head {
+            return Backward;
+        } else {
+            panic!("assertion failed")
+        }
     }
 
     pub fn get_signum(&self, v1: VertexI, v2: VertexI) -> Signum {
@@ -64,15 +69,15 @@ impl<E> Edge<E> {
     }
 
     pub fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
-        return graph::swap((self.tail, self.head), signum == Backward)
+        return graph::swap((self.tail, self.head), signum == Backward);
     }
 }
 
-impl<E> Eq for Edge<E> { }
+impl<E> Eq for Edge<E> {}
 impl<E> PartialEq for Edge<E> {
     fn eq(&self, other: &Self) -> bool {
-        self.head == other.head && self.tail == other.tail ||
-        self.head == other.tail && self.tail == other.head
+        self.head == other.head && self.tail == other.tail
+            || self.head == other.tail && self.tail == other.head
     }
 }
 
@@ -83,8 +88,12 @@ impl<E> Hash for Edge<E> {
 }
 
 impl<E> Ideable<EdgeI> for Edge<E> {
-    fn get_id(&self) -> EdgeI { self.id }
-    fn set_id(&mut self, id: EdgeI) { self.id = id }
+    fn get_id(&self) -> EdgeI {
+        self.id
+    }
+    fn set_id(&mut self, id: EdgeI) {
+        self.id = id
+    }
 }
 
 impl<E> Display for Edge<E> {
@@ -95,12 +104,20 @@ impl<E> Display for Edge<E> {
 
 impl<E> Debug for Edge<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{:?}: {:?} ==> {:?} (L = {:?}, R = {:?})",
+        write!(
+            f,
+            "{:?}: {:?} ==> {:?} (L = {:?}, R = {:?})",
             self.id,
             self.tail,
             self.head,
-            match self.left_face { Some(fid) => format!("{}", fid), None => "?".to_string()},
-            match self.right_face { Some(fid) => format!("{}", fid), None => "?".to_string()}
+            match self.left_face {
+                Some(fid) => format!("{}", fid),
+                None => "?".to_string(),
+            },
+            match self.right_face {
+                Some(fid) => format!("{}", fid),
+                None => "?".to_string(),
+            }
         )
     }
 }
@@ -108,11 +125,10 @@ impl<E> Debug for Edge<E> {
 pub struct Vertex<N> {
     pub id: VertexI,
     pub neighbors: Vec<NbVertex>,
-    pub weight: N
+    pub weight: N,
 }
 
 impl<N> Vertex<N> {
-
     pub(super) fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
         self.neighbors.iter().find(|nb| nb.other == other)
     }
@@ -122,30 +138,53 @@ impl<N> Vertex<N> {
     }
 
     /// does contain start_index at the end (wraps around), if condition is always true
-    pub(super) fn get_iterator<'a>(&'a self, start_index: usize, direction: ClockDirection, include_start_index: bool, wrap: bool) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
+    pub(super) fn get_iterator<'a>(
+        &'a self,
+        start_index: usize,
+        direction: ClockDirection,
+        include_start_index: bool,
+        wrap: bool,
+    ) -> Box<dyn Iterator<Item = &NbVertex> + 'a> {
         let iter = self.neighbors.cycle(start_index, wrap);
         let skip = if include_start_index { 0 } else { 1 };
         match direction {
             ClockDirection::CW => Box::new(iter.skip(skip)),
-            ClockDirection::CCW => Box::new(iter.rev().skip(skip))
+            ClockDirection::CCW => Box::new(iter.rev().skip(skip)),
         }
     }
 
     pub fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
         let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction, false, true).next().unwrap()
+        self.get_iterator(nb.index, direction, false, true)
+            .next()
+            .unwrap()
     }
 
     pub fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
-        self.get_iterator(nb.index, direction, false, true).next().unwrap()
+        self.get_iterator(nb.index, direction, false, true)
+            .next()
+            .unwrap()
     }
 
-    pub fn cycle_while(&self, start_index: usize, condition_while: &dyn Fn(&&NbVertex) -> bool, direction: ClockDirection, include_start_index: bool) -> Vec<&NbVertex> {
-        self.get_iterator(start_index, direction, include_start_index, true).take_while(condition_while).collect_vec()
+    pub fn cycle_while(
+        &self,
+        start_index: usize,
+        condition_while: &dyn Fn(&&NbVertex) -> bool,
+        direction: ClockDirection,
+        include_start_index: bool,
+    ) -> Vec<&NbVertex> {
+        self.get_iterator(start_index, direction, include_start_index, true)
+            .take_while(condition_while)
+            .collect_vec()
     }
 
     /// does not include the edges to v1 and v2 respectively
-    pub fn sector_between(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn sector_between(
+        &self,
+        v1: VertexI,
+        v2: VertexI,
+        direction: ClockDirection,
+    ) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
             return self.nb_sector_between(nb1, nb2, direction);
         } else {
@@ -153,11 +192,21 @@ impl<N> Vertex<N> {
         }
     }
 
-    pub fn nb_sector_between(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn nb_sector_between(
+        &self,
+        nb1: &NbVertex,
+        nb2: &NbVertex,
+        direction: ClockDirection,
+    ) -> Vec<&NbVertex> {
         return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
     }
 
-    pub(super) fn _sector_including(&self, v1: VertexI, v2: VertexI, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub(super) fn _sector_including(
+        &self,
+        v1: VertexI,
+        v2: VertexI,
+        direction: ClockDirection,
+    ) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
             return self.nb_sector_including(nb1, nb2, direction);
         } else {
@@ -165,7 +214,12 @@ impl<N> Vertex<N> {
         }
     }
 
-    pub fn nb_sector_including(&self, nb1: &NbVertex, nb2: &NbVertex, direction: ClockDirection) -> Vec<&NbVertex> {
+    pub fn nb_sector_including(
+        &self,
+        nb1: &NbVertex,
+        nb2: &NbVertex,
+        direction: ClockDirection,
+    ) -> Vec<&NbVertex> {
         let mut result = Vec::new();
         let mut start = true;
         for nb in self.get_iterator(nb1.index, direction, true, true) {
@@ -180,8 +234,12 @@ impl<N> Vertex<N> {
 }
 
 impl<N> Ideable<VertexI> for Vertex<N> {
-    fn get_id(&self) -> VertexI { self.id }
-    fn set_id(&mut self, id: VertexI) { self.id = id }
+    fn get_id(&self) -> VertexI {
+        self.id
+    }
+    fn set_id(&mut self, id: VertexI) {
+        self.id = id
+    }
 }
 
 impl<N> Display for Vertex<N> {
@@ -204,12 +262,16 @@ impl<N> Debug for Vertex<N> {
 pub struct Face<F> {
     pub id: FaceI,
     pub angles: Vec<VertexI>,
-    pub weight: F
+    pub weight: F,
 }
 
 impl<F> Ideable<FaceI> for Face<F> {
-    fn get_id(&self) -> FaceI { self.id }
-    fn set_id(&mut self, id: FaceI) { self.id = id }
+    fn get_id(&self) -> FaceI {
+        self.id
+    }
+    fn set_id(&mut self, id: FaceI) {
+        self.id = id
+    }
 }
 
 impl<F> Display for Face<F> {
@@ -233,5 +295,5 @@ pub struct NbVertex {
     pub index: usize,
     pub other: VertexI,
     pub edge: EdgeI,
-    pub end: EdgeEnd
+    pub end: EdgeEnd,
 }

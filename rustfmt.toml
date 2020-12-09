@@ -1,0 +1,6 @@
+newline_style = "Unix"
+max_width = 100
+
+# unstable options
+#width_heuristics = [ 100, 100, 100, 100, 100, 100, 100]
+#trailing_comma = "Never"

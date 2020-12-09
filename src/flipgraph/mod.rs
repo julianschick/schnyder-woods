@@ -1,34 +1,43 @@
-use std::sync::{Arc, Mutex};
-use std::collections::{HashMap, VecDeque};
-use std::time::Instant;
-use std::thread;
-use itertools::Itertools;
-use std::sync::mpsc::channel;
 use bimap::BiMap;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
-use serde::{Serialize, Deserialize};
+use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Instant;
 
-use crate::schnyder::SchnyderColor;
 use crate::graph::enums::ClockDirection;
-use crate::graph::enums::ClockDirection::{CW, CCW};
-use crate::schnyder::SchnyderColor::{Red, Green, Blue};
+use crate::graph::enums::ClockDirection::{CCW, CW};
+use crate::schnyder::SchnyderColor;
+use crate::schnyder::SchnyderColor::{Blue, Green, Red};
 use crate::schnyder::SchnyderMap;
 
 pub mod io;
-pub mod stats;
 pub mod random_walk;
+pub mod stats;
 
 #[derive(Copy, Clone)]
 pub enum SymmetryBreaking {
-    None, BreakOrientation, BreakColourRotation, BreakAll
+    None,
+    BreakOrientation,
+    BreakColourRotation,
+    BreakAll,
 }
 
 impl SymmetryBreaking {
-    pub fn expand<'a>(&self, color: &'a SchnyderColor, direction: &'a ClockDirection) -> Vec<(&'a SchnyderColor, &'a ClockDirection)> {
+    pub fn expand<'a>(
+        &self,
+        color: &'a SchnyderColor,
+        direction: &'a ClockDirection,
+    ) -> Vec<(&'a SchnyderColor, &'a ClockDirection)> {
         match self {
             SymmetryBreaking::None => vec![(color, direction)],
             SymmetryBreaking::BreakOrientation => vec![(color, &CW), (color, &CCW)],
-            SymmetryBreaking::BreakColourRotation => vec![(&Red, direction), (&Green, direction), (&Blue, direction)],
+            SymmetryBreaking::BreakColourRotation => {
+                vec![(&Red, direction), (&Green, direction), (&Blue, direction)]
+            }
             SymmetryBreaking::BreakAll => {
                 let mut result = Vec::with_capacity(6);
                 for color in &[Red, Green, Blue] {
@@ -42,8 +51,13 @@ impl SymmetryBreaking {
     }
 }
 
-pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usize>, symmetry_breaking: SymmetryBreaking, thread_count: usize) -> Flipgraph {
-
+pub fn build_flipgraph(
+    n: usize,
+    min_level: Option<usize>,
+    max_level: Option<usize>,
+    symmetry_breaking: SymmetryBreaking,
+    thread_count: usize,
+) -> Flipgraph {
     if let (Some(min), Some(max)) = (min_level, max_level) {
         if min > max {
             panic!("Invalid min/max levels given.");
@@ -62,14 +76,14 @@ pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usi
         let mut stack = stack.lock().unwrap();
 
         let seed = match max_level {
-            Some(max_level) if max_level < 3*n-6 => {
+            Some(max_level) if max_level < 3 * n - 6 => {
                 let mut seed = SchnyderMap::build_min_edge_wood(n, Red).expect("TODO");
-                while seed.map.edge_count() < max_level + 1 && seed.map.edge_count() < 3*n - 6 {
+                while seed.map.edge_count() < max_level + 1 && seed.map.edge_count() < 3 * n - 6 {
                     seed.split_any();
                 }
                 seed
-            },
-            _ => SchnyderMap::build_simple_stack(n, Red).expect("TODO")
+            }
+            _ => SchnyderMap::build_simple_stack(n, Red).expect("TODO"),
         };
 
         let code = seed.compute_3tree_code();
@@ -80,7 +94,10 @@ pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usi
     let mut handles = Vec::new();
     let (tx, rx) = channel();
 
-    println!("Traversing the flipgraph for n = {}, using {} threads.", n, thread_count);
+    println!(
+        "Traversing the flipgraph for n = {}, using {} threads.",
+        n, thread_count
+    );
     if let Some(min_level) = min_level {
         println!("CAUTION: minimal level set to {}", min_level);
     }
@@ -101,108 +118,134 @@ pub fn build_flipgraph(n: usize, min_level: Option<usize>, max_level: Option<usi
         let mut nodes_added = 0usize;
         let mut last_nodes_added = 0usize;
 
-        let handle = thread::spawn(move || {
+        let handle = thread::spawn(move || loop {
+            let mut stack_ = stack.lock().unwrap();
 
-            loop {
-                let mut stack_ = stack.lock().unwrap();
+            let len = stack_.len();
+            let current_optional = stack_.pop();
+            drop(stack_);
 
-                let len = stack_.len();
-                let current_optional = stack_.pop();
-                drop(stack_);
-
-                if current_optional.is_none() {
-                    if i == 0 && !informed_others {
-                        tx.send(true).expect("Multithreading did not work as expected");
-                    }
-                    break;
+            if current_optional.is_none() {
+                if i == 0 && !informed_others {
+                    tx.send(true)
+                        .expect("Multithreading did not work as expected");
                 }
-                let current_index = current_optional.unwrap();
-                let current = {
-                    let g = g.lock().unwrap();
-                    let current_code = g.get_code(current_index);
-                    SchnyderMap::build_from_3tree_code(&current_code).unwrap()
-                };
+                break;
+            }
+            let current_index = current_optional.unwrap();
+            let current = {
+                let g = g.lock().unwrap();
+                let current_code = g.get_code(current_index);
+                SchnyderMap::build_from_3tree_code(&current_code).unwrap()
+            };
 
-                nodes_checked += 1;
+            nodes_checked += 1;
 
-                if i == 0 && !informed_others && len > thread_count*2 {
-                    tx.send(true).expect("Multithreading did not work as expected");
-                }
+            if i == 0 && !informed_others && len > thread_count * 2 {
+                tx.send(true)
+                    .expect("Multithreading did not work as expected");
+            }
 
-                let current_level = current.map.edge_count();
+            let current_level = current.map.edge_count();
 
-                let admissible_ops = current.get_admissible_ops()
-                    .expect("Admissible operations could not be listed").into_iter()
-                    .filter(|op|
-                        if op.is_upwards() {
-                            if let Some(max_level) = max_level {
-                                if max_level < 3*n - 6 {
-                                    current_level == max_level
-                                } else {
-                                    current_level == 3*n - 7
-                                }
+            let admissible_ops = current
+                .get_admissible_ops()
+                .expect("Admissible operations could not be listed")
+                .into_iter()
+                .filter(|op| {
+                    if op.is_upwards() {
+                        if let Some(max_level) = max_level {
+                            if max_level < 3 * n - 6 {
+                                current_level == max_level
                             } else {
-                                current_level == 3*n - 7
+                                current_level == 3 * n - 7
                             }
                         } else {
-                            if let Some(min_level) = min_level {
-                                current_level >= min_level
-                            } else {
-                                true
-                            }
-                        }
-                    ).collect_vec();
-
-                let neighbors = admissible_ops.iter().map(|op| {
-                    let mut neighbor = current.clone();
-                    neighbor.do_operation(&op).expect("Admissible operation not successful");
-                    let nb_ids: VecDeque<_> = symmetry_breaking.expand(&Red, &CW)
-                        .iter().map(|(c, d)| neighbor.compute_3tree_code_with_rotation(**c, **d)).collect();
-                    return (nb_ids, neighbor);
-                }).collect_vec();
-
-                for (mut nb_ids, neighbor) in neighbors {
-                    let mut g = g.lock().unwrap();
-
-                    let current_node_index = *g.contains_node(&g.get_code(current_index)).unwrap();
-
-                    let mut nb_node_index = None;
-                    for nb_id in &nb_ids {
-                        if let Some(&index) = g.contains_node(nb_id) {
-                            nb_node_index = Some(index); break;
-                        }
-                    }
-
-                    if let Some(nb_node_index) = nb_node_index {
-                        if !g.contains_edge(current_node_index, nb_node_index) {
-                            g.add_edge(current_node_index, nb_node_index);
+                            current_level == 3 * n - 7
                         }
                     } else {
-                        let code = nb_ids.pop_front().unwrap();
-                        let nb_node_index = g.add_node(code, neighbor.map.edge_count() as u8);
-                        nodes_added += 1;
+                        if let Some(min_level) = min_level {
+                            current_level >= min_level
+                        } else {
+                            true
+                        }
+                    }
+                })
+                .collect_vec();
+
+            let neighbors = admissible_ops
+                .iter()
+                .map(|op| {
+                    let mut neighbor = current.clone();
+                    neighbor
+                        .do_operation(&op)
+                        .expect("Admissible operation not successful");
+                    let nb_ids: VecDeque<_> = symmetry_breaking
+                        .expand(&Red, &CW)
+                        .iter()
+                        .map(|(c, d)| neighbor.compute_3tree_code_with_rotation(**c, **d))
+                        .collect();
+                    return (nb_ids, neighbor);
+                })
+                .collect_vec();
+
+            for (mut nb_ids, neighbor) in neighbors {
+                let mut g = g.lock().unwrap();
+
+                let current_node_index = *g.contains_node(&g.get_code(current_index)).unwrap();
+
+                let mut nb_node_index = None;
+                for nb_id in &nb_ids {
+                    if let Some(&index) = g.contains_node(nb_id) {
+                        nb_node_index = Some(index);
+                        break;
+                    }
+                }
+
+                if let Some(nb_node_index) = nb_node_index {
+                    if !g.contains_edge(current_node_index, nb_node_index) {
                         g.add_edge(current_node_index, nb_node_index);
-
-                        stack.lock().unwrap().push(nb_node_index);
                     }
+                } else {
+                    let code = nb_ids.pop_front().unwrap();
+                    let nb_node_index = g.add_node(code, neighbor.map.edge_count() as u8);
+                    nodes_added += 1;
+                    g.add_edge(current_node_index, nb_node_index);
 
+                    stack.lock().unwrap().push(nb_node_index);
+                }
+            }
+
+            if last_print.elapsed().as_millis() >= 5000 {
+                if i == 0 {
+                    println!("{:<8}|{:>14}|{:>14}|", "TOTAL", "NODES", "STACKLEN");
+                    println!(
+                        "{:<8}|{:>14}|{:>14}|",
+                        ">>>",
+                        g.lock().unwrap().node_count(),
+                        stack.lock().unwrap().len()
+                    );
+                    println!(
+                        "{:<8}|{:<14}|{:<14}|{:<14}|{:<14}|{:<14}|",
+                        "THREAD", "N_CHECK", "N_CHECK/s", "N_ADD", "N_ADD/s", "ADD/CHECK"
+                    );
                 }
 
-                if last_print.elapsed().as_millis() >= 5000 {
+                let ratio = (nodes_added - last_nodes_added) as f32
+                    / (nodes_checked - last_nodes_checked) as f32;
+                println!(
+                    "{:<8}|{:>14}|{:>14}|{:>14}|{:>14}|{:>14.4}|",
+                    i,
+                    nodes_checked,
+                    (nodes_checked - last_nodes_checked) / 5,
+                    nodes_added,
+                    (nodes_added - last_nodes_added) / 5,
+                    ratio
+                );
+                last_nodes_added = nodes_added;
+                last_nodes_checked = nodes_checked;
 
-                    if i == 0 {
-                        println!("{:<8}|{:>14}|{:>14}|", "TOTAL", "NODES", "STACKLEN");
-                        println!("{:<8}|{:>14}|{:>14}|", ">>>", g.lock().unwrap().node_count(), stack.lock().unwrap().len());
-                        println!("{:<8}|{:<14}|{:<14}|{:<14}|{:<14}|{:<14}|", "THREAD", "N_CHECK", "N_CHECK/s", "N_ADD", "N_ADD/s", "ADD/CHECK");
-                    }
-
-                    let ratio = (nodes_added - last_nodes_added) as f32 /  (nodes_checked - last_nodes_checked) as f32;
-                    println!("{:<8}|{:>14}|{:>14}|{:>14}|{:>14}|{:>14.4}|", i, nodes_checked, (nodes_checked - last_nodes_checked) / 5, nodes_added, (nodes_added - last_nodes_added) / 5, ratio);
-                    last_nodes_added = nodes_added;
-                    last_nodes_checked = nodes_checked;
-
-                    last_print = Instant::now();
-                }
+                last_print = Instant::now();
             }
         });
         handles.push(handle);
@@ -224,7 +267,7 @@ pub struct Flipgraph {
     expected_average_degree: usize,
     adjacencies: Vec<Vec<usize>>,
     nodes_by_treecode: BiMap<Vec<u8>, usize>,
-    levels: Vec<u8>
+    levels: Vec<u8>,
 }
 
 //Frozen for ma-auxiliary/computations
@@ -237,13 +280,12 @@ pub struct Flipgraph {
 }*/
 
 impl Flipgraph {
-
     pub fn new(expected_average_degree: usize) -> Self {
         Flipgraph {
             expected_average_degree,
             adjacencies: Vec::new(),
             nodes_by_treecode: BiMap::new(),
-            levels: Vec::new()
+            levels: Vec::new(),
         }
     }
 
@@ -252,21 +294,25 @@ impl Flipgraph {
     }
 
     pub fn edge_count(&self) -> usize {
-        self.adjacencies.iter().enumerate().map(|(i, adj)|
-            adj.iter().filter(|&&j| i < j).count()
-        ).sum()
+        self.adjacencies
+            .iter()
+            .enumerate()
+            .map(|(i, adj)| adj.iter().filter(|&&j| i < j).count())
+            .sum()
     }
 
     pub fn get_n(&self) -> u8 {
         if let Some((code, _)) = self.nodes_by_treecode.iter().next() {
-            (code.len()  / 3) as u8
+            (code.len() / 3) as u8
         } else {
             return 0;
         }
     }
 
     pub fn add_node(&mut self, code: Vec<u8>, level: u8) -> usize {
-        self.adjacencies.push(Vec::with_capacity((self.expected_average_degree as f32 *0.6).ceil() as usize));
+        self.adjacencies.push(Vec::with_capacity(
+            (self.expected_average_degree as f32 * 0.6).ceil() as usize,
+        ));
         let index = self.adjacencies.len() - 1;
         self.nodes_by_treecode.insert(code, index);
         self.levels.push(level);
@@ -293,7 +339,7 @@ impl Flipgraph {
     }
 
     pub fn get_level(&self, v: usize) -> u8 {
-        return self.levels[v]
+        return self.levels[v];
     }
 
     pub fn get_neighbors(&self, v: usize) -> impl Iterator<Item = &usize> {
@@ -306,17 +352,25 @@ impl Flipgraph {
 
     pub fn get_updegree(&self, v: usize) -> usize {
         let level = self.get_level(v);
-        self.adjacencies[v].iter().filter(|&&nb| self.get_level(nb) > level).count()
+        self.adjacencies[v]
+            .iter()
+            .filter(|&&nb| self.get_level(nb) > level)
+            .count()
     }
 
     pub fn get_downdegree(&self, v: usize) -> usize {
         let level = self.get_level(v);
-        self.adjacencies[v].iter().filter(|&&nb| self.get_level(nb) < level).count()
+        self.adjacencies[v]
+            .iter()
+            .filter(|&&nb| self.get_level(nb) < level)
+            .count()
     }
 
     pub fn get_levels(&self) -> HashMap<u8, Vec<usize>> {
-        self.levels.iter().enumerate()
-            .map(|(a,&b)|(b,a))
+        self.levels
+            .iter()
+            .enumerate()
+            .map(|(a, &b)| (b, a))
             .into_group_map()
     }
 
@@ -351,6 +405,4 @@ impl Flipgraph {
     pub fn to_level_list(&self, writer: &mut dyn Write) -> std::io::Result<()> {
         writer.write_all(&self.levels)
     }
-
 }
-

@@ -1,17 +1,16 @@
-use std::time::{Duration, Instant};
-use std::cmp::{min, max};
-use std::thread;
-use std::fs::File;
-use rand::{thread_rng, Rng};
-use itertools::Itertools;
 use chrono::Local;
+use itertools::Itertools;
+use rand::{thread_rng, Rng};
+use std::cmp::{max, min};
+use std::fs::File;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use super::stats::StatsLine;
 use crate::schnyder::algorithm::Operation;
-use crate::schnyder::{SchnyderMap, SchnyderColor};
+use crate::schnyder::{SchnyderColor, SchnyderMap};
 
 impl StatsLine {
-
     pub fn neutral() -> StatsLine {
         StatsLine {
             cardinality: 0,
@@ -22,7 +21,7 @@ impl StatsLine {
             max_up_deg: usize::min_value(),
             min_down_deg: usize::max_value(),
             max_down_deg: usize::min_value(),
-            minima: 0
+            minima: 0,
         }
     }
 
@@ -39,19 +38,18 @@ impl StatsLine {
             max_up_deg: up,
             min_down_deg: down,
             max_down_deg: down,
-            minima: if down == 0 { 1 } else { 0 }
+            minima: if down == 0 { 1 } else { 0 },
         }
     }
 
     pub fn aggregate(&mut self, other: &StatsLine) {
-
         let n1 = self.cardinality as f64;
         let n2 = other.cardinality as f64;
 
         self.cardinality += other.cardinality;
         self.min_deg = min(self.min_deg, other.min_deg);
 
-        self.avg_deg = (self.avg_deg*n1 + other.avg_deg*n2) / (n1 + n2);
+        self.avg_deg = (self.avg_deg * n1 + other.avg_deg * n2) / (n1 + n2);
 
         self.max_deg = max(self.max_deg, other.max_deg);
         self.min_up_deg = min(self.min_up_deg, other.min_up_deg);
@@ -60,11 +58,14 @@ impl StatsLine {
         self.max_down_deg = max(self.max_down_deg, other.max_down_deg);
         self.minima += other.minima;
     }
-
 }
 
-pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, sample_limit: Option<usize>) {
-
+pub fn random_walk(
+    n: usize,
+    thread_count: usize,
+    time_limit: Option<Duration>,
+    sample_limit: Option<usize>,
+) {
     if n < 3 {
         panic!("n must be at least 3.");
     }
@@ -98,16 +99,18 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
                 SchnyderMap::build_simple_stack(n, SchnyderColor::Blue).expect("TODO"),
                 SchnyderMap::build_min_edge_wood(n, SchnyderColor::Red).expect("TODO"),
                 SchnyderMap::build_min_edge_wood(n, SchnyderColor::Green).expect("TODO"),
-                SchnyderMap::build_min_edge_wood(n, SchnyderColor::Blue).expect("TODO")
+                SchnyderMap::build_min_edge_wood(n, SchnyderColor::Blue).expect("TODO"),
             ];
 
             loop {
-
                 for cur in current.iter_mut() {
                     let admissible_ops = cur.get_admissible_ops().expect("TODO");
 
                     if admissible_ops.len() >= 45 {
-                        let  f = File::create(&format!("/tmp/randomout/{}", Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")));
+                        let f = File::create(&format!(
+                            "/tmp/randomout/{}",
+                            Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")
+                        ));
                         if let Ok(mut f) = f {
                             cur.write_binary_3treecode(&mut f).expect("TODO");
                         }
@@ -151,7 +154,9 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
         handles.push(handle);
     }
 
-    let mut sample_bins = (0..=number_of_levels).map(|_| StatsLine::neutral()).collect_vec();
+    let mut sample_bins = (0..=number_of_levels)
+        .map(|_| StatsLine::neutral())
+        .collect_vec();
     /*for i in 1..=number_of_levels {
         sample_bins[i].level = Some((max_level - (i - 1)) as u8);
     }*/
@@ -162,7 +167,6 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
             sample_bins[i].aggregate(&bins[i]);
         }
     }
-
 
     println!("Done. {} samples collected.", sample_bins[0].cardinality);
     //write_random_walk(&mut stdout(), TabbedTable, &sample_bins, false);

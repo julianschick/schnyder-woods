@@ -1,6 +1,6 @@
 use crate::graph::error::{GraphErr, GraphResult};
-use std::fmt::{Debug, Error};
 use serde::export::Formatter;
+use std::fmt::{Debug, Error};
 
 pub struct ArrayTree {
     size: usize,
@@ -10,28 +10,34 @@ pub struct ArrayTree {
 }
 
 pub enum WalkAroundDirection {
-    HiToLo, LoToHi
+    HiToLo,
+    LoToHi,
 }
 
 pub struct WalkAroundIterator<'a> {
     tree: &'a ArrayTree,
     direction: WalkAroundDirection,
     current_node: u8,
-    next_dive: Vec<u8>
+    next_dive: Vec<u8>,
 }
 
 impl<'a> Iterator for WalkAroundIterator<'a> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-
         loop {
             // do next dive
             let num_children = self.tree.number_of_children(self.current_node);
             if self.next_dive[self.current_node as usize] < num_children {
                 let child_index = match self.direction {
-                    WalkAroundDirection::LoToHi => self.next_dive[self.current_node as usize] as usize,
-                    WalkAroundDirection::HiToLo => num_children as usize - 1 - self.next_dive[self.current_node as usize] as usize
+                    WalkAroundDirection::LoToHi => {
+                        self.next_dive[self.current_node as usize] as usize
+                    }
+                    WalkAroundDirection::HiToLo => {
+                        num_children as usize
+                            - 1
+                            - self.next_dive[self.current_node as usize] as usize
+                    }
                 };
 
                 let child = self.tree.children[self.current_node as usize][child_index];
@@ -41,14 +47,21 @@ impl<'a> Iterator for WalkAroundIterator<'a> {
 
             // no dive possible, then climb
             } else {
-                if self.current_node == self.tree.root { return None; }
+                if self.current_node == self.tree.root {
+                    return None;
+                }
 
                 let parent = self.tree.get_parent_(self.current_node);
                 let parent_num_children = self.tree.number_of_children(parent);
                 if self.next_dive[parent as usize] == 0 {
-                    self.next_dive[parent as usize] =  match self.direction {
-                        WalkAroundDirection::LoToHi => self.tree.get_child_index(parent, self.current_node) + 1,
-                        WalkAroundDirection::HiToLo => parent_num_children - self.tree.get_child_index(parent, self.current_node)
+                    self.next_dive[parent as usize] = match self.direction {
+                        WalkAroundDirection::LoToHi => {
+                            self.tree.get_child_index(parent, self.current_node) + 1
+                        }
+                        WalkAroundDirection::HiToLo => {
+                            parent_num_children
+                                - self.tree.get_child_index(parent, self.current_node)
+                        }
                     };
                 }
 
@@ -60,7 +73,7 @@ impl<'a> Iterator for WalkAroundIterator<'a> {
 
 pub struct DfsIterator<'a> {
     tree: &'a ArrayTree,
-    stack: Vec<u8>
+    stack: Vec<u8>,
 }
 
 impl<'a> Iterator for DfsIterator<'a> {
@@ -68,7 +81,8 @@ impl<'a> Iterator for DfsIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(current) = self.stack.pop() {
-            self.stack.extend(self.tree.children[current as usize].iter().rev());
+            self.stack
+                .extend(self.tree.children[current as usize].iter().rev());
             Some(current)
         } else {
             None
@@ -77,18 +91,29 @@ impl<'a> Iterator for DfsIterator<'a> {
 }
 
 impl ArrayTree {
-
     pub fn from_tree_code(code: &[u8]) -> GraphResult<Self> {
         if code.len() > 256 {
-            return GraphErr::new_err("Invalid tree code: More than 256 vertices are not supported.");
+            return GraphErr::new_err(
+                "Invalid tree code: More than 256 vertices are not supported.",
+            );
         }
-        if code.iter().enumerate().filter(|(index, &k)| (*index) as u8 == k).count() != 1 {
+        if code
+            .iter()
+            .enumerate()
+            .filter(|(index, &k)| (*index) as u8 == k)
+            .count()
+            != 1
+        {
             return GraphErr::new_err("Invalid tree code: Exactly one root expected.");
         }
 
         let mut tree = ArrayTree {
             size: code.len(),
-            root: code.iter().enumerate().position(|(index, &k)| index as u8 == k).unwrap() as u8,
+            root: code
+                .iter()
+                .enumerate()
+                .position(|(index, &k)| index as u8 == k)
+                .unwrap() as u8,
             children: (0..code.len()).map(|_| Vec::new()).collect(),
             parents: Vec::with_capacity(code.len()),
         };
@@ -110,7 +135,7 @@ impl ArrayTree {
     pub fn get_parent(&self, node: u8) -> Option<u8> {
         match self.parents.get(node as usize) {
             Some(&p) if p != node => Some(p),
-            _ => None
+            _ => None,
         }
     }
 
@@ -127,7 +152,10 @@ impl ArrayTree {
     }
 
     pub fn get_child_index(&self, node: u8, child: u8) -> u8 {
-        self.children[node as usize].iter().position(|&c| c == child).unwrap() as u8
+        self.children[node as usize]
+            .iter()
+            .position(|&c| c == child)
+            .unwrap() as u8
     }
 
     pub fn get_root(&self) -> u8 {
@@ -137,7 +165,7 @@ impl ArrayTree {
     pub fn iter_dfs(&self) -> DfsIterator {
         DfsIterator {
             tree: self,
-            stack: vec![self.root]
+            stack: vec![self.root],
         }
     }
 
@@ -146,7 +174,7 @@ impl ArrayTree {
             tree: self,
             direction: dir,
             current_node: start,
-            next_dive: Vec::with_capacity(self.parents.len())
+            next_dive: Vec::with_capacity(self.parents.len()),
         };
 
         (0..self.size).for_each(|_| result.next_dive.push(0));
@@ -160,7 +188,6 @@ impl ArrayTree {
         println!("{:?}", self.parents);
         println!("{:#?}", self.children);
     }
-
 }
 
 impl Debug for ArrayTree {

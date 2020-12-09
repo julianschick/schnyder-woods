@@ -1,35 +1,42 @@
-use std::fs::File;
-use std::str::FromStr;
-use std::path::Path;
-use std::io::stdout;
+use clap::{App, AppSettings, ArgMatches};
 use regex::Regex;
 use rustyline::Editor;
-use clap::{App, AppSettings, ArgMatches};
 use shellwords::split;
+use std::fs::File;
+use std::io::stdout;
+use std::path::Path;
+use std::str::FromStr;
 
+use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use crate::flipgraph::Flipgraph;
 use crate::schnyder::io::{write_as_ascii_representation, write_as_binary_representation};
-use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 
 pub struct Repl {
-    g: Flipgraph
+    g: Flipgraph,
 }
 
 #[derive(Debug)]
 enum Property {
-    Level, Degree, Updegree, Downdegree
+    Level,
+    Degree,
+    Updegree,
+    Downdegree,
 }
 
 #[derive(Debug)]
 enum Comparator {
-    Eq, Gt, Ge, Lt, Le
+    Eq,
+    Gt,
+    Ge,
+    Lt,
+    Le,
 }
 
 #[derive(Debug)]
 struct Condition {
     prop: Property,
     comp: Comparator,
-    num: usize
+    num: usize,
 }
 
 impl Condition {
@@ -42,7 +49,7 @@ impl Condition {
             Property::Level => g.get_level(node) as usize,
             Property::Degree => g.get_degree(node),
             Property::Updegree => g.get_updegree(node),
-            Property::Downdegree => g.get_downdegree(node)
+            Property::Downdegree => g.get_downdegree(node),
         };
 
         match &self.comp {
@@ -56,7 +63,6 @@ impl Condition {
 }
 
 impl Repl {
-
     pub fn new(g: Flipgraph) -> Repl {
         Repl { g }
     }
@@ -74,14 +80,12 @@ impl Repl {
                         return;
                     }
                 }
-                _ => ()
+                _ => (),
             }
-
         }
     }
 
     fn parse_line(&mut self, line: &str) -> bool {
-
         if line.trim().is_empty() {
             return true;
         }
@@ -155,7 +159,7 @@ impl Repl {
     fn cmd_select(&self, matches: &ArgMatches) {
         let cond_strings = match matches.values_of_lossy("CONDITION") {
             Some(c) => c,
-            None => Vec::new()
+            None => Vec::new(),
         };
 
         let mut conditions = Vec::with_capacity(cond_strings.len());
@@ -164,7 +168,10 @@ impl Repl {
             if let Some(c) = condition {
                 conditions.push(c);
             } else {
-                println!("Condition '{}' could not be interpreted. Aborting command.", cond_str);
+                println!(
+                    "Condition '{}' could not be interpreted. Aborting command.",
+                    cond_str
+                );
                 return;
             }
         }
@@ -173,7 +180,9 @@ impl Repl {
 
         let mut count = 0;
         for v in 0..self.g.node_count() {
-            let select = conditions.iter().fold(true, |acc, c| acc && c.apply(&self.g, v));
+            let select = conditions
+                .iter()
+                .fold(true, |acc, c| acc && c.apply(&self.g, v));
 
             if select {
                 count += 1;
@@ -193,42 +202,47 @@ impl Repl {
     }
 
     fn select_ascii_out(&self, v: usize, folder: &Path) {
-        match File::create(folder.join( &format!("{}.a3t", v))) {
+        match File::create(folder.join(&format!("{}.a3t", v))) {
             Ok(mut file) => {
                 if let Err(e) = write_as_ascii_representation(&mut file, self.g.get_code(v)) {
                     println!("Error writing file: {}", e);
                 }
-            },
-            Err(e) => println!("File could not be opened for writing: {}", e)
+            }
+            Err(e) => println!("File could not be opened for writing: {}", e),
         }
     }
 
     fn select_binary_out(&self, v: usize, folder: &Path) {
-        match File::create(folder.join( &format!("{}.b3t", v))) {
+        match File::create(folder.join(&format!("{}.b3t", v))) {
             Ok(mut file) => {
-                if let Err(e) =  write_as_binary_representation(&mut file, self.g.get_code(v)) {
+                if let Err(e) = write_as_binary_representation(&mut file, self.g.get_code(v)) {
                     println!("Error writing file: {}", e);
                 }
-            },
-            Err(e) => println!("File could not be opened for writing: {}", e)
+            }
+            Err(e) => println!("File could not be opened for writing: {}", e),
         }
     }
 
     fn extract_condition(&self, str: &str) -> Option<Condition> {
-        let r = Regex::new(r"^\s*(level|updeg|downdeg|deg)\s*(<|>|<=|>=|=)\s*([0-9]+)\s*$").unwrap();
+        let r =
+            Regex::new(r"^\s*(level|updeg|downdeg|deg)\s*(<|>|<=|>=|=)\s*([0-9]+)\s*$").unwrap();
 
         if let Some(cap) = r.captures(str) {
             let prop = match &cap[1] {
-                "level" => Property::Level, "updeg" => Property::Updegree,
-                "downdeg" => Property::Downdegree, "deg" => Property::Degree,
-                _ => return None
+                "level" => Property::Level,
+                "updeg" => Property::Updegree,
+                "downdeg" => Property::Downdegree,
+                "deg" => Property::Degree,
+                _ => return None,
             };
 
             let comp = match &cap[2] {
-                "<" => Comparator::Lt, "<=" => Comparator::Le,
+                "<" => Comparator::Lt,
+                "<=" => Comparator::Le,
                 "=" => Comparator::Eq,
-                ">" => Comparator::Gt, ">=" => Comparator::Ge,
-                _ => return None
+                ">" => Comparator::Gt,
+                ">=" => Comparator::Ge,
+                _ => return None,
             };
 
             let num = usize::from_str(&cap[3]).unwrap();
@@ -242,14 +256,25 @@ impl Repl {
         let with_check = matches.is_present("check");
 
         if matches.is_present("csv") {
-            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::CSV, with_check).unwrap();
+            write_flipgraph(
+                &self.g,
+                &mut stdout(),
+                FlipgraphOutputFormat::CSV,
+                with_check,
+            )
+            .unwrap();
         } else {
-            write_flipgraph(&self.g, &mut stdout(),FlipgraphOutputFormat::TabbedTable, with_check).unwrap();
+            write_flipgraph(
+                &self.g,
+                &mut stdout(),
+                FlipgraphOutputFormat::TabbedTable,
+                with_check,
+            )
+            .unwrap();
         }
     }
 
     fn cmd_load(&mut self, matches: &ArgMatches) {
-
         let filename = matches.value_of("FILE").unwrap();
 
         if let Ok(file) = File::open(filename) {
@@ -277,13 +302,13 @@ impl Repl {
                             "edges" => self.g.to_edge_list(&mut file),
                             "levels" => self.g.to_level_list(&mut file),
                             "woods" => self.g.to_code_list(&mut file),
-                            _ => panic!("Internal assertion failed.")
+                            _ => panic!("Internal assertion failed."),
                         };
 
                         if let Err(e) = result {
                             println!("Error writing file: {}", e);
                         }
-                    },
+                    }
                     Err(e) => {
                         println!("File could not be opened for writing: {}", e);
                     }
@@ -291,6 +316,4 @@ impl Repl {
             }
         }
     }
-
 }
-

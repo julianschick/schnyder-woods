@@ -1,11 +1,11 @@
+use crate::graph::index_store::{Ideable, Index, IndexStore};
 use std::marker::PhantomData;
-use crate::graph::index_store::{Index, Ideable, IndexStore};
 
 pub struct VecIndexStore<N: Index, V: Ideable<N>> {
     indices: Vec<N>,
     data: Vec<Option<V>>,
     least_free_index: usize,
-    p: PhantomData<N>
+    p: PhantomData<N>,
 }
 
 impl<N: Index, V: Ideable<N>> VecIndexStore<N, V> {
@@ -14,25 +14,26 @@ impl<N: Index, V: Ideable<N>> VecIndexStore<N, V> {
             indices: Vec::new(),
             data: Vec::new(),
             least_free_index: 0,
-            p: PhantomData::default()
+            p: PhantomData::default(),
         }
     }
 }
 
-impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
-
+impl<N: Index, V: Ideable<N>> IndexStore<N, V> for VecIndexStore<N, V> {
     fn push(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);
         if self.data.len() > self.least_free_index {
             self.data[self.least_free_index] = Some(item);
             self.indices.push(N::from(self.least_free_index));
-            while self.least_free_index < self.data.len() && self.data[self.least_free_index].is_some() {
+            while self.least_free_index < self.data.len()
+                && self.data[self.least_free_index].is_some()
+            {
                 self.least_free_index += 1;
             }
         } else {
             self.data.push(Some(item));
-            self.indices.push(N::from(self.data.len()-1));
+            self.indices.push(N::from(self.data.len() - 1));
             self.least_free_index += 1;
         }
 
@@ -56,7 +57,8 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
             self.data.push(Some(item));
             self.indices.push(N::from(self.data.len() - 1));
         }
-        while self.least_free_index < self.data.len() && self.data[self.least_free_index].is_some() {
+        while self.least_free_index < self.data.len() && self.data[self.least_free_index].is_some()
+        {
             self.least_free_index += 1;
         }
     }
@@ -64,13 +66,13 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
     fn remove(&mut self, index: &N) -> Option<V> {
         let idx: usize = (*index).into();
 
-        if self.least_free_index > idx  {
+        if self.least_free_index > idx {
             self.least_free_index = idx;
         }
         if idx >= self.data.len() {
             return None;
         }
-        let i = self.indices.iter().position(|i|i==index).unwrap();
+        let i = self.indices.iter().position(|i| i == index).unwrap();
         self.indices.remove(i);
         self.data[idx].take()
     }
@@ -78,23 +80,23 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
     fn get(&self, index: &N) -> Option<&V> {
         match self.data.get((*index).into()) {
             Some(Some(x)) => Some(x),
-            _ => None
+            _ => None,
         }
     }
 
     fn get_mut(&mut self, index: &N) -> Option<&mut V> {
         let index = (*index).into();
-        match self.data.get_mut(index)  {
+        match self.data.get_mut(index) {
             Some(Some(x)) => Some(x),
-            _ => None
+            _ => None,
         }
     }
 
-    fn get_values<'a>(&'a self) -> Box<dyn Iterator<Item=&V> + 'a> {
+    fn get_values<'a>(&'a self) -> Box<dyn Iterator<Item = &V> + 'a> {
         Box::new(self.data.iter().filter_map(|o| o.as_ref()))
     }
 
-    fn get_indices<'a>(&'a self) ->  Box<dyn Iterator<Item=&N> + 'a> {
+    fn get_indices<'a>(&'a self) -> Box<dyn Iterator<Item = &N> + 'a> {
         Box::new(self.indices.iter())
     }
 
@@ -119,16 +121,15 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for VecIndexStore<N, V> {
     fn len(&self) -> usize {
         self.indices.len()
     }
-
 }
 
-impl<N: Index+Clone, V: Ideable<N> + Clone> Clone for VecIndexStore<N, V>{
+impl<N: Index + Clone, V: Ideable<N> + Clone> Clone for VecIndexStore<N, V> {
     fn clone(&self) -> Self {
         VecIndexStore {
             indices: self.indices.clone(),
             data: self.data.clone(),
             least_free_index: self.least_free_index,
-            p: PhantomData::default()
+            p: PhantomData::default(),
         }
     }
 }

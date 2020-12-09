@@ -1,16 +1,24 @@
-use super::{VertexI, EdgeI, FaceI, PlanarMap};
-use std::collections::{HashSet};
+use super::{EdgeI, FaceI, PlanarMap, VertexI};
 use itertools::Itertools;
+use std::collections::HashSet;
 
-pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Option<usize>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> Vec<PlanarMap<N, E, F>> {
+pub fn read_plantri_planar_code<N, E, F: Clone>(
+    data: &Vec<u8>,
+    max_count: Option<usize>,
+    v_weights: fn(VertexI) -> N,
+    e_weights: fn(EdgeI) -> E,
+    f_weights: fn(FaceI) -> F,
+) -> Vec<PlanarMap<N, E, F>> {
     if data.len() < 15 {
         panic!("not a valid planar code file");
     }
 
     match std::str::from_utf8(&data[0..15]) {
         Err(_) => panic!("utf8 error"),
-        Ok(str) => if str != ">>planar_code<<" {
-            panic!("no planar code data");
+        Ok(str) => {
+            if str != ">>planar_code<<" {
+                panic!("no planar code data");
+            }
         }
     }
 
@@ -30,12 +38,15 @@ pub fn read_plantri_planar_code<N, E, F: Clone>(data: &Vec<u8>, max_count: Optio
     }
 
     return result;
-
 }
 
-impl<N,E,F: Clone> PlanarMap<N,E,F> {
-    pub fn from_plantri_planar_code(data: &mut dyn Iterator<Item=&u8>, v_weights: fn(VertexI) -> N, e_weights: fn(EdgeI) -> E, f_weights: fn(FaceI) -> F) -> PlanarMap<N, E, F> {
-
+impl<N, E, F: Clone> PlanarMap<N, E, F> {
+    pub fn from_plantri_planar_code(
+        data: &mut dyn Iterator<Item = &u8>,
+        v_weights: fn(VertexI) -> N,
+        e_weights: fn(EdgeI) -> E,
+        f_weights: fn(FaceI) -> F,
+    ) -> PlanarMap<N, E, F> {
         if let Some(n) = data.next() {
             let mut result = PlanarMap::new();
             let mut neighbors = Vec::new();
@@ -43,7 +54,7 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
 
             // iterate byte stream to identify number of vertices and their neighbors
             // neighbors are given in clockwise order, so that the embedding is implied
-            for i in 1..n+1 {
+            for i in 1..n + 1 {
                 let weight = v_weights(result.vertices.next_index());
                 index_list.push(result.add_vertex(weight));
 
@@ -61,7 +72,6 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
                     } else {
                         panic!("invalid input data");
                     }
-
                 }
 
                 let set: HashSet<_> = nb.iter().collect();
@@ -76,12 +86,14 @@ impl<N,E,F: Clone> PlanarMap<N,E,F> {
             }
 
             // construct edges in graph from the adjacency list
-            for i in 1..(*n as usize)+1 {
-                for &j in neighbors[i-1].iter().filter(|&&j| j as usize > i) {
-                    let (v1, v2) = (index_list[i-1], index_list[j as usize-1]);
+            for i in 1..(*n as usize) + 1 {
+                for &j in neighbors[i - 1].iter().filter(|&&j| j as usize > i) {
+                    let (v1, v2) = (index_list[i - 1], index_list[j as usize - 1]);
 
-                    let pos1 = neighbors[i-1].iter().position(|&k| k == j);
-                    let pos2 = neighbors[j as usize -1].iter().position(|&k| k as usize == i);
+                    let pos1 = neighbors[i - 1].iter().position(|&k| k == j);
+                    let pos2 = neighbors[j as usize - 1]
+                        .iter()
+                        .position(|&k| k as usize == i);
 
                     let weight = e_weights(result.edges.next_index());
 

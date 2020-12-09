@@ -2,22 +2,22 @@ use std::cmp::max;
 
 pub fn min_level(n: usize) -> usize {
     check_n(n);
-    (((3*n - 3) as f64) / 2.0).ceil() as usize
+    (((3 * n - 3) as f64) / 2.0).ceil() as usize
 }
 
 pub fn max_level(n: usize) -> usize {
     check_n(n);
-    3*n - 6
+    3 * n - 6
 }
 
 pub fn min_degree_ub(n: usize) -> usize {
     check_n(n);
-    2*tnpoo3f(n) - 1
+    2 * tnpoo3f(n) - 1
 }
 
 pub fn min_degree_lb(n: usize) -> isize {
     check_n(n);
-    2*(n as isize) - (tnpoo3f(n) as isize) - 6
+    2 * (n as isize) - (tnpoo3f(n) as isize) - 6
 }
 
 pub fn min_updegree_lb_by_level(n: usize, level: usize) -> usize {
@@ -30,7 +30,7 @@ pub fn min_updegree_lb_by_level(n: usize, level: usize) -> usize {
             d
         }
     } else {
-        2*d - 3
+        2 * d - 3
     }
 }
 
@@ -44,10 +44,10 @@ pub fn min_downdegree_ub_by_level(n: usize, level: usize) -> usize {
     let d = depth(n, level) as isize;
     let d_c = critical_depth(n) as isize;
     let n = n as isize;
-    let value_c = 2*n - 5 - 3*d_c;
+    let value_c = 2 * n - 5 - 3 * d_c;
 
     if d <= d_c {
-        (2*n - 5 - 3*d) as usize
+        (2 * n - 5 - 3 * d) as usize
     } else {
         max(0, value_c - (d - d_c)) as usize
     }
@@ -57,7 +57,7 @@ pub fn min_downdegree_lb_by_level(n: usize, level: usize) -> usize {
     check_level(n, level);
     let d = depth(n, level) as isize;
     let n = n as isize;
-    max(0, 2*n - 5 - 3*d) as usize
+    max(0, 2 * n - 5 - 3 * d) as usize
 }
 
 //
@@ -81,11 +81,11 @@ fn check_level(n: usize, level: usize) {
 }
 
 fn tnpoo3f(n: usize) -> usize {
-    (((2*n + 1)as f64)/3.0).floor() as usize
+    (((2 * n + 1) as f64) / 3.0).floor() as usize
 }
 
 fn depth(n: usize, level: usize) -> usize {
-    (3*n - 6) - level
+    (3 * n - 6) - level
 }
 
 fn critical_depth(n: usize) -> usize {

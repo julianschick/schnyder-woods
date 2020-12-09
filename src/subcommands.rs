@@ -1,22 +1,20 @@
-use std::fs::File;
+use crate::algorithm::{find_sequence, find_sequence_2};
+use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
 use crate::repl::Repl;
+use crate::schnyder::tikz::TikzOptions;
+use crate::schnyder::{SchnyderColor, SchnyderMap};
 use clap::ArgMatches;
-use std::path::Path;
+use std::fs::File;
 use std::io::stdout;
+use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
-use crate::schnyder::tikz::TikzOptions;
-use crate::schnyder::{SchnyderMap, SchnyderColor};
-use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
-use crate::algorithm::{find_sequence_2, find_sequence};
 
 pub fn convert_to_tikz(matches: &ArgMatches) {
-
     let input_filename = matches.value_of("FILE").unwrap();
 
     if let Ok(mut input_file) = File::open(input_filename) {
-
         match SchnyderMap::read_3treecode(&mut input_file) {
             Ok(wood) => {
                 let mut opts = TikzOptions::default();
@@ -27,13 +25,18 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                 opts.slanted = matches.is_present("slanted");
 
                 let ops = wood.get_admissible_ops().expect("TODO");
-                let title = &format!("|E| = {}, deg = {}, updeg = {}, downdeg = {}",
-                                     wood.map.edge_count(),
-                                     ops.len(),
-                                     ops.iter().filter(|op| op.is_upwards()).count(),
-                                     ops.iter().filter(|op| op.is_downwards()).count()
+                let title = &format!(
+                    "|E| = {}, deg = {}, updeg = {}, downdeg = {}",
+                    wood.map.edge_count(),
+                    ops.len(),
+                    ops.iter().filter(|op| op.is_upwards()).count(),
+                    ops.iter().filter(|op| op.is_downwards()).count()
                 );
-                opts.title = if matches.is_present("stats") { Some(title) } else { None };
+                opts.title = if matches.is_present("stats") {
+                    Some(title)
+                } else {
+                    None
+                };
 
                 if let Some(output_filename) = matches.value_of("output") {
                     if let Ok(mut output_file) = File::create(output_filename) {
@@ -41,54 +44,75 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                             println!("Output file could not be written: {}", e);
                         }
                     } else {
-                        println!("Output file '{}' could not be created or opened for writing.", output_filename);
+                        println!(
+                            "Output file '{}' could not be created or opened for writing.",
+                            output_filename
+                        );
                     }
                 } else {
                     if let Err(e) = wood.write_tikz(&mut std::io::stdout(), &opts) {
                         println!("Output could not be written to STDOUT: {}", e);
                     }
                 }
-            },
-            Err(e) => println!("{}", e)
+            }
+            Err(e) => println!("{}", e),
         }
     } else {
-        println!("Input file '{}' could not be opened for reading.", input_filename);
+        println!(
+            "Input file '{}' could not be opened for reading.",
+            input_filename
+        );
     }
-
-
 }
 
 pub fn build(matches: &ArgMatches) {
     let n = match retrieve_n(matches, 64) {
         Some(n) => n,
-        None => return
+        None => return,
     };
 
-
-    let min_level = match matches.value_of("min-level").map(|m|  str::parse::<usize>(m)) {
+    let min_level = match matches
+        .value_of("min-level")
+        .map(|m| str::parse::<usize>(m))
+    {
         Some(Ok(k)) => Some(k),
         None => None,
-        _ => { println!("Level should be a positive number."); return; }
+        _ => {
+            println!("Level should be a positive number.");
+            return;
+        }
     };
 
-    let max_level = match matches.value_of("max-level").map(|m|  str::parse::<usize>(m)) {
+    let max_level = match matches
+        .value_of("max-level")
+        .map(|m| str::parse::<usize>(m))
+    {
         Some(Ok(k)) => Some(k),
         None => None,
-        _ => { println!("Level should be a positive number."); return; }
+        _ => {
+            println!("Level should be a positive number.");
+            return;
+        }
     };
 
     if let (Some(min), Some(max)) = (min_level, max_level) {
         if min > max {
-            println!("Minimal level has to be less than or equal to maximal level."); return;
+            println!("Minimal level has to be less than or equal to maximal level.");
+            return;
         }
     }
 
     let num_threads = match str::parse::<usize>(matches.value_of("threads").unwrap_or("1")) {
         Ok(n) if n >= 1 && n <= 64 => n,
-        Ok(_) => { println!("The number of threads should be at least 1 and at most 64"); return; }
-        _ => { println!("The number of threads should be a positive number."); return; }
+        Ok(_) => {
+            println!("The number of threads should be at least 1 and at most 64");
+            return;
+        }
+        _ => {
+            println!("The number of threads should be a positive number.");
+            return;
+        }
     };
-
 
     let brk_orientation = matches.is_present("break-orientation-symmetry");
     let brk_color = matches.is_present("break-color-symmetry");
@@ -111,7 +135,7 @@ pub fn build(matches: &ArgMatches) {
         (false, false) => SymmetryBreaking::None,
         (true, false) => SymmetryBreaking::BreakOrientation,
         (false, true) => SymmetryBreaking::BreakColourRotation,
-        (true, true) => SymmetryBreaking::BreakAll
+        (true, true) => SymmetryBreaking::BreakAll,
     };
 
     if n < 3 {
@@ -127,9 +151,12 @@ pub fn build(matches: &ArgMatches) {
         match File::create(output_path) {
             Ok(file) => match serde_cbor::to_writer(file, &g) {
                 Err(e) => println!("Flipgraph could not be written: {}", e),
-                _ => println!("...done.")
+                _ => println!("...done."),
             },
-            Err(e) => println!("File '{}' could not be opened for writing: {}", output_arg, e)
+            Err(e) => println!(
+                "File '{}' could not be opened for writing: {}",
+                output_arg, e
+            ),
         }
     }
 }
@@ -145,20 +172,20 @@ pub fn explore(matches: &ArgMatches) {
         } else {
             println!("The specified file does not seem to contain a flipgraph.");
         }
-
     } else {
         println!("File '{}' could not be opened for reading.", flipgraph_file);
     }
 }
 
 enum PathAlgo {
-    SimpleStack, Contraction
+    SimpleStack,
+    Contraction,
 }
 
 pub fn path(matches: &ArgMatches) {
     let paths = [
         matches.value_of("FROM").unwrap(),
-        matches.value_of("TO").unwrap()
+        matches.value_of("TO").unwrap(),
     ];
     let algo = match matches.value_of("ALGO").unwrap().to_lowercase().as_str() {
         "simplestack" => PathAlgo::SimpleStack,
@@ -169,11 +196,13 @@ pub fn path(matches: &ArgMatches) {
         }
     };
     let step_path = matches.value_of("steps");
-    let color = matches.value_of("color").map(|c| {
-        match SchnyderColor::from_str(c) {
-            Ok(c) => c, Err(_) => SchnyderColor::Red
-        }
-    }).unwrap_or(SchnyderColor::Red);
+    let color = matches
+        .value_of("color")
+        .map(|c| match SchnyderColor::from_str(c) {
+            Ok(c) => c,
+            Err(_) => SchnyderColor::Red,
+        })
+        .unwrap_or(SchnyderColor::Red);
 
     let mut woods = Vec::with_capacity(2);
     for &path in &paths {
@@ -196,15 +225,17 @@ pub fn path(matches: &ArgMatches) {
 
     let seq = match algo {
         PathAlgo::SimpleStack => find_sequence_2(&mut wood_from, &mut wood_to, color),
-        PathAlgo::Contraction => find_sequence(&mut wood_from, &mut wood_to).expect("TODO")
+        PathAlgo::Contraction => find_sequence(&mut wood_from, &mut wood_to).expect("TODO"),
     };
-
 
     let mut cur = woods[0].clone();
 
     if let Some(step_path) = step_path {
         if !Path::new(step_path).is_dir() {
-            println!("The given directory '{}' for the intermediate woods is not a directory.", step_path);
+            println!(
+                "The given directory '{}' for the intermediate woods is not a directory.",
+                step_path
+            );
             return;
         }
     }
@@ -226,21 +257,23 @@ pub fn path(matches: &ArgMatches) {
     for op in &seq {
         let result = cur.do_operation(op);
         if let Err(e) = result {
-            panic!("Internal error, operation execution failed that should not fail: {}", e);
+            panic!(
+                "Internal error, operation execution failed that should not fail: {}",
+                e
+            );
         }
         i += 1;
         write_out(&cur, step_path, &format!("step{}", i));
     }
-
 }
 
 pub fn random_walk(matches: &ArgMatches) {
     let n = match retrieve_n(matches, 200) {
         Some(n) => n,
-        None => return
+        None => return,
     };
 
-    crate::flipgraph::random_walk::random_walk(n, 4, Some(Duration::from_secs(60*60)), None);
+    crate::flipgraph::random_walk::random_walk(n, 4, Some(Duration::from_secs(60 * 60)), None);
 }
 
 fn write_out(wood: &SchnyderMap, path: Option<&str>, name: &str) {
@@ -256,7 +289,13 @@ fn write_out(wood: &SchnyderMap, path: Option<&str>, name: &str) {
 fn retrieve_n(matches: &ArgMatches, upper_bound: usize) -> Option<usize> {
     match str::parse::<usize>(matches.value_of("N").unwrap()) {
         Ok(n) if n >= 3 && n <= upper_bound => Some(n),
-        Ok(_) => { println!("N should be at least 3 and at most {}", upper_bound); None }
-        _ => { println!("N should be a positive number."); None }
+        Ok(_) => {
+            println!("N should be at least 3 and at most {}", upper_bound);
+            None
+        }
+        _ => {
+            println!("N should be a positive number.");
+            None
+        }
     }
 }

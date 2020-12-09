@@ -1,19 +1,23 @@
-use std::fs::File;
-use clap::{App, ArgMatches};
-use crate::schnyder::{SchnyderMap, SchnyderColor};
-use crate::subcommands::{build, explore, convert_to_tikz, path};
+use crate::schnyder::{SchnyderColor, SchnyderMap};
 use crate::subcommands::random_walk;
+use crate::subcommands::{build, convert_to_tikz, explore, path};
+use clap::{App, ArgMatches};
+use std::fs::File;
 
-#[cfg(debug_assertions)] use crate::util::debug::Debug;
-#[cfg(debug_assertions)] use std::sync::RwLock;
-#[cfg(debug_assertions)] #[macro_use] extern crate lazy_static;
+#[cfg(debug_assertions)]
+use crate::util::debug::Debug;
+#[cfg(debug_assertions)]
+use std::sync::RwLock;
+#[cfg(debug_assertions)]
+#[macro_use]
+extern crate lazy_static;
 
 pub mod flipgraph;
 pub mod graph;
 pub mod schnyder;
 
-mod util;
 mod algorithm;
+mod util;
 //mod petgraph_ext;
 mod arraytree;
 mod repl;
@@ -74,7 +78,7 @@ fn main() {
         .get_matches();
 
     match matches.subcommand() {
-        Some(("build", matches))=> build(matches),
+        Some(("build", matches)) => build(matches),
         Some(("explore", matches)) => explore(matches),
         Some(("tikz", matches)) => convert_to_tikz(matches),
         Some(("random-walk", matches)) => random_walk(matches),

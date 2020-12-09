@@ -1,7 +1,7 @@
-use crate::graph::indices::{VertexI};
-use std::fmt::{Display, Formatter};
-use serde::export::fmt::Debug;
 use crate::graph::index_store::Index;
+use crate::graph::indices::VertexI;
+use serde::export::fmt::Debug;
+use std::fmt::{Display, Formatter};
 
 pub type GraphResult<T> = Result<T, GraphErr>;
 
@@ -10,16 +10,13 @@ pub struct GraphErr {
 }
 
 impl GraphErr {
-
     pub fn new(problem: &str) -> Self {
         let mut problem = problem.to_string();
         if !(problem.ends_with(".") || problem.ends_with("!") || problem.ends_with("?")) {
             problem.push('.');
         }
 
-        GraphErr {
-            problem
-        }
+        GraphErr { problem }
     }
 
     pub fn new_err<T>(problem: &str) -> Result<T, Self> {
@@ -27,7 +24,7 @@ impl GraphErr {
     }
 
     pub fn get_message(&self) -> &str {
-        return &self.problem
+        return &self.problem;
     }
 }
 
@@ -45,37 +42,52 @@ impl Display for GraphErr {
 
 impl<T: Index + Display> From<IndexAccessError<T>> for GraphErr {
     fn from(cause: IndexAccessError<T>) -> Self {
-        return GraphErr::new(&format!("Access to invalid index {} occurred.", cause.get_index()))
+        return GraphErr::new(&format!(
+            "Access to invalid index {} occurred.",
+            cause.get_index()
+        ));
     }
 }
 
 impl From<NoSuchEdgeError> for GraphErr {
     fn from(cause: NoSuchEdgeError) -> Self {
-        return GraphErr::new(&format!("No edge between {} and {}.", cause.get_vertices().0, cause.get_vertices().1))
+        return GraphErr::new(&format!(
+            "No edge between {} and {}.",
+            cause.get_vertices().0,
+            cause.get_vertices().1
+        ));
     }
 }
 
 #[derive(Debug)]
 pub struct IndexAccessError<T: Index + Display> {
     failed_index: T,
-    internal: bool
+    internal: bool,
 }
 
 impl<T: Index + Display> IndexAccessError<T> {
     pub fn new(failed_index: T) -> IndexAccessError<T> {
-        IndexAccessError { failed_index, internal: false }
+        IndexAccessError {
+            failed_index,
+            internal: false,
+        }
     }
 
     pub fn new_internal(failed_index: T) -> IndexAccessError<T> {
-        IndexAccessError { failed_index, internal: true }
+        IndexAccessError {
+            failed_index,
+            internal: true,
+        }
     }
 
-    pub fn get_index(&self) -> T { self.failed_index }
+    pub fn get_index(&self) -> T {
+        self.failed_index
+    }
 }
 
 #[derive(Debug)]
 pub struct NoSuchEdgeError {
-    vertices: (VertexI, VertexI)
+    vertices: (VertexI, VertexI),
 }
 
 impl NoSuchEdgeError {
@@ -83,5 +95,7 @@ impl NoSuchEdgeError {
         NoSuchEdgeError { vertices: (v1, v2) }
     }
 
-    pub fn get_vertices(&self) -> (VertexI, VertexI) { self.vertices }
+    pub fn get_vertices(&self) -> (VertexI, VertexI) {
+        self.vertices
+    }
 }

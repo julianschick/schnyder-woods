@@ -1,22 +1,21 @@
+use crate::graph::index_store::{Ideable, Index, IndexStore};
 use std::collections::HashMap;
-use crate::graph::index_store::{Index, Ideable, IndexStore};
 
 pub struct MapIndexStore<N: Index, V: Ideable<N>> {
     map: HashMap<N, V>,
-    least_free_index: usize
+    least_free_index: usize,
 }
 
-impl<N:Index, V: Ideable<N>> MapIndexStore<N,V> {
+impl<N: Index, V: Ideable<N>> MapIndexStore<N, V> {
     pub fn new() -> MapIndexStore<N, V> {
         MapIndexStore {
             map: HashMap::new(),
-            least_free_index: 0
+            least_free_index: 0,
         }
     }
 }
 
-impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
-
+impl<N: Index, V: Ideable<N>> IndexStore<N, V> for MapIndexStore<N, V> {
     fn push(&mut self, mut item: V) -> N {
         let result = N::from(self.least_free_index);
         item.set_id(result);
@@ -42,7 +41,7 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
     }
 
     fn remove(&mut self, index: &N) -> Option<V> {
-        if self.least_free_index > (*index).into()  {
+        if self.least_free_index > (*index).into() {
             self.least_free_index = (*index).into();
         }
         self.map.remove(&index)
@@ -56,11 +55,11 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
         self.map.get_mut(index)
     }
 
-    fn get_values<'a>(&'a self) -> Box<dyn Iterator<Item=&V> + 'a> {
+    fn get_values<'a>(&'a self) -> Box<dyn Iterator<Item = &V> + 'a> {
         Box::new(self.map.values())
     }
 
-    fn get_indices<'a>(&'a self) -> Box<dyn Iterator<Item=&N> + 'a> {
+    fn get_indices<'a>(&'a self) -> Box<dyn Iterator<Item = &N> + 'a> {
         Box::new(self.map.keys())
     }
 
@@ -72,22 +71,24 @@ impl<N: Index, V: Ideable<N>> IndexStore<N,V> for MapIndexStore<N, V> {
         self.map.contains_key(index)
     }
 
-    fn is_available(&self, index: &N) -> bool { !self.map.contains_key(index) }
+    fn is_available(&self, index: &N) -> bool {
+        !self.map.contains_key(index)
+    }
 
     fn is_empty(&self) -> bool {
         self.map.is_empty()
-   }
+    }
 
     fn len(&self) -> usize {
         self.map.len()
     }
 }
 
-impl<N: Index+Clone, V: Ideable<N> + Clone> Clone for MapIndexStore<N, V>{
+impl<N: Index + Clone, V: Ideable<N> + Clone> Clone for MapIndexStore<N, V> {
     fn clone(&self) -> Self {
         MapIndexStore {
             map: self.map.clone(),
-            least_free_index: self.least_free_index
+            least_free_index: self.least_free_index,
         }
     }
 }

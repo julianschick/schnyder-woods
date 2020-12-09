@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use crate::util::iterators::cyclic::CyclicIterable;
+use itertools::Itertools;
 
 pub mod iterators {
 
@@ -17,7 +17,7 @@ pub mod iterators {
             inner: &'a Vec<T>,
             left_pos: isize,
             right_pos: isize,
-            offset: isize
+            offset: isize,
         }
 
         impl<'a, T> Iterator for CyclicIterator<'a, T> {
@@ -30,7 +30,7 @@ pub mod iterators {
                     let p = self.left_pos;
                     self.left_pos += 1;
                     Some(&self.inner[((p + self.offset) % self.inner.len() as isize) as usize])
-                }
+                };
             }
         }
 
@@ -42,7 +42,7 @@ pub mod iterators {
                     let p = self.right_pos;
                     self.right_pos -= 1;
                     Some(&self.inner[((p + self.offset) % self.inner.len() as isize) as usize])
-                }
+                };
             }
         }
 
@@ -74,26 +74,25 @@ pub mod iterators {
                 }
             }
         }
-
-
     }
-
 }
 
-pub fn is_in_cyclic_order<T: Eq>(vec: &Vec<T>, order: &Vec<T>)  -> bool {
+pub fn is_in_cyclic_order<T: Eq>(vec: &Vec<T>, order: &Vec<T>) -> bool {
     if order.len() <= 2 {
         return true;
     }
 
-    let positions: Vec<_> = order.iter()
+    let positions: Vec<_> = order
+        .iter()
         .map(|item| vec.iter().position(|set_item| item == set_item))
         .filter_map(|o| o)
         .collect();
 
-
     if let Some(index_of_min_pos) = positions.iter().position_min() {
         for (a, b) in positions.cycle(index_of_min_pos, false).tuple_windows() {
-            if a > b { return false };
+            if a > b {
+                return false;
+            };
         }
     } else {
         // no element of 'order' is in 'vec' contained
@@ -115,13 +114,13 @@ pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
 
 #[cfg(debug_assertions)]
 pub mod debug {
-    use std::path::Path;
-    use std::fs::{create_dir, File, remove_dir_all};
+    use crate::graph::indices::VertexI;
+    use crate::schnyder::tikz::TikzOptions;
     use crate::schnyder::SchnyderMap;
     use std::collections::HashMap;
-    use crate::graph::indices::VertexI;
+    use std::fs::{create_dir, remove_dir_all, File};
     use std::io::Write;
-    use crate::schnyder::tikz::TikzOptions;
+    use std::path::Path;
 
     pub struct Debug {
         base_dir: &'static str,
@@ -130,7 +129,6 @@ pub mod debug {
     }
 
     impl Debug {
-
         #[allow(dead_code)]
         pub fn activate(&mut self) {
             self.active = true;
@@ -150,11 +148,11 @@ pub mod debug {
             }
         }*/
 
-        pub fn new(base_dir: &'static str) -> Debug  {
+        pub fn new(base_dir: &'static str) -> Debug {
             let result = Debug {
                 base_dir,
                 active: false,
-                counters: HashMap::new()
+                counters: HashMap::new(),
             };
 
             let rr = remove_dir_all(base_dir);
@@ -176,7 +174,13 @@ pub mod debug {
             return result;
         }
 
-        pub fn output(&mut self, context: &str, wood: &SchnyderMap, title: Option<&str>, _face_counts: &HashMap<VertexI, (usize, usize, usize)>) {
+        pub fn output(
+            &mut self,
+            context: &str,
+            wood: &SchnyderMap,
+            title: Option<&str>,
+            _face_counts: &HashMap<VertexI, (usize, usize, usize)>,
+        ) {
             if !self.active {
                 return;
             }
@@ -189,7 +193,8 @@ pub mod debug {
                 self.counters.insert(context.to_string(), 0);
             }
             let name = format!("{}", self.counters.get(context).unwrap());
-            self.counters.insert(context.to_string(), self.counters.get(context).unwrap() + 1);
+            self.counters
+                .insert(context.to_string(), self.counters.get(context).unwrap() + 1);
 
             let basedir = self.base_dir;
             let contextdir = &format!("{}/{}", basedir, context);
@@ -205,30 +210,29 @@ pub mod debug {
                 create_dir(&outputdir).expect("Unable to create output dir");
             }
 
-            let mut f = File::create(format!("{}/{}/{}.tex", basedir, context, name)).expect("Unable to create file");
-            f.write_all(tikz_string.as_bytes()).expect("Unable to write data");
+            let mut f = File::create(format!("{}/{}/{}.tex", basedir, context, name))
+                .expect("Unable to create file");
+            f.write_all(tikz_string.as_bytes())
+                .expect("Unable to write data");
 
             //Command::new("xelatex").current_dir(format!("{}/{}", basedir, context)).arg(format!("{}.tex", name)).output();
             /*Command::new("pdftoppm").current_dir(format!("{}/{}", basedir, context))
-                .arg(format!("{}.pdf", name))
-                .arg(format!("{}/{}", outputdir, name))
-                .arg("-png").arg("-singlefile").output();*/
+            .arg(format!("{}.pdf", name))
+            .arg(format!("{}/{}", outputdir, name))
+            .arg("-png").arg("-singlefile").output();*/
             /*let s = String::from_utf8(Command::new("convert")
-                .current_dir(format!("{}/{}", basedir, context))
-                .arg("-density")
-                .arg("300")
-                .arg("-background")
-                .arg("#FFFFFF")
-                .arg("-flatten")
-                .arg(format!("{}.pdf", name))
-                .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);*/
+            .current_dir(format!("{}/{}", basedir, context))
+            .arg("-density")
+            .arg("300")
+            .arg("-background")
+            .arg("#FFFFFF")
+            .arg("-flatten")
+            .arg(format!("{}.pdf", name))
+            .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);*/
 
             //println!("{}", s.unwrap());
         }
-
-
     }
-
 }
 
 #[cfg(test)]
@@ -237,21 +241,35 @@ mod tests {
 
     #[test]
     fn test_is_in_cyclic_order() {
-        assert!(is_in_cyclic_order(&vec![1,2,3,4,5,6], &vec![1,3,5]));
-        assert!(!is_in_cyclic_order(&vec![1,2,3,4,5,6], &vec![1,5,3]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![1,3,5]));
-        assert!(!is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![1,5,3]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![1,2,7,3]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![100,200]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![100]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![100,200,300]));
-        assert!(is_in_cyclic_order(&vec![], &vec![100,200,300]));
-        assert!(is_in_cyclic_order(&vec![], &vec![1,2,3]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![3,4,1]));
-        assert!(!is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![4,3,1]));
-        assert!(is_in_cyclic_order(&vec![1,2,3,4,5,6], &vec![1,2,3,4,5,6]));
-        assert!(is_in_cyclic_order(&vec![1,2,3,4,5,6], &vec![4,5,6,1,2,3]));
-        assert!(is_in_cyclic_order(&vec![4,5,6,1,2,3], &vec![1,2,3,4,5,6]));
+        assert!(is_in_cyclic_order(&vec![1, 2, 3, 4, 5, 6], &vec![1, 3, 5]));
+        assert!(!is_in_cyclic_order(&vec![1, 2, 3, 4, 5, 6], &vec![1, 5, 3]));
+        assert!(is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![1, 3, 5]));
+        assert!(!is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![1, 5, 3]));
+        assert!(is_in_cyclic_order(
+            &vec![4, 5, 6, 1, 2, 3],
+            &vec![1, 2, 7, 3]
+        ));
+        assert!(is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![100, 200]));
+        assert!(is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![100]));
+        assert!(is_in_cyclic_order(
+            &vec![4, 5, 6, 1, 2, 3],
+            &vec![100, 200, 300]
+        ));
+        assert!(is_in_cyclic_order(&vec![], &vec![100, 200, 300]));
+        assert!(is_in_cyclic_order(&vec![], &vec![1, 2, 3]));
+        assert!(is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![3, 4, 1]));
+        assert!(!is_in_cyclic_order(&vec![4, 5, 6, 1, 2, 3], &vec![4, 3, 1]));
+        assert!(is_in_cyclic_order(
+            &vec![1, 2, 3, 4, 5, 6],
+            &vec![1, 2, 3, 4, 5, 6]
+        ));
+        assert!(is_in_cyclic_order(
+            &vec![1, 2, 3, 4, 5, 6],
+            &vec![4, 5, 6, 1, 2, 3]
+        ));
+        assert!(is_in_cyclic_order(
+            &vec![4, 5, 6, 1, 2, 3],
+            &vec![1, 2, 3, 4, 5, 6]
+        ));
     }
 }
-
