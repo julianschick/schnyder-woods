@@ -1,13 +1,15 @@
-use crate::schnyder::{SchnyderColor, SchnyderMap};
 use crate::subcommands::random_walk;
 use crate::subcommands::{build, convert_to_tikz, explore, path};
 use clap::{App, ArgMatches};
 use std::fs::File;
 
+use crate::schnyder::enums::SchnyderColor;
+use crate::schnyder::SchnyderMap;
 #[cfg(debug_assertions)]
 use crate::util::debug::Debug;
 #[cfg(debug_assertions)]
 use std::sync::RwLock;
+
 #[cfg(debug_assertions)]
 #[macro_use]
 extern crate lazy_static;

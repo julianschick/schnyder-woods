@@ -1,7 +1,8 @@
+use super::enums::SchnyderEdgeDirection::{Bicolored, Unicolored};
+use super::enums::{SchnyderColor, SchnyderVertexType};
+use super::SchnyderMap;
 use crate::graph::enums::Signum;
 use crate::graph::indices::VertexI;
-use crate::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
-use crate::schnyder::{SchnyderColor, SchnyderMap, SchnyderVertexType};
 use std::collections::HashMap;
 use std::io::Write;
 

@@ -7,6 +7,7 @@ use itertools::Itertools;
 use self::error::{IndexAccessError, NoSuchEdgeError};
 use self::indices::{EdgeI, FaceI, VertexI};
 use self::map_index_store::MapIndexStore;
+use crate::graph::enums::RevertibleEnum;
 use crate::graph::error::GraphResult;
 use crate::graph::vec_index_store::VecIndexStore;
 use crate::util::iterators::cyclic::CyclicIterable;
@@ -916,7 +917,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         new_edge_weight: E,
     ) -> GraphResult<(VertexI, EdgeI)> {
         let pivot_vertex = self.edge(split_eid).get_vertex(new_end);
-        let other_vertex = self.edge(split_eid).get_vertex(new_end.inverted());
+        let other_vertex = self.edge(split_eid).get_vertex(new_end.reversed());
 
         let mut patched_sector = if let Some((ccw_border, cw_border)) = patch_borders {
             self.vertex(pivot_vertex)
@@ -942,7 +943,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         patched_sector.push(NbVertex {
             index: 0,
-            end: new_end.inverted(),
+            end: new_end.reversed(),
             other: pivot_vertex,
             edge: EdgeI(0), //to be replaced by new edge id
         });

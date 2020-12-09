@@ -1,7 +1,8 @@
 use crate::graph::data_holders::{Edge, Face, Vertex};
 use crate::graph::enums::Signum::{Backward, Forward};
-use crate::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
-use crate::schnyder::{SchnyderEdgeDirection, SchnyderMap, SchnyderVertexType};
+use crate::schnyder::enums::SchnyderEdgeDirection::{self, Bicolored, Unicolored};
+use crate::schnyder::enums::SchnyderVertexType;
+use crate::schnyder::SchnyderMap;
 use std::fmt::Write;
 
 type Result = std::fmt::Result;

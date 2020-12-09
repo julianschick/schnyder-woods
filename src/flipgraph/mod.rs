@@ -10,8 +10,8 @@ use std::time::Instant;
 
 use crate::graph::enums::ClockDirection;
 use crate::graph::enums::ClockDirection::{CCW, CW};
-use crate::schnyder::SchnyderColor;
-use crate::schnyder::SchnyderColor::{Blue, Green, Red};
+use crate::schnyder::enums::SchnyderColor;
+use crate::schnyder::enums::SchnyderColor::{Blue, Green, Red};
 use crate::schnyder::SchnyderMap;
 
 pub mod io;

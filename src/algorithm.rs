@@ -6,13 +6,14 @@ use crate::schnyder::algorithm::OpType::{ExtMerge, ExtSplit, Merge, Split};
 use crate::schnyder::algorithm::{
     full_pizza_lemma, make_contractible, make_inner_edge, Contraction, Operation,
 };
-use crate::schnyder::SchnyderColor::{Blue, Green, Red};
-use crate::schnyder::SchnyderEdgeDirection::Unicolored;
-use crate::schnyder::{IndexedEnum, SchnyderColor, SchnyderMap};
+use crate::schnyder::enums::SchnyderColor::{Blue, Green, Red};
+use crate::schnyder::enums::SchnyderEdgeDirection::Unicolored;
+use crate::schnyder::enums::{IndexedEnum, SchnyderColor};
 
 use crate::graph::enums::ClockDirection;
 use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::graph::error::{GraphErr, GraphResult};
+use crate::schnyder::SchnyderMap;
 #[cfg(debug_assertions)]
 use crate::DEBUG;
 use bimap::BiMap;

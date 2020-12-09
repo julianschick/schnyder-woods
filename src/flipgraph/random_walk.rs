@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 
 use super::stats::StatsLine;
 use crate::schnyder::algorithm::Operation;
-use crate::schnyder::{SchnyderColor, SchnyderMap};
+use crate::schnyder::enums::SchnyderColor;
+use crate::schnyder::SchnyderMap;
 
 impl StatsLine {
     pub fn neutral() -> StatsLine {

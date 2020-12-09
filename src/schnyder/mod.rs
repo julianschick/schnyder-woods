@@ -3,14 +3,14 @@ use crate::graph::data_holders::{Edge, NbVertex, Vertex};
 use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::graph::enums::EdgeEnd::{Head, Tail};
 use crate::graph::enums::Signum::{Backward, Forward};
-use crate::graph::enums::{ClockDirection, Side, Signum};
+use crate::graph::enums::{ClockDirection, RevertibleEnum, Side, Signum};
 use crate::graph::error::{GraphErr, GraphResult, IndexAccessError};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::PlanarMap;
 use crate::schnyder::algorithm::{check_triangle, make_contractible, Contraction, Operation};
-use crate::schnyder::SchnyderColor::{Blue, Green, Red};
-use crate::schnyder::SchnyderEdgeDirection::{Bicolored, Unicolored};
-use crate::schnyder::SchnyderVertexType::{Normal, Suspension};
+use crate::schnyder::enums::SchnyderColor::{Blue, Green, Red};
+use crate::schnyder::enums::SchnyderEdgeDirection::{Bicolored, Unicolored};
+use crate::schnyder::enums::SchnyderVertexType::{Normal, Suspension};
 use crate::util::is_in_cyclic_order;
 use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::iterators::cyclic::CyclicIterableByElement;
@@ -19,10 +19,11 @@ use itertools::Itertools;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryFrom;
-use std::fmt::Debug;
-use std::str::FromStr;
 use take_until::TakeUntilExt;
 
+use crate::schnyder::enums::{
+    IndexedEnum, SchnyderColor, SchnyderEdgeDirection, SchnyderVertexType,
+};
 #[cfg(debug_assertions)]
 use crate::DEBUG;
 
@@ -38,107 +39,10 @@ macro_rules! invalid_wood {
 
 pub mod algorithm;
 mod alt_debug;
+pub mod enums;
 pub mod figures;
 pub mod io;
 pub mod tikz;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SchnyderColor {
-    Red,
-    Green,
-    Blue,
-}
-
-impl IndexedEnum<SchnyderColor> for SchnyderColor {
-    fn index(&self) -> usize {
-        match self {
-            Red => 0,
-            Green => 1,
-            Blue => 2,
-        }
-    }
-
-    fn from_index(index: usize) -> Self {
-        match index {
-            0 => Red,
-            1 => Green,
-            2 => Blue,
-            _ => panic!("Invalid index given for IndexedEnum<SchnyderColor>"),
-        }
-    }
-
-    fn number() -> usize {
-        3
-    }
-}
-
-impl FromStr for SchnyderColor {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "r" | "red" => Ok(SchnyderColor::Red),
-            "g" | "green" => Ok(SchnyderColor::Green),
-            "b" | "blue" => Ok(SchnyderColor::Blue),
-            _ => Err(()),
-        }
-    }
-}
-
-pub trait IndexedEnum<T> {
-    fn index(&self) -> usize;
-    fn from_index(index: usize) -> T;
-    fn number() -> usize;
-
-    fn next(&self) -> T {
-        Self::from_index((self.index() + 1) % Self::number())
-    }
-
-    fn prev(&self) -> T {
-        Self::from_index((self.index() + (Self::number() - 1)) % Self::number())
-    }
-
-    fn all() -> Vec<T> {
-        (0..Self::number())
-            .map(|i| Self::from_index(i))
-            .collect_vec()
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SchnyderVertexType {
-    Normal(usize),
-    Suspension(SchnyderColor),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum SchnyderEdgeDirection {
-    Unicolored(SchnyderColor, Signum),
-    Bicolored(SchnyderColor, SchnyderColor),
-}
-
-impl SchnyderEdgeDirection {
-    pub fn is_unicolored(&self) -> bool {
-        match self {
-            Unicolored(_, _) => true,
-            _ => false,
-        }
-    }
-
-    pub fn is_bicolored(&self) -> bool {
-        match self {
-            Bicolored(_, _) => true,
-            _ => false,
-        }
-    }
-
-    pub fn reversed(&self) -> Self {
-        match self {
-            Unicolored(c, signum) => Unicolored(*c, signum.reversed()),
-            Bicolored(a, b) => Bicolored(*b, *a),
-        }
-    }
-}
 
 pub trait SchnyderVertex {
     fn get_type(&self) -> SchnyderVertexType;

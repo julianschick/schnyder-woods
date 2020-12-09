@@ -1,11 +1,15 @@
+pub trait RevertibleEnum {
+    fn reversed(&self) -> Self;
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum EdgeEnd {
     Tail,
     Head,
 }
 
-impl EdgeEnd {
-    pub fn inverted(&self) -> Self {
+impl RevertibleEnum for EdgeEnd {
+    fn reversed(&self) -> Self {
         match self {
             EdgeEnd::Tail => EdgeEnd::Head,
             EdgeEnd::Head => EdgeEnd::Tail,
@@ -19,8 +23,8 @@ pub enum Signum {
     Backward,
 }
 
-impl Signum {
-    pub fn reversed(&self) -> Self {
+impl RevertibleEnum for Signum {
+    fn reversed(&self) -> Self {
         match self {
             Signum::Forward => Signum::Backward,
             Signum::Backward => Signum::Forward,
@@ -34,14 +38,16 @@ pub enum ClockDirection {
     CCW,
 }
 
-impl ClockDirection {
-    pub fn reversed(&self) -> Self {
+impl RevertibleEnum for ClockDirection {
+    fn reversed(&self) -> Self {
         match self {
             ClockDirection::CW => ClockDirection::CCW,
             ClockDirection::CCW => ClockDirection::CW,
         }
     }
+}
 
+impl ClockDirection {
     pub fn reversed_if(&self, cond: bool) -> Self {
         if cond {
             self.reversed()
@@ -57,8 +63,8 @@ pub enum Side {
     Right,
 }
 
-impl Side {
-    pub fn reversed(&self) -> Self {
+impl RevertibleEnum for Side {
+    fn reversed(&self) -> Self {
         match self {
             Side::Left => Side::Right,
             Side::Right => Side::Left,
