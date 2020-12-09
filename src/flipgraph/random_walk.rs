@@ -109,7 +109,7 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
                     if admissible_ops.len() >= 45 {
                         let  f = File::create(&format!("/tmp/randomout/{}", Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")));
                         if let Ok(mut f) = f {
-                            cur.write_binary_3treecode(&mut f);
+                            cur.write_binary_3treecode(&mut f).expect("TODO");
                         }
                     }
 
@@ -118,7 +118,7 @@ pub fn random_walk(n: usize, thread_count: usize, time_limit: Option<Duration>, 
                     sample_bins[cur.map.edge_count() - min_level].aggregate(&sample);
 
                     let pick = rand.gen_range(0, admissible_ops.len());
-                    cur.do_operation(&admissible_ops[pick]);
+                    cur.do_operation(&admissible_ops[pick]).expect("TODO");
                     sample_count += 1;
                     samples_since_last_log += 1;
                 }

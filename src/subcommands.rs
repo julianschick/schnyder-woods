@@ -224,7 +224,10 @@ pub fn path(matches: &ArgMatches) {
     }
 
     for op in &seq {
-        cur.do_operation(op);
+        let result = cur.do_operation(op);
+        if let Err(e) = result {
+            panic!("Internal error, operation execution failed that should not fail: {}", e);
+        }
         i += 1;
         write_out(&cur, step_path, &format!("step{}", i));
     }

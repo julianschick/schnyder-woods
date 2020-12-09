@@ -9,6 +9,8 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use itertools::Itertools;
 use crate::graph::index_store::Ideable;
 
+type Result = std::fmt::Result;
+
 pub struct Edge<E> {
     pub id: EdgeI,
     pub tail: VertexI,
@@ -80,54 +82,33 @@ impl<E> Hash for Edge<E> {
     }
 }
 
-impl<E> Debug for Edge<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "e[{}]: v[{}] ==> v[{}] (L = f[{}], R = f[{}])",
-               self.id.0,
-               self.tail.0,
-               self.head.0,
-               match self.left_face { Some(fid) => format!("{}", fid.0), None => "?".to_string()},
-               match self.right_face { Some(fid) => format!("{}", fid.0), None => "?".to_string()}
-        )
-    }
+impl<E> Ideable<EdgeI> for Edge<E> {
+    fn get_id(&self) -> EdgeI { self.id }
+    fn set_id(&mut self, id: EdgeI) { self.id = id }
 }
 
 impl<E> Display for Edge<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         write!(f, "{}", self.id)
     }
 }
 
-impl<E> Ideable<EdgeI> for Edge<E> {
-    fn get_id(&self) -> EdgeI { self.id }
-    fn set_id(&mut self, id: EdgeI) { self.id = id }
+impl<E> Debug for Edge<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        write!(f, "{:?}: {:?} ==> {:?} (L = {:?}, R = {:?})",
+            self.id,
+            self.tail,
+            self.head,
+            match self.left_face { Some(fid) => format!("{}", fid), None => "?".to_string()},
+            match self.right_face { Some(fid) => format!("{}", fid), None => "?".to_string()}
+        )
+    }
 }
 
 pub struct Vertex<N> {
     pub id: VertexI,
     pub neighbors: Vec<NbVertex>,
     pub weight: N
-}
-
-impl<N> Debug for Vertex<N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "v[{}]: ", self.id.0)?;
-        for nb in self.neighbors.iter() {
-            write!(f, "v[{}] . ", nb.other.0)?;
-        }
-        Ok(())
-    }
-}
-
-impl<N> Display for Vertex<N> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
-    }
-}
-
-impl<N> Ideable<VertexI> for Vertex<N> {
-    fn get_id(&self) -> VertexI { self.id }
-    fn set_id(&mut self, id: VertexI) { self.id = id }
 }
 
 impl<N> Vertex<N> {
@@ -198,6 +179,26 @@ impl<N> Vertex<N> {
     }
 }
 
+impl<N> Ideable<VertexI> for Vertex<N> {
+    fn get_id(&self) -> VertexI { self.id }
+    fn set_id(&mut self, id: VertexI) { self.id = id }
+}
+
+impl<N> Display for Vertex<N> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
+impl<N> Debug for Vertex<N> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)?;
+        for nb in self.neighbors.iter() {
+            write!(f, "{:?} . ", nb.other)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone)]
 pub struct Face<F> {
@@ -211,6 +212,12 @@ impl<F> Ideable<FaceI> for Face<F> {
     fn set_id(&mut self, id: FaceI) { self.id = id }
 }
 
+impl<F> Display for Face<F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
 impl<F> Debug for Face<F> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: ", self.id)?;
@@ -218,12 +225,6 @@ impl<F> Debug for Face<F> {
             write!(f, "{:?}", angle)?;
         }
         Ok(())
-    }
-}
-
-impl<F> Display for Face<F> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
     }
 }
 

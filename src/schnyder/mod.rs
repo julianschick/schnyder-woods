@@ -13,7 +13,6 @@ use crate::util::iterators::cyclic::CyclicIterable;
 use crate::util::iterators::cyclic::CyclicIterableByElement;
 use rand::{thread_rng, Rng};
 use crate::schnyder::algorithm::{make_contractible, Operation, Contraction, check_triangle};
-use crate::DEBUG;
 use std::convert::TryFrom;
 use take_until::TakeUntilExt;
 use bimap::BiMap;
@@ -21,8 +20,11 @@ use crate::arraytree::{ArrayTree, WalkAroundDirection};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::error::{IndexAccessError, GraphErr, GraphResult};
 use crate::graph::enums::{Signum, ClockDirection, Side};
-use crate::graph::data_holders::{NbVertex, Vertex, Face, Edge};
+use crate::graph::data_holders::{NbVertex, Vertex, Edge};
 use std::str::FromStr;
+
+#[cfg(debug_assertions)]
+use crate::DEBUG;
 
 static INVALID_WOOD: &str = "Assertion failed, invalid Schnyder wood detected.";
 static INTERNAL_ASSERTION: &str = "Internal assertion of class SchnyderMap failed.";
@@ -36,6 +38,7 @@ pub mod algorithm;
 pub mod tikz;
 pub mod io;
 pub mod figures;
+mod alt_debug;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum SchnyderColor {
@@ -137,65 +140,12 @@ pub trait SchnyderEdge {
     fn set_direction(&mut self, d: SchnyderEdgeDirection);
 }
 
-impl Vertex<SchnyderVertexType> {
-    #[allow(dead_code)]
-    fn debug(&self) {
-        print!("v[{}]: ", self.id.0);
-        for nb in self.neighbors.iter() {
-            print!("v[{}] . ", nb.other.0);
-        }
-        println!();
-    }
-}
-
 impl Edge<SchnyderEdgeDirection> {
-
     fn color(&self, sig: Signum) -> Option<SchnyderColor> {
         return match self.weight {
             Unicolored(c, s) => if sig == s { Some(c) } else { None }
             Bicolored(fwd_c, bwd_c) => match sig { Forward => Some(fwd_c), Backward => Some(bwd_c)},
         }
-    }
-
-    #[allow(dead_code)]
-    fn debug(&self) {
-        let tail_color = match self.weight {
-            Unicolored(c, Forward) => Some(c),
-            Bicolored(c, _) => Some(c),
-            _ => None
-        };
-        let head_color = match self.weight {
-            Unicolored(c, Backward) => Some(c),
-            Bicolored(_, c) => Some(c),
-            _ => None
-        };
-
-        println!("e[{}]: v[{}] ={:=<5}======={:=>5}=> v[{}] (L = f[{}], R = f[{}])",
-           self.id.0,
-           self.tail.0,
-           match tail_color {
-               Some(c) => format!("{:?}", c),
-               _ => String::new()
-           },
-           match head_color {
-               Some(c) => format!("{:?}", c),
-               _ => String::new()
-           },
-           self.head.0,
-           self.left_face.unwrap().0,
-           self.right_face.unwrap().0
-        )
-    }
-}
-
-impl Face<()> {
-    #[allow(dead_code)]
-    fn debug(&self) {
-        print!("f[{}]: ", self.id.0);
-        for angles in self.angles.iter() {
-            print!("v[{}] . ", angles.0);
-        }
-        println!();
     }
 }
 
@@ -230,20 +180,6 @@ pub enum SchnyderBuildMode {
 }
 
 impl SchnyderMap {
-
-    pub fn debug(&self) {
-        for e in self.map.edges() {
-            e.debug();
-        }
-
-        for v in self.map.vertices() {
-            v.debug();
-        }
-
-        for f in self.map.faces() {
-            f.debug();
-        }
-    }
 
     pub fn build_simple_stack(vertex_count: usize, color: SchnyderColor) -> GraphResult<SchnyderMap> {
         if vertex_count < 3 {
@@ -626,8 +562,10 @@ impl SchnyderMap {
             return GraphErr::new_err("A vertex map can only be found between Schnyder woods of same vertex count");
         }
 
-        DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
-        DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
+        #[cfg(debug_assertions)] {
+            DEBUG.write().unwrap().output("map", &wood1, Some("Wood1"), &wood1.calculate_face_counts());
+            DEBUG.write().unwrap().output("map", &wood2, Some("Wood2"), &wood1.calculate_face_counts());
+        }
 
         let vertices1 = wood1.get_vertices_in_bfs_order(Red, CW);
         let vertices2 = wood2.get_vertices_in_bfs_order(Red, CW);
@@ -636,8 +574,6 @@ impl SchnyderMap {
         for i in 0..vertices1.len() {
             result.insert(vertices1[i], vertices2[i]);
         }
-
-        eprintln!("result = {:?}", result);
 
         return Ok(result)
     }
@@ -734,11 +670,7 @@ impl SchnyderMap {
             Ok(nb)
         } else {
             match self.map.vertex_weight(vid)? {
-                Normal(_) => {
-
-                    self.debug();
-                    panic!("In a valid schnyder wood there should be an outgoing edge of each color at non-suspension vertices")
-                },
+                Normal(_) => panic!("In a valid schnyder wood there should be an outgoing edge of each color at non-suspension vertices"),
                 Suspension(c) if *c == color => return GraphErr::new_err("The suspension vertices have no outgoing edges of their very color"),
                 Suspension(_) => panic!("In a valid schnyder wood there should be an outgoing edge of the other two colors at suspension vertices"),
             }
