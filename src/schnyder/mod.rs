@@ -619,6 +619,17 @@ impl SchnyderMap {
         return result;
     }
 
+    /// Build a bijective map between the internal (technical) vertex indices
+    /// and the canonical vertex indices used by the 3treecode.
+    /// The left side of the BiMap are the internal indices, the right side the canonical ones.
+    pub fn get_canonical_vertex_indices(&self) -> BiMap<VertexI, VertexI> {
+        self.get_vertices_in_bfs_order(Red, CW)
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (*v, VertexI(i)))
+            .collect()
+    }
+
     pub fn compute_3tree_code(&self) -> Vec<u8> {
         self.compute_3tree_code_with_rotation(Red, CW)
     }
@@ -1065,7 +1076,7 @@ impl SchnyderMap {
         let split = admissible_ops.iter().find(|op| op.is_upwards());
 
         return if let Some(split) = split {
-            if let Err(e) = self.do_operation(split) {
+            if let Err(e) = self.exec_op(split) {
                 panic!("Internal assertion failed: {}", e);
             }
             true
@@ -1541,7 +1552,7 @@ impl SchnyderMap {
             // revert the "make contractible" step
             for op in leading_seq.iter().rev() {
                 let inv_op = op.swapped_vertices(&a, &b).inverted();
-                self.do_operation(&inv_op)?;
+                self.exec_op(&inv_op)?;
                 mid_seq.push(inv_op);
             }
 

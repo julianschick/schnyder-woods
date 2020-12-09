@@ -1,5 +1,5 @@
-use crate::subcommands::random_walk;
 use crate::subcommands::{build, convert_to_tikz, explore, path};
+use crate::subcommands::{random_walk, replay};
 use clap::{App, ArgMatches};
 use std::fs::File;
 
@@ -52,8 +52,8 @@ fn main() {
                 .arg("<GRAPH> 'Flipgraph file'")
         ).subcommand(
             App::new("tikz")
-                .about("Reads a Schnyder wood from an ascii or binary 3-treecode file and generates LaTeX/TikZ directives.")
-                .arg("<FILE> '3-treecode file to be read.'")
+                .about("Reads a Schnyder wood from an ascii or binary 3treecode file and generates LaTeX/TikZ directives.")
+                .arg("<FILE> '3treecode file to be read.'")
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to.'")
                 .arg("-e, --env 'Print tikzpicture environment.'")
@@ -63,12 +63,20 @@ fn main() {
                 .arg("-f, --stats 'Include number of edges, degree, down-degree and up-degree as text.'")
         ).subcommand(
             App::new("path")
-                .arg("<FROM> '3-treecode file to be read as starting Schnyder wood.'")
-                .arg("<TO> '3-treecode file to be read as ending Schnyder wood.'")
+                .about("Generates a split and merge sequence from one Schnyder wood to the other.")
+                .arg("<FROM> '3treecode file to be read as starting Schnyder wood.'")
+                .arg("<TO> '3treecode file to be read as ending Schnyder wood.'")
                 .arg("<ALGO> 'Algorithm to use, can be \'simplestack\' or \'contraction\'.'")
-                .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
+                .arg("-o, --output [FILE] 'Output file containing the operation sequence to be written, otherwise output goes to STDOUT.'")
                 .arg("-s, --steps [DIR] 'Output directory for all intermediate Schnyder woods.'")
                 .arg("-c, --color [COLOR] 'In case of the simple stack algorithm being used, choose the color of the simple stack. Can be red, green or blue. Default is red.'")
+        )
+        .subcommand(
+            App::new("replay")
+                .about("Replays a split and merge sequence from a sequence file.")
+                .arg("<FROM> '3treecode file to be read as starting Schnyder wood.'")
+                .arg("<SEQ> 'File containing the sequence.'")
+                .arg("-s, --steps [DIR] 'Output directory for all intermediate Schnyder woods.'")
         )
         .subcommand(
             App::new("random-walk")
@@ -85,6 +93,7 @@ fn main() {
         Some(("tikz", matches)) => convert_to_tikz(matches),
         Some(("random-walk", matches)) => random_walk(matches),
         Some(("path", matches)) => path(matches),
+        Some(("replay", matches)) => replay(matches),
         Some(("test", matches)) => test(matches),
         _ => {
             println!("No valid command specified. Type 'schnyderflip help' for a list of valid commands.");

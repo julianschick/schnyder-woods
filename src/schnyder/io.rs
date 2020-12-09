@@ -45,7 +45,7 @@ impl SchnyderMap {
             }
         }
 
-        GraphErr::new_err("Could not be recognized as 3-treecode.")
+        GraphErr::new_err("Could not be recognized as 3treecode.")
     }
 
     pub fn read_ascii_3treecode(r: &mut dyn Read) -> GraphResult<SchnyderMap> {
@@ -54,7 +54,7 @@ impl SchnyderMap {
             .map_err(|e| GraphErr::new(&format!("Problem reading from stream: {}", e)))?;
 
         if !str.starts_with("#<3TREECODE:ASCII>") {
-            return GraphErr::new_err("Not an ASCII 3-treecode.");
+            return GraphErr::new_err("Not an ASCII 3treecode.");
         }
 
         let mut code = Vec::new();
@@ -100,7 +100,7 @@ impl SchnyderMap {
                 SchnyderMap::build_from_3tree_code(&code)
             }
             Err(e) => GraphErr::new_err(&format!("Problem reading from stream: {}", e)),
-            _ => GraphErr::new_err("Not a binary 3-treecode."),
+            _ => GraphErr::new_err("Not a binary 3treecode."),
         };
     }
 }

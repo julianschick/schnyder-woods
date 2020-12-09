@@ -80,8 +80,18 @@ impl<T: Index + Display> IndexAccessError<T> {
         }
     }
 
+    pub fn mark_internal(&mut self) {
+        self.internal = true;
+    }
+
     pub fn get_index(&self) -> T {
         self.failed_index
+    }
+}
+
+impl<T: Index + Display> Display for IndexAccessError<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Invalid index {} accessed", self.failed_index)
     }
 }
 

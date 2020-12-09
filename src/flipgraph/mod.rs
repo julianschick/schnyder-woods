@@ -178,7 +178,7 @@ pub fn build_flipgraph(
                 .map(|op| {
                     let mut neighbor = current.clone();
                     neighbor
-                        .do_operation(&op)
+                        .exec_op(&op)
                         .expect("Admissible operation not successful");
                     let nb_ids: VecDeque<_> = symmetry_breaking
                         .expand(&Red, &CW)

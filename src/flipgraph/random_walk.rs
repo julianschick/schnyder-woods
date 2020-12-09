@@ -122,7 +122,7 @@ pub fn random_walk(
                     sample_bins[cur.map.edge_count() - min_level].aggregate(&sample);
 
                     let pick = rand.gen_range(0, admissible_ops.len());
-                    cur.do_operation(&admissible_ops[pick]).expect("TODO");
+                    cur.exec_op(&admissible_ops[pick]).expect("TODO");
                     sample_count += 1;
                     samples_since_last_log += 1;
                 }

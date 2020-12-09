@@ -2,12 +2,14 @@ use crate::algorithm::{find_sequence, find_sequence_2};
 use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
 use crate::repl::Repl;
+use crate::schnyder::algorithm::Operation;
 use crate::schnyder::enums::SchnyderColor;
 use crate::schnyder::tikz::TikzOptions;
 use crate::schnyder::SchnyderMap;
 use clap::ArgMatches;
-use std::fs::File;
-use std::io::stdout;
+use itertools::Itertools;
+use std::fs::{read_to_string, File};
+use std::io::{stdout, Write};
 use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
@@ -197,6 +199,7 @@ pub fn path(matches: &ArgMatches) {
         }
     };
     let step_path = matches.value_of("steps");
+    let file_path = matches.value_of("output");
     let color = matches
         .value_of("color")
         .map(|c| match SchnyderColor::from_str(c) {
@@ -245,26 +248,94 @@ pub fn path(matches: &ArgMatches) {
     write_out(&woods[1], step_path, "a_to");
 
     let mut i = 0;
+    let mut canonical_seq = Vec::new();
     write_out(&cur, step_path, &format!("step{}", i));
 
+    for op in &seq {
+        canonical_seq.push(
+            op.canonicalize(&cur.get_canonical_vertex_indices())
+                .unwrap_or_else(|e| panic!("Internal error: {}", e)),
+        );
+        cur.exec_op(op)
+            .unwrap_or_else(|e| panic!("Internal error: {}", e));
+
+        i += 1;
+        write_out(&cur, step_path, &format!("step{}", i));
+    }
+
+    if let Some(file_path) = file_path {
+        if let Ok(mut file) = File::create(file_path) {
+            for canonical_op in canonical_seq {
+                let mut str = canonical_op.to_string();
+                str.push('\n');
+                file.write_all(str.as_bytes())
+                    .unwrap_or_else(|e| println!("Error writing to output file: {}", e));
+            }
+        }
+    } else {
+        for canonical_op in canonical_seq {
+            println!("{}", canonical_op.to_string());
+        }
+    }
+}
+
+pub fn replay(matches: &ArgMatches) {
+    let wood_file_path = matches.value_of("FROM").unwrap();
+    let seq_file_path = matches.value_of("SEQ").unwrap();
+    let step_path = matches.value_of("steps");
+
     if let Some(step_path) = step_path {
-        let file_path = &format!("{}/step{}.b3t", step_path, i);
-        let result = cur.write_binary_3treecode_to_file(file_path);
-        if let Err(e) = result {
-            println!("Error writing 3treecode file: {}", e);
+        if !Path::new(step_path).is_dir() {
+            println!(
+                "The given directory '{}' for the intermediate woods is not a directory.",
+                step_path
+            );
+            return;
         }
     }
 
-    for op in &seq {
-        let result = cur.do_operation(op);
-        if let Err(e) = result {
-            panic!(
-                "Internal error, operation execution failed that should not fail: {}",
-                e
+    let mut wood = if let Ok(mut wood_file) = File::open(wood_file_path) {
+        if let Ok(wood) = SchnyderMap::read_3treecode(&mut wood_file) {
+            wood
+        } else {
+            println!(
+                "File '{}' does not seem to contain a Schnyder wood.",
+                wood_file_path
             );
+            return;
         }
+    } else {
+        println!("File '{}' could not be opened for reading.", wood_file_path);
+        return;
+    };
+
+    let mut seq = Vec::new();
+    if let Ok(str) = read_to_string(seq_file_path) {
+        let lines = str.split('\n').collect_vec();
+        for line in lines {
+            if !line.trim().is_empty() {
+                if let Ok(op) = Operation::from_str(line) {
+                    seq.push(op);
+                } else {
+                    println!("Misformatted operation found in sequence file.");
+                    return;
+                }
+            }
+        }
+    } else {
+        println!("File '{}' could not be opened for reading.", seq_file_path);
+    }
+
+    write_out(&wood, step_path, "step0");
+    let mut i = 0;
+    for op in seq {
+        let result = wood.exec_op_canonical(&op);
         i += 1;
-        write_out(&cur, step_path, &format!("step{}", i));
+        write_out(&wood, step_path, &format!("step{}", i));
+        if let Err(e) = result {
+            println!("An error occurred when executing the operations: {} Maybe the sequence does not fit to the starting Schnyder wood?", e);
+            return;
+        }
     }
 }
 

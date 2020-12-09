@@ -5,7 +5,7 @@ use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::graph::enums::Side::{Left, Right};
 use crate::graph::enums::Signum::{Backward, Forward};
 use crate::graph::enums::{ClockDirection, Side, Signum};
-use crate::graph::error::{GraphErr, GraphResult};
+use crate::graph::error::{GraphErr, GraphResult, IndexAccessError};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::swap;
 use crate::schnyder::algorithm::OpType::{ExtMerge, ExtSplit, Merge, Split};
@@ -15,7 +15,9 @@ use crate::schnyder::enums::{SchnyderColor, SchnyderVertexType};
 use crate::schnyder::SchnyderMap;
 use crate::util::swapped;
 use bimap::BiMap;
+use itertools::Itertools;
 use std::fmt::{Debug, Formatter};
+use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum OpType {
@@ -23,6 +25,32 @@ pub enum OpType {
     Merge,
     ExtSplit,
     ExtMerge,
+}
+
+impl ToString for OpType {
+    fn to_string(&self) -> String {
+        match self {
+            Split => "split",
+            Merge => "merge",
+            ExtSplit => "extsplit",
+            ExtMerge => "extmerge",
+        }
+        .to_string()
+    }
+}
+
+impl FromStr for OpType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "split" => Ok(Split),
+            "merge" => Ok(Merge),
+            "extsplit" => Ok(ExtSplit),
+            "extmerge" => Ok(ExtMerge),
+            _ => Err(format!("Not a valid operation type: '{}'", s)),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -126,22 +154,40 @@ impl Operation {
         }
     }
 
-    pub fn mapped_vertices_by_left(&self, map: &BiMap<VertexI, VertexI>) -> Self {
-        Operation {
-            hinge_vertex: *map.get_by_left(&self.hinge_vertex).unwrap(),
-            source_vertex: *map.get_by_left(&self.source_vertex).unwrap(),
-            target_vertex: *map.get_by_left(&self.target_vertex).unwrap(),
+    pub fn mapped_vertices_by_left(
+        &self,
+        map: &BiMap<VertexI, VertexI>,
+    ) -> Result<Self, IndexAccessError<VertexI>> {
+        Ok(Operation {
+            hinge_vertex: *map
+                .get_by_left(&self.hinge_vertex)
+                .ok_or(IndexAccessError::new(self.hinge_vertex))?,
+            source_vertex: *map
+                .get_by_left(&self.source_vertex)
+                .ok_or(IndexAccessError::new(self.source_vertex))?,
+            target_vertex: *map
+                .get_by_left(&self.target_vertex)
+                .ok_or(IndexAccessError::new(self.target_vertex))?,
             operation_type: self.operation_type,
-        }
+        })
     }
 
-    pub fn mapped_vertices_by_right(&self, map: &BiMap<VertexI, VertexI>) -> Self {
-        Operation {
-            hinge_vertex: *map.get_by_right(&self.hinge_vertex).unwrap(),
-            source_vertex: *map.get_by_right(&self.source_vertex).unwrap(),
-            target_vertex: *map.get_by_right(&self.target_vertex).unwrap(),
+    pub fn mapped_vertices_by_right(
+        &self,
+        map: &BiMap<VertexI, VertexI>,
+    ) -> Result<Self, IndexAccessError<VertexI>> {
+        Ok(Operation {
+            hinge_vertex: *map
+                .get_by_right(&self.hinge_vertex)
+                .ok_or(IndexAccessError::new(self.hinge_vertex))?,
+            source_vertex: *map
+                .get_by_right(&self.source_vertex)
+                .ok_or(IndexAccessError::new(self.source_vertex))?,
+            target_vertex: *map
+                .get_by_right(&self.target_vertex)
+                .ok_or(IndexAccessError::new(self.target_vertex))?,
             operation_type: self.operation_type,
-        }
+        })
     }
 
     pub fn is_upwards(&self) -> bool {
@@ -157,6 +203,55 @@ impl Operation {
             _ => false,
         }
     }
+
+    pub fn canonicalize(
+        &self,
+        map: &BiMap<VertexI, VertexI>,
+    ) -> Result<Self, IndexAccessError<VertexI>> {
+        self.mapped_vertices_by_left(map)
+    }
+
+    pub fn decanonicalize(
+        &self,
+        map: &BiMap<VertexI, VertexI>,
+    ) -> Result<Self, IndexAccessError<VertexI>> {
+        self.mapped_vertices_by_right(map)
+    }
+}
+
+impl ToString for Operation {
+    fn to_string(&self) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            self.operation_type.to_string(),
+            self.hinge_vertex.0,
+            self.source_vertex.0,
+            self.target_vertex.0
+        )
+    }
+}
+
+impl FromStr for Operation {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let tokens = s.split(":").collect_vec();
+        return if tokens.len() == 4 {
+            let operation_type = OpType::from_str(tokens[0])?;
+            let hinge_vertex = VertexI(tokens[1].parse::<usize>().map_err(|e| e.to_string())?);
+            let source_vertex = VertexI(tokens[2].parse::<usize>().map_err(|e| e.to_string())?);
+            let target_vertex = VertexI(tokens[3].parse::<usize>().map_err(|e| e.to_string())?);
+
+            Ok(Operation {
+                operation_type,
+                hinge_vertex,
+                source_vertex,
+                target_vertex,
+            })
+        } else {
+            Err("Misformatted string representation of operation.".to_string())
+        };
+    }
 }
 
 impl Debug for Operation {
@@ -169,7 +264,7 @@ impl Debug for Operation {
 }
 
 impl SchnyderMap {
-    pub fn do_operation(&mut self, op: &Operation) -> GraphResult<()> {
+    pub fn exec_op(&mut self, op: &Operation) -> GraphResult<()> {
         match op.operation_type {
             Merge => {
                 let src = self.map.get_edge(op.hinge_vertex, op.source_vertex)?;
@@ -188,6 +283,11 @@ impl SchnyderMap {
             }
         }
         Ok(())
+    }
+
+    pub fn exec_op_canonical(&mut self, op: &Operation) -> GraphResult<()> {
+        let internal_op = op.decanonicalize(&self.get_canonical_vertex_indices())?;
+        self.exec_op(&internal_op)
     }
 
     pub fn get_operation_direction(&self, op: &Operation) -> GraphResult<ClockDirection> {

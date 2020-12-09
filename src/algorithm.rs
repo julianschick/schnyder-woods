@@ -30,11 +30,11 @@ pub fn find_sequence(
 
     result.extend(tri1);
     result.extend(seq);
-    result.extend(
-        tri2.iter()
-            .rev()
-            .map(|op| op.inverted().mapped_vertices_by_left(&vm)),
-    );
+    result.extend(tri2.iter().rev().map(|op| {
+        op.inverted()
+            .mapped_vertices_by_left(&vm)
+            .unwrap_or_else(|e| panic!("Internal assertion failed: {}", e))
+    }));
 
     println!("outer vertex map = {:?}", vm);
     return Ok(result);
@@ -292,7 +292,7 @@ fn lift_sequence(
         }*/
 
         result.extend(replacement_ops);
-        wood.do_operation(op)?;
+        wood.exec_op(op)?;
 
         //recalculate_sector = true;
         //if recalculate_sector {
@@ -313,7 +313,7 @@ fn lift_sequence(
 
     //rewind
     for op in seq.iter().rev() {
-        wood.do_operation(&op.inverted())?;
+        wood.exec_op(&op.inverted())?;
     }
 
     return Ok(result);
@@ -416,7 +416,7 @@ fn find_sequence_(
                 .get_by_left(&contraction2.retained_vertex)
                 .unwrap(); //TODO
             for op in &seq {
-                wood1.do_operation(op)?;
+                wood1.exec_op(op)?;
             }
             println!(
                 "swap {} ~ {}",
@@ -439,7 +439,7 @@ fn find_sequence_(
 
             // rewind changes
             for op in swap_seq.iter().rev().chain(seq.iter().rev()) {
-                wood1.do_operation(&op.inverted())?;
+                wood1.exec_op(&op.inverted())?;
             }
 
             seq.extend(swap_seq);
@@ -459,7 +459,7 @@ fn find_sequence_(
             &wood1.calculate_face_counts(),
         );
         for op in prep_seq1.iter().rev() {
-            wood1.do_operation(&op.inverted())?;
+            wood1.exec_op(&op.inverted())?;
         }
         #[cfg(debug_assertions)]
         DEBUG.write().unwrap().output(
@@ -482,7 +482,7 @@ fn find_sequence_(
         let mut i = 1;
 
         for op in prep_seq2.iter().rev() {
-            wood2.do_operation(&op.inverted())?;
+            wood2.exec_op(&op.inverted())?;
 
             #[cfg(debug_assertions)]
             {
@@ -507,12 +507,11 @@ fn find_sequence_(
         // final assembly of sequence
         lifted_seq.splice(0..0, prep_seq1);
         //seq.extend(swap_seq);
-        lifted_seq.extend(
-            prep_seq2
-                .iter()
-                .rev()
-                .map(|op| op.inverted().mapped_vertices_by_left(&vertex_map)),
-        );
+        lifted_seq.extend(prep_seq2.iter().rev().map(|op| {
+            op.inverted()
+                .mapped_vertices_by_left(&vertex_map)
+                .unwrap_or_else(|e| panic!("Internal assertion failed: {}", e))
+        }));
 
         return Ok((vertex_map, lifted_seq));
     }
@@ -525,7 +524,7 @@ fn find_sequence_(
 pub fn arbitrary_triangulation(wood: &mut SchnyderMap) -> GraphResult<Vec<Operation>> {
     let mut seq = Vec::new();
     while let Some(&op) = wood.get_admissible_ops()?.iter().find(|op| op.is_upwards()) {
-        wood.do_operation(&op)?;
+        wood.exec_op(&op)?;
         seq.push(op);
     }
 
@@ -566,11 +565,19 @@ pub fn find_sequence_2(
     seq.extend(seq1);
 
     for op in seq2.iter().rev() {
-        seq.push(op.mapped_vertices_by_right(&vertex_map).inverted());
+        seq.push(
+            op.mapped_vertices_by_right(&vertex_map)
+                .unwrap_or_else(|e| panic!("Internal assertion failed: {}", e))
+                .inverted(),
+        );
     }
 
     for op in tri_seq2.iter().rev() {
-        seq.push(op.mapped_vertices_by_right(&vertex_map).inverted());
+        seq.push(
+            op.mapped_vertices_by_right(&vertex_map)
+                .unwrap_or_else(|e| panic!("Internal assertion failed: {}", e))
+                .inverted(),
+        );
     }
 
     return seq;
