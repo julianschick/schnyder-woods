@@ -1,4 +1,4 @@
-use crate::subcommands::{build, convert_to_tikz, explore, path};
+use crate::subcommands::{build, explore, path, tikz};
 use crate::subcommands::{random_walk, replay};
 use clap::{App, ArgMatches};
 use std::fs::File;
@@ -56,10 +56,11 @@ fn main() {
                 .arg("<FILE> '3treecode file to be read.'")
                 .arg("-o, --output [FILE] 'Output file to be written, otherwise output goes to STDOUT.'")
                 .arg("-a, --anchor [ANCHOR] 'Tikz node the drawing is to be drawn relative to.'")
+                .arg("-c, --central 'With this flag the anchor is placed centrally in the wood and not at the wood's origin.'")
                 .arg("-e, --env 'Print tikzpicture environment.'")
                 .arg("-d, --doc 'Wrap picture environment in standalone document (only effective, if -e/--env is specified).'")
                 .arg("-s, --styles 'Print style definitions.'")
-                .arg("-i, --slanted 'Shear the drawing in x-direction so that the outer triangle is equilateral.'")
+                .arg("-i, --equilateral 'Shear the drawing in x-direction so that the outer triangle is equilateral.'")
                 .arg("-f, --stats 'Include number of edges, degree, down-degree and up-degree as text.'")
         ).subcommand(
             App::new("path")
@@ -90,7 +91,7 @@ fn main() {
     match matches.subcommand() {
         Some(("build", matches)) => build(matches),
         Some(("explore", matches)) => explore(matches),
-        Some(("tikz", matches)) => convert_to_tikz(matches),
+        Some(("tikz", matches)) => tikz(matches),
         Some(("random-walk", matches)) => random_walk(matches),
         Some(("path", matches)) => path(matches),
         Some(("replay", matches)) => replay(matches),

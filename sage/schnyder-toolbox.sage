@@ -31,7 +31,7 @@ class Flipgraph:
 		return self.g
 
 	def plot(self, iterations=10000):
-		self.g.plot(save_pos=True,partition=self.levels_partition, iterations=iterations, vertex_labels=True, vertex_size=400)
+		return self.g.plot(save_pos=True,partition=self.levels_partition, iterations=iterations, vertex_labels=True, vertex_size=400)
 
 	def poset(self):
 		if self.levels is None:
@@ -47,7 +47,7 @@ class Flipgraph:
 		return FinitePoset(digraph)
 
 
-	def tikz(self):
+	def tikz(self,node_prefix=None, scale=1):
 		if self.levels is None:
 			print("Flipgraph must have level information for tikzing.")
 			return
@@ -60,12 +60,23 @@ class Flipgraph:
 		max_level = max(self.levels)
 
 		for v in self.g.vertices():
+			v_coord = f"coord_{node_prefix}{v}" if node_prefix else f"coord_{v}"
+			x = positions.get(v)[0] * scale
+			y = positions.get(v)[1] * scale
+			str += f"\\coordinate ({v_coord}) at ({x}, {y});\n"
+
+		for v in self.g.vertices():
+			v_name = f"{node_prefix}{v}" if node_prefix else f"{v}"
+			v_coord = f"coord_{node_prefix}{v}" if node_prefix else f"coord_{v}"
 			color = int(100* (self.levels[v] - min_level) / (max_level - min_level))
-			str += f"\\node[flip-node, fill=blue!{color}!red] ({v}) at ({positions.get(v)[0]}, {positions.get(v)[1]}) {{{v}}};\n"
+			#str += f"\\node[flip-node, fill=blue!{color}!red] ({v_name}) at ({v_coord}) {{{v}}};\n"
+			str += f"\\node[flip-node, scale=20, label={{{v}}}] ({v_name}) at ({v_coord}) {{}};\n"
 
 		for (v1, v2, weight) in self.g.edges():
 			v1, v2 = (v1, v2) if self.levels[v1] < self.levels[v2] else (v2, v1)
+			v1_name = f"{node_prefix}{v1}" if node_prefix else f"{v1}"
+			v2_name = f"{node_prefix}{v2}" if node_prefix else f"{v2}"
 
-			str += f"\\draw[flip-edge] ({v1}) -- ({v2});\n"
+			str += f"\\draw[flip-edge] ({v1_name}) -- ({v2_name});\n"
 
 		print(str)

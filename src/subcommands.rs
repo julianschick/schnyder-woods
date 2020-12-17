@@ -14,7 +14,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
-pub fn convert_to_tikz(matches: &ArgMatches) {
+pub fn tikz(matches: &ArgMatches) {
     let input_filename = matches.value_of("FILE").unwrap();
 
     if let Ok(mut input_file) = File::open(input_filename) {
@@ -25,7 +25,8 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                 opts.print_document = matches.is_present("doc");
                 opts.print_environment = matches.is_present("env");
                 opts.print_styles = matches.is_present("styles");
-                opts.slanted = matches.is_present("slanted");
+                opts.equilateral = matches.is_present("equilateral");
+                opts.central_anchor = matches.is_present("central");
 
                 let ops = wood.get_admissible_ops().expect("TODO");
                 let title = &format!(
@@ -42,15 +43,8 @@ pub fn convert_to_tikz(matches: &ArgMatches) {
                 };
 
                 if let Some(output_filename) = matches.value_of("output") {
-                    if let Ok(mut output_file) = File::create(output_filename) {
-                        if let Err(e) = wood.write_tikz(&mut output_file, &opts) {
-                            println!("Output file could not be written: {}", e);
-                        }
-                    } else {
-                        println!(
-                            "Output file '{}' could not be created or opened for writing.",
-                            output_filename
-                        );
+                    if let Err(e) = wood.write_tikz_to_file(output_filename, &opts) {
+                        println!("Error writing TikZ file: {}", e);
                     }
                 } else {
                     if let Err(e) = wood.write_tikz(&mut std::io::stdout(), &opts) {

@@ -5,6 +5,46 @@ use crate::graph::enums::Signum;
 use crate::graph::indices::VertexI;
 use std::collections::HashMap;
 use std::io::Write;
+use std::ops::{Add, Div, Sub};
+
+#[derive(Copy, Clone)]
+struct Coord {
+    x: f32,
+    y: f32,
+}
+
+impl Add for Coord {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl Div<f32> for Coord {
+    type Output = Self;
+
+    fn div(self, rhs: f32) -> Self::Output {
+        Self {
+            x: self.x / rhs,
+            y: self.y / rhs,
+        }
+    }
+}
+
+impl Sub for Coord {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        self + Self {
+            x: -rhs.x,
+            y: -rhs.y,
+        }
+    }
+}
 
 pub struct TikzOptions<'a> {
     pub print_document: bool,
@@ -14,11 +54,12 @@ pub struct TikzOptions<'a> {
     pub print_face_labels: bool,
     //
     pub anchor: Option<&'a str>,
+    pub central_anchor: bool,
     pub title: Option<&'a str>,
     //
     pub face_count: Option<&'a HashMap<VertexI, (usize, usize, usize)>>,
     pub drop_coord: SchnyderColor,
-    pub slanted: bool,
+    pub equilateral: bool,
 }
 
 impl<'a> Default for TikzOptions<'a> {
@@ -29,10 +70,11 @@ impl<'a> Default for TikzOptions<'a> {
             print_styles: true,
             print_face_labels: false,
             anchor: None,
+            central_anchor: false,
             title: None,
             face_count: None,
             drop_coord: SchnyderColor::Blue,
-            slanted: false,
+            equilateral: false,
         }
     }
 }
@@ -46,6 +88,10 @@ fn color_to_tikz(color: &SchnyderColor) -> &str {
 }
 
 impl SchnyderMap {
+    pub fn write_tikz_to_file(&self, path: &str, options: &TikzOptions) -> std::io::Result<()> {
+        std::fs::write(path, self.generate_tikz(options))
+    }
+
     pub fn write_tikz(&self, writer: &mut dyn Write, options: &TikzOptions) -> std::io::Result<()> {
         let tikz_str = self.generate_tikz(options);
         writer.write_all(tikz_str.as_bytes())
@@ -97,11 +143,11 @@ impl SchnyderMap {
             mid.push_str(&format!("{}}}\n", ind));
         }
 
-        let positions: HashMap<_, _> = face_counts
+        let plain_coords: HashMap<_, _> = face_counts
             .iter()
             .map(|(v, (r, g, b))| {
                 (
-                    v,
+                    *v,
                     match options.drop_coord {
                         SchnyderColor::Red => (b, g),
                         SchnyderColor::Green => (b, r),
@@ -114,30 +160,58 @@ impl SchnyderMap {
         let max_x = self
             .map
             .vertex_indices()
-            .map(|v| positions.get(v).unwrap().0)
+            .map(|v| plain_coords.get(v).unwrap().0)
             .max()
             .unwrap();
         let max_y = self
             .map
             .vertex_indices()
-            .map(|v| positions.get(v).unwrap().1)
+            .map(|v| plain_coords.get(v).unwrap().1)
             .max()
             .unwrap();
         let shear = *max_y as f32 / (*max_x as f32 * 2f32);
 
-        // coordinates
-        for (v, (x, y)) in positions {
-            let (x, y) = match options.slanted {
-                true => (*x as f32 + shear * *y as f32, *y as f32 * 0.86602540378),
-                false => (*x as f32, *y as f32),
-            };
+        let effective_coords: HashMap<_, _> = plain_coords
+            .iter()
+            .map(|(v, (&x, &y))| {
+                (
+                    *v,
+                    match options.equilateral {
+                        true => Coord {
+                            x: x as f32 + shear * y as f32,
+                            y: y as f32 * 0.86602540378,
+                        },
+                        false => Coord {
+                            x: x as f32,
+                            y: y as f32,
+                        },
+                    },
+                )
+            })
+            .collect();
 
-            let coord = if let Some(anchor) = &options.anchor {
-                format!("($({}) + ({},{})$)", anchor, x, y)
+        let center_of_gravity = [self.red_vertex, self.green_vertex, self.blue_vertex]
+            .iter()
+            .map(|v| effective_coords.get(v).unwrap())
+            .fold(Coord { x: 0.0, y: 0.0 }, |a, b| a + *b)
+            / 3.0;
+
+        // coordinates
+        for (v, coord) in effective_coords {
+            let tikz_coord = if let Some(anchor) = &options.anchor {
+                let c = if options.central_anchor {
+                    coord - center_of_gravity
+                } else {
+                    coord
+                };
+
+                format!("($({}) + ({},{})$)", anchor, c.x, c.y)
             } else {
-                format!("({},{})", x, y)
+                format!("({},{})", coord.x, coord.y)
             };
-            mid.extend(format!("{}\\coordinate (c_{}) at {} {{}};\n", ind, v.0, coord).chars());
+            mid.extend(
+                format!("{}\\coordinate (c_{}) at {} {{}};\n", ind, v.0, tikz_coord).chars(),
+            );
         }
 
         mid.extend(format!("{}\n", ind).chars());
