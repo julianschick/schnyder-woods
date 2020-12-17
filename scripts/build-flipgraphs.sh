@@ -1,6 +1,6 @@
 mkdir -p graphs
 
-for i in {3..9}; do 
+for i in {3..10}; do 
 
     CO=${i}co
     rm graphs/n${i}.flipgraph 2> /dev/null
