@@ -1,6 +1,9 @@
 load('../sage/schnyder-toolbox.sage')
 from sage.graphs.connectivity import vertex_connectivity
 
+import sage_numerical_backends_gurobi.gurobi_backend as gurobi_backend, sage.numerical.backends as backends, sys
+sys.modules['sage.numerical.backends.gurobi_backend'] = backends.gurobi_backend = gurobi_backend
+
 arg = int(sys.argv[1])
 g = Flipgraph("graphs/n%s.edges" % arg)
 

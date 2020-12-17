@@ -3,7 +3,7 @@ load('../sage/schnyder-toolbox.sage')
 list = []
 
 for i in range(4,9):
-    g = Flipgraph(f"graphs/n{i}.edges")
+    g = Flipgraph("graphs/n%d.edges" % i)
 
     diam = g.sage_graph().diameter()
     radius = g.sage_graph().radius()
@@ -13,7 +13,7 @@ for i in range(4,9):
 
 print("n;diameter;radius")
 for i, diameter, radius in list:
-    print(f"{i};{diameter};{radius}")
+    print("%d;%d;%d" % (i, diameter, radius))
 
 
 
