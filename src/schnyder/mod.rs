@@ -1280,22 +1280,15 @@ impl SchnyderMap {
 
                     let w = *self.map.edge_weight(source.edge)?;
                     if let Unicolored(_, _) = w {
-                        let target1 = self.map.try_vertex(v.id)?.next(source, CW);
-                        let target2 = self.map.try_vertex(v.id)?.next(source, CCW);
-
-                        if self.mergeable(source.edge, target1.edge).is_ok() {
-                            result.push(Operation::merge_by_vertices(
-                                v.id,
-                                source.other,
-                                target1.other,
-                            ));
-                        }
-                        if self.mergeable(source.edge, target2.edge).is_ok() {
-                            result.push(Operation::merge_by_vertices(
-                                v.id,
-                                source.other,
-                                target2.other,
-                            ));
+                        for &dir in &[CW, CCW] {
+                            let target = self.map.try_vertex(v.id)?.next(source, dir);
+                            if self.mergeable(source.edge, target.edge).is_ok() {
+                                result.push(Operation::merge_by_vertices(
+                                    v.id,
+                                    source.other,
+                                    target.other,
+                                ));
+                            }
                         }
                     } else if let Bicolored(_, _) = w {
                         if let Ok(targets) = self.find_split_target(source.edge, v.id) {

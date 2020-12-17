@@ -2,9 +2,9 @@ load('../sage/schnyder-toolbox.sage')
 from sage.graphs.connectivity import vertex_connectivity
 
 arg = int(sys.argv[1])
-g = Flipgraph(f"graphs/n{arg}.edges")
+g = Flipgraph("graphs/n%s.edges" % arg)
 
 kappa = vertex_connectivity(g.sage_graph(), solver='Gurobi', verbose=9)
-print(f"-----------------------------------------------------------------")
-print(f">>>>> The vertex connectivity for n = {arg} is {kappa}")
-print(f"-----------------------------------------------------------------")
+print("-----------------------------------------------------------------")
+print(">>>>> The vertex connectivity for n = %s is %s" % (arg, kappa))
+print("-----------------------------------------------------------------")
