@@ -50,7 +50,7 @@ fn write_stats(
 ) -> std::io::Result<()> {
     write_stats_header(w, format)?;
     write_stats_line(w, &stats.total, format, "*")?;
-    for level in stats.min_level..=stats.max_level {
+    for level in (stats.min_level..=stats.max_level).rev() {
         write_stats_line(w, &stats.levels[&level], format, &level.to_string())?;
     }
 
