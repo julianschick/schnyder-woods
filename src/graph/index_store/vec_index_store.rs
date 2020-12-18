@@ -1,3 +1,4 @@
+use crate::graph::error::IndexAccessError;
 use crate::graph::index_store::{Ideable, Index, IndexStore};
 use std::marker::PhantomData;
 
@@ -40,18 +41,18 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for VecIndexStore<N, V> {
         return result;
     }
 
-    fn insert(&mut self, item: V, index: &N) {
-        let index = (*index).into();
+    fn insert(&mut self, item: V, index: &N) -> Result<(), IndexAccessError<N>> {
+        let i = (*index).into();
 
-        if index < self.data.len() {
-            if let Some(_) = self.data[index] {
-                panic!("Index not available.");
+        if i < self.data.len() {
+            if let Some(_) = self.data[i] {
+                return Err(IndexAccessError::new(*index));
             } else {
-                self.data[index] = Some(item);
-                self.indices.push(N::from(index));
+                self.data[i] = Some(item);
+                self.indices.push(*index);
             }
         } else {
-            while self.data.len() < index {
+            while self.data.len() < i {
                 self.data.push(None);
             }
             self.data.push(Some(item));
@@ -61,6 +62,7 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for VecIndexStore<N, V> {
         {
             self.least_free_index += 1;
         }
+        Ok(())
     }
 
     fn remove(&mut self, index: &N) -> Option<V> {

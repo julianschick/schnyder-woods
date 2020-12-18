@@ -1,9 +1,9 @@
-use crate::graph;
 use crate::graph::enums::Signum::{Backward, Forward};
 use crate::graph::enums::{ClockDirection, EdgeEnd, Signum};
 use crate::graph::index_store::Ideable;
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::util::iterators::cyclic::CyclicIterable;
+use crate::util::swap;
 use itertools::Itertools;
 use serde::export::fmt::Debug;
 use std::fmt::{Display, Formatter};
@@ -69,7 +69,17 @@ impl<E> Edge<E> {
     }
 
     pub fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
-        return graph::swap((self.tail, self.head), signum == Backward);
+        return swap((self.tail, self.head), signum == Backward);
+    }
+
+    pub fn left_face(&self) -> FaceI {
+        self.left_face
+            .expect("PlanarMap internal error: face reference expected to be present.")
+    }
+
+    pub fn right_face(&self) -> FaceI {
+        self.right_face
+            .expect("PlanarMap internal error: face reference expected to be present.")
     }
 }
 

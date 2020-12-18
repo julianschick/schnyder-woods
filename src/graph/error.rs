@@ -23,6 +23,18 @@ impl GraphErr {
         return Err(GraphErr::new(problem));
     }
 
+    pub fn embedding_expected<T>() -> Result<T, Self> {
+        return Err(GraphErr::new(
+            "This operation can only be applied to embedded graphs.",
+        ));
+    }
+
+    pub fn no_embedding_expected<T>() -> Result<T, Self> {
+        return Err(GraphErr::new(
+            "This operation can only be applied to graphs that are not embedded.",
+        ));
+    }
+
     pub fn get_message(&self) -> &str {
         return &self.problem;
     }

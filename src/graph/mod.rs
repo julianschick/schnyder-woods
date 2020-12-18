@@ -6,10 +6,9 @@ use itertools::Itertools;
 
 use self::error::{IndexAccessError, NoSuchEdgeError};
 use self::indices::{EdgeI, FaceI, VertexI};
-use self::map_index_store::MapIndexStore;
 use crate::graph::enums::RevertibleEnum;
 use crate::graph::error::GraphResult;
-use crate::graph::vec_index_store::VecIndexStore;
+use crate::util;
 use crate::util::iterators::cyclic::CyclicIterable;
 use data_holders::{Edge, Face, NbVertex, Vertex};
 use enums::ClockDirection::{CCW, CW};
@@ -18,6 +17,8 @@ use enums::Side::{Left, Right};
 use enums::Signum::{Backward, Forward};
 use enums::{ClockDirection, EdgeEnd, Side, Signum};
 use error::GraphErr;
+use index_store::map_index_store::MapIndexStore;
+use index_store::vec_index_store::VecIndexStore;
 use index_store::IndexStore;
 
 #[macro_export]
@@ -27,38 +28,12 @@ macro_rules! invalid_graph {
     };
 }
 
-#[macro_export]
-macro_rules! embedded {
-    () => {
-        GraphErr::new_err("This operation can only be applied to graphs that are not embedded.")
-    };
-}
-
-#[macro_export]
-macro_rules! not_embedded {
-    () => {
-        GraphErr::new_err("This operation can only be applied to embedded graphs.")
-    };
-}
-
 pub mod data_holders;
 pub mod enums;
 pub mod error;
+mod index_store;
 pub mod indices;
 pub mod io;
-
-mod index_store;
-pub mod map_index_store;
-mod vec_index_store;
-
-pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
-    if do_swap {
-        let (a, b) = pair;
-        (b, a)
-    } else {
-        pair
-    }
-}
 
 pub struct PlanarMap<N: 'static, E: 'static, F: Clone + 'static> {
     vertices: Box<dyn IndexStore<VertexI, Vertex<N>>>,
@@ -91,43 +66,52 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         cloned.vertices = Box::new(MapIndexStore::new());
         for v in self.vertices.get_values() {
-            cloned.vertices.insert(
-                Vertex {
-                    id: v.id,
-                    neighbors: v.neighbors.clone(),
-                    weight: vertex_map(&v.weight),
-                },
-                &v.id,
-            );
+            cloned
+                .vertices
+                .insert(
+                    Vertex {
+                        id: v.id,
+                        neighbors: v.neighbors.clone(),
+                        weight: vertex_map(&v.weight),
+                    },
+                    &v.id,
+                )
+                .expect("PlanarMap internal error: cloning map with non-unique indices.");
         }
 
         cloned.edges = Box::new(VecIndexStore::new());
         for e in self.edges.get_values() {
-            cloned.edges.insert(
-                Edge {
-                    id: e.id,
-                    weight: edge_map(&e.weight),
-                    tail: e.tail,
-                    head: e.head,
-                    left_face: e.left_face,
-                    right_face: e.right_face,
-                },
-                &e.id,
-            );
+            cloned
+                .edges
+                .insert(
+                    Edge {
+                        id: e.id,
+                        weight: edge_map(&e.weight),
+                        tail: e.tail,
+                        head: e.head,
+                        left_face: e.left_face,
+                        right_face: e.right_face,
+                    },
+                    &e.id,
+                )
+                .expect("PlanarMap internal error: cloning map with non-unique indices.");
         }
 
         if self.is_embedded() {
             if let Some(fmap) = face_map {
                 cloned.faces = Box::new(VecIndexStore::new());
                 for f in self.faces.get_values() {
-                    cloned.faces.insert(
-                        Face {
-                            id: f.id,
-                            weight: fmap(&f.weight),
-                            angles: f.angles.clone(),
-                        },
-                        &f.id,
-                    );
+                    cloned
+                        .faces
+                        .insert(
+                            Face {
+                                id: f.id,
+                                weight: fmap(&f.weight),
+                                angles: f.angles.clone(),
+                            },
+                            &f.id,
+                        )
+                        .expect("PlanarMap internal error: cloning map with non-unique indices.");
                 }
             } else {
                 panic!("cloning an embedded map needs a face mapping")
@@ -182,7 +166,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         let (eid, signum) = self.get_edge_with_signum(v1, v2);
         let e = self.edge(eid);
-        let (left, right) = (e.left_face.unwrap(), e.right_face.unwrap());
+        let (left, right) = (e.left_face(), e.right_face());
 
         match signum {
             Forward => match side {
@@ -310,7 +294,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn face_count(&self) -> usize {
         if !self.embedded {
-            panic!("not embedded");
+            panic!("TODO: embedding expected");
         }
 
         self.faces.len()
@@ -568,7 +552,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         face: FaceI,
     ) -> GraphResult<EdgeI> {
         if !self.embedded {
-            return not_embedded!();
+            return GraphErr::embedding_expected();
         }
 
         let (pos1, pos2, nb_index_1, nb_index_2) = {
@@ -647,7 +631,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
     pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
         if self.embedded {
-            return embedded!();
+            return GraphErr::embedding_expected();
         }
 
         self.remove_edge_(v1, v2).map(|e| e.id)
@@ -675,8 +659,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let e = self.remove_edge_(v1, v2)?;
 
         // two faces must be merged
-        let left_face = self.faces.remove(&e.left_face.unwrap()).unwrap();
-        let right_face = self.faces.remove(&e.right_face.unwrap()).unwrap();
+        let left_face = self.faces.remove(&e.left_face()).unwrap();
+        let right_face = self.faces.remove(&e.right_face()).unwrap();
 
         let weight = merge_weights(left_face.weight, right_face.weight);
 
@@ -866,17 +850,17 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         //println!("{} nb = {:?}", dropped_edge.head.0, self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         // remove dropped vertex from faces adjacent to the contracted edge
-        self.face_mut(dropped_edge.left_face.unwrap())
+        self.face_mut(dropped_edge.left_face())
             .angles
             .retain(|v| v != &v_dropped);
-        self.face_mut(dropped_edge.right_face.unwrap())
+        self.face_mut(dropped_edge.right_face())
             .angles
             .retain(|v| v != &v_dropped);
 
         // special case: remaining degree of dropped vertex is 1 (<=> left and right face of dropped edge are equal)
-        if dropped_edge.left_face.unwrap() == dropped_edge.right_face.unwrap() {
+        if dropped_edge.left_face() == dropped_edge.right_face() {
             // then angle at kept vertex occurs twice, so remove one occurrence
-            let fid = dropped_edge.left_face.unwrap();
+            let fid = dropped_edge.left_face();
             let pos = self.face(fid).angles.iter().position(|&v| v == v_kept);
             self.face_mut(fid).angles.remove(pos.unwrap());
 
@@ -893,8 +877,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 let dir = self.edge(eid).get_signum_by_tail(v_kept);
 
                 let f = match dir {
-                    Forward => self.face_mut(self.edge(eid).left_face.unwrap()),
-                    Backward => self.face_mut(self.edge(eid).right_face.unwrap()),
+                    Forward => self.face_mut(self.edge(eid).left_face()),
+                    Backward => self.face_mut(self.edge(eid).right_face()),
                 };
 
                 if let Some((i, _)) = f.angles.iter().find_position(|v| v == &&v_dropped) {
@@ -958,10 +942,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         };
 
         let new_vertex_index = if let Some(idx) = new_vertex_index {
-            if !self.vertices.is_available(&idx) {
-                return GraphErr::new_err("Desired vertex index is not available");
+            if let Err(_) = self.vertices.insert(new_vertex, &idx) {
+                return GraphErr::new_err("Desired vertex index is not available.");
             }
-            self.vertices.insert(new_vertex, &idx);
             idx
         } else {
             self.vertices.push(new_vertex)
@@ -985,10 +968,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         };
 
         let new_edge_index = if let Some(idx) = new_edge_index {
-            if !self.edges.is_available(&idx) {
+            if let Err(_) = self.edges.insert(new_edge, &idx) {
                 return GraphErr::new_err("Desired edge index is not available");
             }
-            self.edges.insert(new_edge, &idx);
             idx
         } else {
             self.edges.push(new_edge)
@@ -1088,21 +1070,19 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 let e = self.edge(split_eid);
                 (
                     match new_end {
-                        Tail => e.left_face,
-                        Head => e.right_face,
-                    }
-                    .unwrap(),
+                        Tail => e.left_face(),
+                        Head => e.right_face(),
+                    },
                     match new_end {
-                        Tail => e.right_face,
-                        Head => e.left_face,
-                    }
-                    .unwrap(),
+                        Tail => e.right_face(),
+                        Head => e.left_face(),
+                    },
                 )
             }
         };
 
         {
-            let (right_face, left_face) = swap((cw_face, ccw_face), new_end == Head);
+            let (right_face, left_face) = util::swap((cw_face, ccw_face), new_end == Head);
             let e = self.edge_mut(new_eid);
             e.left_face = Some(left_face);
             e.right_face = Some(right_face);
@@ -1162,16 +1142,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         if self.embedded {
             for e in self.edges.get_values() {
-                if let Some(f) = e.left_face {
-                    self.face(f);
-                } else {
-                    return false;
-                }
-                if let Some(f) = e.right_face {
-                    self.face(f);
-                } else {
-                    return false;
-                }
+                self.face(e.left_face());
+                self.face(e.right_face());
             }
 
             for f in self.faces.get_values() {
@@ -1195,9 +1167,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     /// From edge orders to faces
-    fn construct_faces(&mut self, f_weights: fn(FaceI) -> F) {
+    fn construct_faces(&mut self, f_weights: fn(FaceI) -> F) -> GraphResult<()> {
         if self.embedded {
-            panic!("embedding already done");
+            return GraphErr::no_embedding_expected();
         }
 
         for eid in self.edges.get_indices().cloned().collect_vec() {
@@ -1210,13 +1182,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-        self.embedded = true;
-        let (n, m, f) = (self.vertex_count(), self.edge_count(), self.face_count());
+        // check euler's formula
+        let (n, m, f) = (self.vertex_count(), self.edge_count(), self.faces.len());
+        assert_eq!(n + f, 2 + m);
 
-        if n + f != 2 + m {
-            self.embedded = false;
-            panic!("Euler is unhappy");
-        }
+        self.embedded = true;
+        Ok(())
     }
 
     /// signum -> right face
@@ -1619,7 +1590,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         vid: VertexI,
     ) -> GraphResult<(&Vertex<N>, usize, &NbVertex, &NbVertex)> {
         if !self.embedded {
-            return not_embedded!();
+            return GraphErr::no_embedding_expected();
         };
 
         let v = self.try_vertex(vid)?;

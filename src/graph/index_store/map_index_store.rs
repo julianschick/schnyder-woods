@@ -1,3 +1,4 @@
+use crate::graph::error::IndexAccessError;
 use crate::graph::index_store::{Ideable, Index, IndexStore};
 use std::collections::HashMap;
 
@@ -28,9 +29,9 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for MapIndexStore<N, V> {
         return result;
     }
 
-    fn insert(&mut self, item: V, index: &N) {
+    fn insert(&mut self, item: V, index: &N) -> Result<(), IndexAccessError<N>> {
         if !self.is_available(index) {
-            panic!("Index not available.");
+            return Err(IndexAccessError::new(*index));
         }
 
         self.map.insert(*index, item);
@@ -38,6 +39,7 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for MapIndexStore<N, V> {
         while self.map.contains_key(&N::from(self.least_free_index)) {
             self.least_free_index += 1;
         }
+        Ok(())
     }
 
     fn remove(&mut self, index: &N) -> Option<V> {

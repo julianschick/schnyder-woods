@@ -363,7 +363,7 @@ dependencies = [
 
 [[package]]
 name = "schnyderflip"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "array_tool 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "bimap 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",

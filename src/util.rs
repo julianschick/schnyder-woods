@@ -1,6 +1,50 @@
 use crate::util::iterators::cyclic::CyclicIterable;
 use itertools::Itertools;
 
+pub fn is_in_cyclic_order<T: Eq>(vec: &Vec<T>, order: &Vec<T>) -> bool {
+    if order.len() <= 2 {
+        return true;
+    }
+
+    let positions: Vec<_> = order
+        .iter()
+        .map(|item| vec.iter().position(|set_item| item == set_item))
+        .filter_map(|o| o)
+        .collect();
+
+    if let Some(index_of_min_pos) = positions.iter().position_min() {
+        for (a, b) in positions.cycle(index_of_min_pos, false).tuple_windows() {
+            if a > b {
+                return false;
+            };
+        }
+    } else {
+        // no element of 'order' is in 'vec' contained
+        return true;
+    }
+
+    return true;
+}
+
+pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
+    if handled == a {
+        *b
+    } else if handled == b {
+        *a
+    } else {
+        *handled
+    }
+}
+
+pub fn swap<T>(pair: (T, T), do_swap: bool) -> (T, T) {
+    if do_swap {
+        let (a, b) = pair;
+        (b, a)
+    } else {
+        pair
+    }
+}
+
 pub mod iterators {
 
     pub mod cyclic {
@@ -74,41 +118,6 @@ pub mod iterators {
                 }
             }
         }
-    }
-}
-
-pub fn is_in_cyclic_order<T: Eq>(vec: &Vec<T>, order: &Vec<T>) -> bool {
-    if order.len() <= 2 {
-        return true;
-    }
-
-    let positions: Vec<_> = order
-        .iter()
-        .map(|item| vec.iter().position(|set_item| item == set_item))
-        .filter_map(|o| o)
-        .collect();
-
-    if let Some(index_of_min_pos) = positions.iter().position_min() {
-        for (a, b) in positions.cycle(index_of_min_pos, false).tuple_windows() {
-            if a > b {
-                return false;
-            };
-        }
-    } else {
-        // no element of 'order' is in 'vec' contained
-        return true;
-    }
-
-    return true;
-}
-
-pub fn swapped<T: Eq + Copy>(a: &T, b: &T, handled: &T) -> T {
-    if handled == a {
-        *b
-    } else if handled == b {
-        *a
-    } else {
-        *handled
     }
 }
 
