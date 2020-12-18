@@ -32,7 +32,7 @@ lazy_static! {
 
 fn main() {
     let matches = App::new("schnyderflip")
-        .version("1.0.1")
+        .version("1.1.0")
         .author("Julian Schick <julian.schick@posteo.de>")
         .about("Algorithms for manipulating Schnyder woods with split and merge.")
         .subcommand(
