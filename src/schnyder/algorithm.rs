@@ -324,14 +324,16 @@ impl SchnyderMap {
 
     pub fn get_affected_face(&self, op: &Operation) -> FaceI {
         let dir = self.get_operation_direction(op).unwrap(); //TODO
-        self.map.get_face(
-            op.hinge_vertex,
-            op.source_vertex,
-            match dir {
-                CW => Right,
-                CCW => Left,
-            },
-        )
+        self.map
+            .get_face(
+                op.hinge_vertex,
+                op.source_vertex,
+                match dir {
+                    CW => Right,
+                    CCW => Left,
+                },
+            )
+            .unwrap() //TODO
     }
 
     fn get_unidirected_color(&self, v1: &VertexI, v2: &VertexI) -> SchnyderColor {
@@ -366,7 +368,8 @@ fn flip_over_to_triangle(
         let split_hinge = wood
             .map
             .try_edge(merge_target_edge)?
-            .get_other(merge_op.hinge_vertex);
+            .get_other(merge_op.hinge_vertex)
+            .unwrap(); //TODO
 
         let split_op = wood.split(merge_target_edge, split_hinge, None).unwrap();
         result.push(split_op);
@@ -403,8 +406,8 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> GraphResult
         let (tail, head) = (wood.map.try_vertex(tail)?, wood.map.try_vertex(head)?);
 
         let (tail_apex, head_apex) = match side {
-            Side::Right => (tail.next_nb(head.id, CW), head.next_nb(tail.id, CCW)),
-            Side::Left => (tail.next_nb(head.id, CCW), head.next_nb(tail.id, CW)),
+            Side::Right => (tail.next_by_nb(head.id, CW), head.next_by_nb(tail.id, CCW)),
+            Side::Left => (tail.next_by_nb(head.id, CCW), head.next_by_nb(tail.id, CW)),
         };
 
         (tail.id, head.id, tail_apex.other, head_apex.other)

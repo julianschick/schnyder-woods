@@ -36,7 +36,7 @@ pub fn find_sequence(
             .unwrap_or_else(|e| panic!("Internal assertion failed: {}", e))
     }));
 
-    println!("outer vertex map = {:?}", vm);
+    //println!("outer vertex map = {:?}", vm);
     return Ok(result);
 }
 
@@ -139,8 +139,8 @@ fn lift_sequence(
     let mut w = wood
         .find_outgoing_endvertex(ctr.retained_vertex, ctr.color.next())
         .unwrap();
-    let mut sector_vertices = calc_sector(wood, vr, u, w, CW).unwrap();
-    let mut sector_faces = wood.map.faces_between(&vr, &u, &w, CW);
+    let mut sector_vertices = calc_sector(wood, vr, u, w, CW).unwrap(); //TODO
+    let mut sector_faces = wood.map.faces_between(&vr, &u, &w, CW).unwrap(); //TODO
 
     #[cfg(debug_assertions)]
     println!(
@@ -296,11 +296,11 @@ fn lift_sequence(
 
         //recalculate_sector = true;
         //if recalculate_sector {
-        sector_vertices = calc_sector(wood, vr, u, w, CW).unwrap();
-        sector_faces = wood.map.faces_between(&vr, &u, &w, CW);
-        //println!("\tsector_vertices = {:?}", sector_vertices);
-        //println!("\tsector_faces = {:?}", sector_faces);
-        //}
+        sector_vertices = calc_sector(wood, vr, u, w, CW).unwrap(); //TODO
+        sector_faces = wood.map.faces_between(&vr, &u, &w, CW).unwrap(); //TODO
+                                                                         //println!("\tsector_vertices = {:?}", sector_vertices);
+                                                                         //println!("\tsector_faces = {:?}", sector_faces);
+                                                                         //}
 
         #[cfg(debug_assertions)]
         DEBUG.write().unwrap().output(
@@ -366,7 +366,7 @@ fn find_sequence_(
             })
             .unwrap();
 
-        println!("best_color = {:?}; depth = {}", best_color, depth);
+        //println!("best_color = {:?}; depth = {}", best_color, depth);
 
         #[cfg(debug_assertions)]
         {
@@ -405,10 +405,10 @@ fn find_sequence_(
 
         let (vertex_map, mut lifted_seq) = {
             let (mut vertex_map, mut seq) = find_sequence_(wood1, wood2, depth + 1)?;
-            println!(
+            /*println!(
                 "level{} vertex map (wood2 -> wood1) = {:?}",
                 depth, vertex_map
-            );
+            );*/
             vertex_map.insert(contraction2.dropped_vertex, contraction1.dropped_vertex);
 
             // swap
@@ -418,14 +418,14 @@ fn find_sequence_(
             for op in &seq {
                 wood1.exec_op(op)?;
             }
-            println!(
+            /*println!(
                 "swap {} ~ {}",
                 retained_vertex.0, contraction1.retained_vertex.0
-            );
+            );*/
             let swap_seq = wood1
                 .swap(&retained_vertex, &contraction1.retained_vertex)
                 .unwrap(); //TODO
-            println!("swap seq len = {}", swap_seq.len());
+                           //println!("swap seq len = {}", swap_seq.len());
 
             // reflect swap in vertex_map
             let swap_a = retained_vertex;

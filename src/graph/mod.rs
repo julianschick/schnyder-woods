@@ -28,6 +28,15 @@ macro_rules! invalid_graph {
     };
 }
 
+macro_rules! internal_err {
+    () => {
+        format!("PlanarMap internal assertion failed (no closer specification)")
+    };
+    ($arg: expr) => {
+        format!("PlanarMap internal assertion failed: {}", $arg)
+    };
+}
+
 pub mod data_holders;
 pub mod enums;
 pub mod error;
@@ -159,16 +168,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         self.faces.get_values()
     }
 
-    pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> FaceI {
+    pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> GraphResult<FaceI> {
         if !self.is_embedded() {
-            panic!("operation allowed only on embedded graphs");
+            return GraphErr::embedding_expected();
         }
 
-        let (eid, signum) = self.get_edge_with_signum(v1, v2);
+        let (eid, signum) = self.edge_with_signum(v1, v2)?;
         let e = self.edge(eid);
         let (left, right) = (e.left_face(), e.right_face());
 
-        match signum {
+        Ok(match signum {
             Forward => match side {
                 Left => left,
                 Right => right,
@@ -177,7 +186,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 Left => right,
                 Right => left,
             },
-        }
+        })
     }
 
     pub fn faces_between(
@@ -186,7 +195,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         v1: &VertexI,
         v2: &VertexI,
         direction: ClockDirection,
-    ) -> Vec<FaceI> {
+    ) -> GraphResult<Vec<FaceI>> {
         let v = self.vertex(*v);
         if let (Some(nb1), Some(nb2)) = (v.get_nb(*v1), v.get_nb(*v2)) {
             let nbs = v.cycle_while(nb1.index, &|nb| nb.index != nb2.index, CW, true);
@@ -204,7 +213,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 })
                 .collect()
         } else {
-            panic!("v1/v2 invalid");
+            GraphErr::new_err(&format!("{} or {} is not a neighbor of {}", v1, v2, v))
         }
     }
 
@@ -324,7 +333,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     }
 
     pub fn edge_opposite_vertex(&self, e: EdgeI, v: VertexI) -> GraphResult<VertexI> {
-        Ok(self.try_edge(e)?.get_other(v))
+        Ok(self.try_edge(e)?.get_other(v)?)
     }
 
     pub fn edge_weight(&self, e: EdgeI) -> Result<&E, IndexAccessError<EdgeI>> {
@@ -757,8 +766,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let kept_ccw = self.next_edge(v_kept, contracted_eid, CCW);
 
             if let None = kept_cw.and(kept_ccw).and(dropped_cw).and(dropped_ccw) {
-                panic!("No neighbour");
-                //TODO!!!
+                return GraphErr::new_err("Edge contraction is only supported if the contracted edge is adjacent to any other edge.");
             }
 
             // right and left regarding to the orientation dropped -> kept
@@ -767,30 +775,35 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             let kept_right = self.edge(kept_ccw.unwrap());
             let kept_left = self.edge(kept_cw.unwrap());
 
-            let right_face_collapse =
-                dropped_right.get_other(v_dropped) == kept_right.get_other(v_kept);
-            let left_face_collapse =
-                dropped_left.get_other(v_dropped) == kept_left.get_other(v_kept);
+            let right_face_collapse = dropped_right.get_other(v_dropped).expect(&internal_err!())
+                == kept_right.get_other(v_kept).expect(&internal_err!());
+
+            let left_face_collapse = dropped_left.get_other(v_dropped).expect(&internal_err!())
+                == kept_left.get_other(v_kept).expect(&internal_err!());
 
             let dropped_single_edge = dropped_cw == dropped_ccw;
 
             if right_face_collapse {
-                let right_face_merge: Box<dyn Fn(_, _) -> _> =
-                    match dropped_right.get_signum_by_tail(v_dropped) {
-                        Forward => Box::new(|_, b| b),
-                        Backward => Box::new(|a, _| a),
-                    };
+                let right_face_merge: Box<dyn Fn(_, _) -> _> = match dropped_right
+                    .get_signum_by_tail(v_dropped)
+                    .expect(&internal_err!())
+                {
+                    Forward => Box::new(|_, b| b),
+                    Backward => Box::new(|a, _| a),
+                };
 
                 //(*s).edge_mut(kept_right.id).weight = merge_weights(&removed_edge, &kept_right);
                 (*s).remove_embedded_edge_by_index(dropped_right.id, &right_face_merge)?;
             }
 
             if left_face_collapse && !dropped_single_edge {
-                let left_face_merge: Box<dyn Fn(_, _) -> _> =
-                    match dropped_left.get_signum_by_tail(v_dropped) {
-                        Forward => Box::new(|a, _| a),
-                        Backward => Box::new(|_, b| b),
-                    };
+                let left_face_merge: Box<dyn Fn(_, _) -> _> = match dropped_left
+                    .get_signum_by_tail(v_dropped)
+                    .expect(&internal_err!())
+                {
+                    Forward => Box::new(|a, _| a),
+                    Backward => Box::new(|_, b| b),
+                };
 
                 (*s).remove_embedded_edge_by_index(dropped_left.id, &left_face_merge)?;
             }
@@ -828,9 +841,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             }
         }
 
-        //println!("{} nb = {:?}", dropped_edge.head.0, self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.other).collect_vec());
-        //println!("{} nb = {:?}", dropped_edge.tail.0, dropped_vertex.neighbors.iter().map(|nb| nb.other).collect_vec());
-
         // insert the fan of neighbors previously attached to v_dropped now to v_kept
         {
             let v = self.vertex_mut(v_kept);
@@ -847,7 +857,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             );
         }
         self.restore_nb_indices(v_kept);
-        //println!("{} nb = {:?}", dropped_edge.head.0, self.vertex(dropped_edge.head).neighbors.iter().map(|nb| nb.other).collect_vec());
 
         // remove dropped vertex from faces adjacent to the contracted edge
         self.face_mut(dropped_edge.left_face())
@@ -874,7 +883,10 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 .map(|nb| nb.edge)
                 .collect_vec()
             {
-                let dir = self.edge(eid).get_signum_by_tail(v_kept);
+                let dir = self
+                    .edge(eid)
+                    .get_signum_by_tail(v_kept)
+                    .expect(&internal_err!());
 
                 let f = match dir {
                     Forward => self.face_mut(self.edge(eid).left_face()),
@@ -1030,7 +1042,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         new_edge_weight: E,
     ) -> GraphResult<(VertexI, EdgeI)> {
         if !self.embedded {
-            panic!("This operation is only allowed on embedded graphs");
+            return GraphErr::embedding_expected();
         }
 
         let (pivot_vid, _) = self.edge(split_eid).to_vertex_pair(match new_end {
@@ -1055,7 +1067,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 .map(|nb| nb.other)
                 .collect_vec()
             {
-                let fid = self.get_face(new_vid, opposite_vid, Side::Left);
+                let fid = self.get_face(new_vid, opposite_vid, Side::Left)?;
                 self.replace_angle(&fid, &pivot_vid, &new_vid);
             }
         }
@@ -1063,8 +1075,8 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let (ccw_face, cw_face) = {
             if let Some((ccw_border, cw_border)) = patch_borders {
                 (
-                    self.get_face(pivot_vid, ccw_border, Side::Right),
-                    self.get_face(pivot_vid, cw_border, Side::Left),
+                    self.get_face(pivot_vid, ccw_border, Side::Right)?,
+                    self.get_face(pivot_vid, cw_border, Side::Left)?,
                 )
             } else {
                 let e = self.edge(split_eid);
@@ -1102,37 +1114,49 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return Ok((new_vid, new_eid));
     }
 
-    /// Dirty function, can also panic instead of returning false
-    pub fn check_referential_integrity(&self) -> bool {
+    /// For debugging purposes. Should always return true.
+    #[allow(dead_code)]
+    fn check_referential_integrity(&self) -> bool {
         let mut edge_count = 0;
         let mut half_edge_count = 0;
 
         for v in self.vertices.get_values() {
             for nb in v.neighbors.iter() {
                 half_edge_count += 1;
-                let e = self.edge(nb.edge);
 
-                match nb.end {
-                    Tail => {
-                        if e.tail != v.id {
-                            return false;
+                if let Ok(e) = self.try_edge(nb.edge) {
+                    match nb.end {
+                        Tail => {
+                            if e.tail != v.id {
+                                return false;
+                            }
+                        }
+                        Head => {
+                            if e.head != v.id {
+                                return false;
+                            }
                         }
                     }
-                    Head => {
-                        if e.head != v.id {
+
+                    let opposite = e.get_other(v.id);
+                    if let Ok(opp) = opposite {
+                        if self.try_vertex(opp).is_err() {
                             return false;
                         }
+                    } else {
+                        return false;
                     }
-                };
-
-                self.vertex(e.get_other(v.id));
+                } else {
+                    return false;
+                }
             }
         }
 
         for e in self.edges.get_values() {
             edge_count += 1;
-            self.vertex(e.tail);
-            self.vertex(e.head);
+            if self.try_vertex(e.head).is_err() || self.try_vertex(e.tail).is_err() {
+                return false;
+            }
         }
 
         // handshake lemma
@@ -1174,11 +1198,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         for eid in self.edges.get_indices().cloned().collect_vec() {
             if self.edge(eid).left_face.is_none() {
-                self.build_face_cycle(eid, Forward, f_weights);
+                self.build_face_cycle(eid, Left, f_weights)?;
             }
 
             if self.edge(eid).right_face.is_none() {
-                self.build_face_cycle(eid, Backward, f_weights);
+                self.build_face_cycle(eid, Right, f_weights)?;
             }
         }
 
@@ -1190,20 +1214,29 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         Ok(())
     }
 
-    /// signum -> right face
-    fn build_face_cycle(&mut self, eid: EdgeI, signum: Signum, f_weights: fn(FaceI) -> F) {
+    /// Builds the face cycle (from the incidence orders at the vertices) incident to a given edge.
+    /// # Arguments
+    /// * eid - the edge
+    /// * side - side of the edge the face cycle is located (side in forward direction)
+    /// * f_weights - face weight function
+    fn build_face_cycle(
+        &mut self,
+        eid: EdgeI,
+        side: Side,
+        f_weights: fn(FaceI) -> F,
+    ) -> GraphResult<FaceI> {
         let mut cycle = Vec::new();
         let fid = self.faces.next_index();
 
         let mut next = {
-            let e = self.edge_mut(eid);
-            match signum {
-                Forward => {
+            let e = self.try_edge_mut(eid)?;
+            match side {
+                Left => {
                     cycle.push(e.tail);
                     e.left_face = Some(fid);
                     e.head
                 }
-                Backward => {
+                Right => {
                     cycle.push(e.head);
                     e.right_face = Some(fid);
                     e.tail
@@ -1214,9 +1247,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         while next != cycle[0] && cycle.len() <= self.vertex_count() + 1 {
             cycle.push(next);
             let l = cycle.len();
-            next = self.vertex(cycle[l - 1]).next_nb(cycle[l - 2], CW).other;
+            next = self.vertex(cycle[l - 1]).next_by_nb(cycle[l - 2], CW).other;
 
-            let (intermediate_eid, s) = self.get_edge_with_signum(cycle[l - 1], next);
+            let (intermediate_eid, s) = self.edge_with_signum(cycle[l - 1], next)?;
             let e = self.edge_mut(intermediate_eid);
             match s {
                 Forward => e.left_face = Some(fid),
@@ -1225,7 +1258,9 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
 
         if cycle.len() > self.vertex_count() {
-            panic!("cycle too long");
+            return GraphErr::new_err(
+                "The graph does not seem to be planar or the vertex orders are messed up: a proper embedding can not be constructed.",
+            );
         }
 
         let face = Face {
@@ -1233,7 +1268,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             weight: f_weights(fid),
             angles: cycle,
         };
-        self.faces.push(face);
+        Ok(self.faces.push(face))
     }
 
     /// Gives the graph an embedding into the sphere (i.e. no outer face is selected). The argument
@@ -1283,7 +1318,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                     GraphErr::new(&format!("The edge ({}, {}) is contained in a face cycle but does not exist in the graph.", a.0, b.0))
                 )?;
 
-                match self.get_signum(e, a, b)? {
+                match self.get_signum_by_tail(e, a)? {
                     Forward => fwd_occurence.insert(e),
                     Backward => backwd_occurence.insert(e),
                 };
@@ -1360,7 +1395,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 let v2 = face_cycle_vec[(i + 1) % l];
                 let edge = self.edge_mut(self.get_edge(v1, v2).unwrap());
 
-                match edge.get_signum(v1, v2) {
+                match edge.get_signum_by_tail(v1).expect(&internal_err!()) {
                     Forward => edge.left_face = Some(id),
                     Backward => edge.right_face = Some(id),
                 }
@@ -1405,7 +1440,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             return GraphErr::new_err(&format!("No vertex orders given for at least one vertex"));
         }
 
-        self.construct_faces(f_weights); //TODO error handling
+        self.construct_faces(f_weights)?;
         Ok(())
     }
 
@@ -1553,12 +1588,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
     fn restore_face_refs(&mut self, fid: FaceI) {
         let face = self.face(fid);
 
-        let boundary_cycle = face
+        let boundary_cycle: Vec<_> = face
             .angles
             .cycle(0, true)
             .tuple_windows()
-            .map(|(&v1, &v2)| self.get_edge_with_signum(v1, v2))
-            .collect_vec();
+            .map(|(&v1, &v2)| {
+                self.edge_with_signum(v1, v2)
+                    .expect(&internal_err!("face cycle contains invalid edges"))
+            })
+            .collect();
 
         for (eid, signum) in boundary_cycle {
             match signum {
@@ -1568,19 +1606,13 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    //TODO: deprecated
-    fn get_edge_with_signum(&self, v1: VertexI, v2: VertexI) -> (EdgeI, Signum) {
-        let e = self.get_edge(v1, v2).unwrap();
-        (e, self.get_signum(e, v1, v2).unwrap())
-    }
-
     pub fn edge_with_signum(&self, v1: VertexI, v2: VertexI) -> GraphResult<(EdgeI, Signum)> {
         let e = self.get_edge(v1, v2)?;
-        Ok((e, self.get_signum(e, v1, v2)?))
+        Ok((e, self.get_signum_by_tail(e, v1)?))
     }
 
-    pub fn get_signum(&self, e: EdgeI, v1: VertexI, v2: VertexI) -> GraphResult<Signum> {
-        Ok(self.try_edge(e)?.get_signum(v1, v2))
+    pub fn get_signum_by_tail(&self, e: EdgeI, v: VertexI) -> GraphResult<Signum> {
+        self.try_edge(e)?.get_signum_by_tail(v)
     }
 
     /// The order of NbVertex is in face definition order (ccw), or seen from the vertex in cw order.
@@ -1666,8 +1698,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
 
         let v = self.vertex(vertex_intersection[0]);
 
-        let nb1 = v.get_nb(e1.get_other(v.id)).unwrap();
-        let nb2 = v.get_nb(e2.get_other(v.id)).unwrap();
+        let nb1 = v
+            .get_nb(e1.get_other(v.id).expect(&internal_err!()))
+            .expect(&internal_err!());
+        let nb2 = v
+            .get_nb(e2.get_other(v.id).expect(&internal_err!()))
+            .expect(&internal_err!());
         let l = v.neighbors.len();
 
         assert!(l >= 3);
@@ -1714,8 +1750,8 @@ mod tests {
         let v2 = g.add_vertex(2);
         g.add_edge(v1, v2, 1);
 
-        assert_eq!(g.vertex(v1).next_nb(v2, CW).other, v2);
-        assert_eq!(g.vertex(v1).next_nb(v2, CCW).other, v2);
+        assert_eq!(g.vertex(v1).next_by_nb(v2, CW).other, v2);
+        assert_eq!(g.vertex(v1).next_by_nb(v2, CCW).other, v2);
 
         let v3 = g.add_vertex(3);
         g.add_edge(v1, v3, 2);
@@ -1724,11 +1760,11 @@ mod tests {
         g.set_embedding_by_face_cycles(vec![(vec![v1, v2, v3], 1), (vec![v3, v2, v1], 1)])
             .expect("ok");
 
-        assert_eq!(g.vertex(v1).next_nb(v2, CW).other, v3);
-        assert_eq!(g.vertex(v1).next_nb(v2, CCW).other, v3);
+        assert_eq!(g.vertex(v1).next_by_nb(v2, CW).other, v3);
+        assert_eq!(g.vertex(v1).next_by_nb(v2, CCW).other, v3);
 
-        assert_eq!(g.vertex(v3).next_nb(v1, CW).other, v2);
-        assert_eq!(g.vertex(v3).next_nb(v1, CCW).other, v2);
+        assert_eq!(g.vertex(v3).next_by_nb(v1, CW).other, v2);
+        assert_eq!(g.vertex(v3).next_by_nb(v1, CCW).other, v2);
     }
 
     #[test]
@@ -1813,7 +1849,7 @@ mod tests {
 
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[0], outer_rim[3], CW)
+                .sector_including(outer_rim[0], outer_rim[3], CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1821,7 +1857,7 @@ mod tests {
         );
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[0], outer_rim[7], CCW)
+                .sector_including(outer_rim[0], outer_rim[7], CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1829,7 +1865,7 @@ mod tests {
         );
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[1], outer_rim[0], CCW)
+                .sector_including(outer_rim[1], outer_rim[0], CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1837,7 +1873,7 @@ mod tests {
         );
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[0], outer_rim[1], CW)
+                .sector_including(outer_rim[0], outer_rim[1], CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1845,7 +1881,7 @@ mod tests {
         );
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[9], outer_rim[0], CW)
+                .sector_including(outer_rim[9], outer_rim[0], CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1859,7 +1895,7 @@ mod tests {
 
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[0], outer_rim[0], CW)
+                .sector_including(outer_rim[0], outer_rim[0], CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1867,7 +1903,7 @@ mod tests {
         );
         assert_eq!(
             g.vertex(ctr)
-                ._sector_including(outer_rim[0], outer_rim[0], CCW)
+                .sector_including(outer_rim[0], outer_rim[0], CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1919,7 +1955,7 @@ mod tests {
 
         assert_eq!(
             h.vertex(a)
-                ._sector_including(b, b, CW)
+                .sector_including(b, b, CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1927,7 +1963,7 @@ mod tests {
         );
         assert_eq!(
             h.vertex(a)
-                ._sector_including(b, b, CCW)
+                .sector_including(b, b, CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1935,7 +1971,7 @@ mod tests {
         );
         assert_eq!(
             h.vertex(b)
-                ._sector_including(a, a, CW)
+                .sector_including(a, a, CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1943,7 +1979,7 @@ mod tests {
         );
         assert_eq!(
             h.vertex(b)
-                ._sector_including(a, a, CCW)
+                .sector_including(a, a, CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1981,7 +2017,7 @@ mod tests {
 
         assert_eq!(
             j.vertex(a)
-                ._sector_including(b, b, CW)
+                .sector_including(b, b, CW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),
@@ -1989,7 +2025,7 @@ mod tests {
         );
         assert_eq!(
             j.vertex(a)
-                ._sector_including(b, b, CCW)
+                .sector_including(b, b, CCW)
                 .iter()
                 .map(|nb| nb.other)
                 .collect_vec(),

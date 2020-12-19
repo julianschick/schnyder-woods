@@ -148,15 +148,6 @@ pub mod debug {
             self.active = false;
         }
 
-        /*fn delete_all_files(dir: &str) {
-            for entry in read_dir(dir).unwrap() {
-                let p = entry.unwrap().path();
-                if p.is_file() {
-                    remove_file(p);
-                }
-            }
-        }*/
-
         pub fn new(base_dir: &'static str) -> Debug {
             let result = Debug {
                 base_dir,
@@ -165,20 +156,9 @@ pub mod debug {
             };
 
             let rr = remove_dir_all(base_dir);
-
             if let Err(_) = rr {
                 println!("Debug was not present, no need to be wiped.")
             }
-
-            /*if !Path::new(&base_dir).is_dir() {
-                create_dir(base_dir).expect("Unable to create temporary output dir");
-            }
-            if !Path::new(&output_dir).is_dir() {
-                create_dir(&output_dir).expect("Unable to create output dir");
-            }*/
-
-            //Self::delete_all_files(base_dir);
-            //Self::delete_all_files(output_dir);
 
             return result;
         }
@@ -238,8 +218,6 @@ pub mod debug {
             .arg("-flatten")
             .arg(format!("{}.pdf", name))
             .arg(format!("{}/{}.png", outputdir, name)).output().unwrap().stderr);*/
-
-            //println!("{}", s.unwrap());
         }
     }
 }

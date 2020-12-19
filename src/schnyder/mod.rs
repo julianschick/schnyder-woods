@@ -788,9 +788,9 @@ impl SchnyderMap {
             .expect("TODO");
 
         return if !with_bicolored {
-            v.nb_sector_between(before_out, after_out, CW)
+            v.sector_between_by_nb(before_out, after_out, CW)
         } else {
-            let mut tmp = v.nb_sector_including(before_out, after_out, CW);
+            let mut tmp = v.sector_including_by_nb(before_out, after_out, CW);
             assert!(tmp.len() >= 2);
 
             if self.incoming_color(tmp[0]) != Some(color) {
@@ -1424,34 +1424,14 @@ impl SchnyderMap {
         let prev_vid = self.map.edge_opposite_vertex(prev_eid, pivot_vid)?;
         let next_vid = self.map.edge_opposite_vertex(next_eid, pivot_vid)?;
 
-        //let cw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CW).other;
-        //let ccw_nb = self.map.vertex(pivot_vid).next_nb(new_vid, CCW).other;
-
-        /*println!("cw_face = {}", cw_face.0);
-        println!("ccw_face = {}", ccw_face.0);
-        println!("pivot = {}", pivot_vid.0);
-        eprintln!("cw_nb = {:?}", cw_nb);
-        eprintln!("ccw_nb = {:?}", ccw_nb);*/
-
-        let prev_face = self.map.get_face(pivot_vid, prev_vid, Side::Right);
-        let next_face = self.map.get_face(pivot_vid, next_vid, Side::Left);
-
-        /*let (prev_face, next_face) = {
-            let new_e = self.map.edge(new_eid);
-            (
-                match new_end { Head => new_e.left_face, Tail => new_e.right_face }.unwrap(),
-                match new_end { Head => new_e.right_face, Tail => new_e.left_face }.unwrap(),
-            )
-        };*/
-
-        //eprintln!("prev_face = {:?}", prev_face);
-        //eprintln!("next_face = {:?}", next_face);
-
-        //println!("{:#?}", self.map.face(prev_face).angles);
-        //println!("{:#?}", self.map.face(next_face).angles);
-
-        //println!("{} -> {} in {}", new_vid.0, prev_vid.0, prev_face.0);
-        //println!("{} -> {} in {}", new_vid.0, next_vid.0, next_face.0);
+        let prev_face = self
+            .map
+            .get_face(pivot_vid, prev_vid, Side::Right)
+            .expect("TODO");
+        let next_face = self
+            .map
+            .get_face(pivot_vid, next_vid, Side::Left)
+            .expect("TODO");
 
         if let Unicolored(color, _) = old_weight {
             self.map.add_embedded_edge(
@@ -1570,36 +1550,6 @@ impl SchnyderMap {
             .map
             .shortest_path(a, b, &forbidden.into_iter().collect());
 
-        /*let (mut g, vmap): (Graph<_,_,_,_>, HashMap<_,_>) = self.map.into_petgraph();
-
-        g.remove_node(*vmap.get(&self.red_vertex).unwrap());
-        g.remove_node(*vmap.get(&self.blue_vertex).unwrap());
-        g.remove_node(*vmap.get(&self.green_vertex).unwrap());
-
-        let from = vmap.get(&a).unwrap();
-        let to = vmap.get(&b).unwrap();
-
-        let rmap : HashMap<_, _> = vmap.iter().map(|(k,v)| (v, k)).collect();
-
-        //println!("connected = {}", has_path_connecting(g, from, to, None));
-
-         let (_, route) = petgraph::algo::astar(
-             &g,
-             *from,
-             |n| n == *to,
-             |n| 1,
-             |n| 1
-         ).expect("no route found! (a*)");
-
-        /*petgraph::algo::dijkstra(
-            &g,
-            *from,
-            Some(to),
-            |n| 1,
-        ).expect("no route found! (dijkstra)");*/
-
-        let translated_route = route.iter().map(|idx| *rmap.get(idx).unwrap()).collect_vec();*/
-        eprintln!("route = {:?}", route);
         let mut result = Vec::new();
         for tmp in route.iter().skip(1) {
             result.extend(self.swap_locally(a, tmp)?);
@@ -1667,7 +1617,7 @@ impl SchnyderMap {
                         .map
                         .try_edge(out_edge[color.index()])
                         .expect(INVALID_WOOD);
-                    let f = match e.get_signum_by_tail(vid) {
+                    let f = match e.get_signum_by_tail(vid).unwrap()/*TODO*/ {
                         Forward => e.left_face,
                         Backward => e.right_face,
                     }
@@ -1849,7 +1799,7 @@ impl SchnyderMap {
                 })?;
 
                 let e = self.map.try_edge(eid)?;
-                let signum = e.get_signum(v1, v2);
+                let signum = e.get_signum_by_tail(v1).unwrap(); //TODO
 
                 fwd_colors.insert(e.color(signum)); //TODO oldish ---- color mitigate
                 bwd_colors.insert(e.color(signum.reversed()));

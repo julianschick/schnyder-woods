@@ -1,5 +1,6 @@
 use crate::graph::enums::Signum::{Backward, Forward};
-use crate::graph::enums::{ClockDirection, EdgeEnd, Signum};
+use crate::graph::enums::{ClockDirection, EdgeEnd, RevertibleEnum, Signum};
+use crate::graph::error::{GraphErr, GraphResult};
 use crate::graph::index_store::Ideable;
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::util::iterators::cyclic::CyclicIterable;
@@ -21,63 +22,55 @@ pub struct Edge<E> {
 }
 
 impl<E> Edge<E> {
-    pub fn get_other(&self, this: VertexI) -> VertexI {
-        //TODO error handling
-        match self.get_signum_by_tail(this) {
-            Forward => return self.head,
-            Backward => return self.tail,
-        }
+    pub fn get_other(&self, this: VertexI) -> GraphResult<VertexI> {
+        Ok(match self.get_signum_by_tail(this)? {
+            Forward => self.head,
+            Backward => self.tail,
+        })
     }
 
-    pub fn is_loop(&self) -> bool {
+    pub(super) fn is_loop(&self) -> bool {
         self.tail == self.head
     }
 
-    pub fn get_vertex(&self, end: EdgeEnd) -> VertexI {
+    pub(super) fn get_vertex(&self, end: EdgeEnd) -> VertexI {
         match end {
             EdgeEnd::Head => self.head,
             EdgeEnd::Tail => self.tail,
         }
     }
 
-    pub fn get_signum_by_tail(&self, v1: VertexI) -> Signum {
+    pub fn get_signum_by_tail(&self, v: VertexI) -> GraphResult<Signum> {
         if self.is_loop() {
-            panic!("signum not defined")
+            return GraphErr::new_err("Cannot determine signum for loop edge.");
         }
 
-        if v1 == self.tail {
-            return Forward;
-        } else if v1 == self.head {
-            return Backward;
+        if v == self.tail {
+            Ok(Forward)
+        } else if v == self.head {
+            Ok(Backward)
         } else {
-            panic!("assertion failed")
+            GraphErr::new_err(&format!(
+                "The given vertex {} is not adjacent to the edge {}.",
+                v, self.id
+            ))
         }
     }
 
-    pub fn get_signum(&self, v1: VertexI, v2: VertexI) -> Signum {
-        if self.is_loop() {
-            panic!("signum not defined")
-        }
-
-        if v1 == self.tail && v2 == self.head {
-            return Forward;
-        } else if v1 == self.head && v2 == self.tail {
-            return Backward;
-        } else {
-            panic!("Forward check assertion failed");
-        }
+    pub fn get_signum_by_head(&self, v: VertexI) -> GraphResult<Signum> {
+        Ok(self.get_signum_by_tail(v)?.reversed())
     }
 
-    pub fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
+    pub(super) fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
         return swap((self.tail, self.head), signum == Backward);
     }
 
-    pub fn left_face(&self) -> FaceI {
+    pub(super) fn left_face(&self) -> FaceI {
         self.left_face
             .expect("PlanarMap internal error: face reference expected to be present.")
     }
 
-    pub fn right_face(&self) -> FaceI {
+    pub(super) fn right_face(&self) -> FaceI {
         self.right_face
             .expect("PlanarMap internal error: face reference expected to be present.")
     }
@@ -139,15 +132,23 @@ pub struct Vertex<N> {
 }
 
 impl<N> Vertex<N> {
+    /// Get reference to the NbVertex describing the link to the vertex 'other' or None if no such link exists.
     pub(super) fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
         self.neighbors.iter().find(|nb| nb.other == other)
     }
 
+    /// Get mutable reference to the NbVertex describing the link to the vertex 'other' or None if no such link exists.
     pub(super) fn get_nb_mut(&mut self, other: VertexI) -> Option<&mut NbVertex> {
         self.neighbors.iter_mut().find(|nb| nb.other == other)
     }
 
     /// does contain start_index at the end (wraps around), if condition is always true
+    /// Get an iterator over all neighbors.
+    /// # Arguments
+    /// * start_index - start with the neighbor of this index
+    /// * direction - in which direction to cycle
+    /// * include_start_index - whether to include the starting neighbor
+    /// * wrap - whether the neighbor with the start index is revisited after cycling the whole neighborhood
     pub(super) fn get_iterator<'a>(
         &'a self,
         start_index: usize,
@@ -163,29 +164,17 @@ impl<N> Vertex<N> {
         }
     }
 
-    pub fn next_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
-        let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction, false, true)
-            .next()
-            .unwrap()
-    }
-
     pub fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
         self.get_iterator(nb.index, direction, false, true)
             .next()
             .unwrap()
     }
 
-    pub fn cycle_while(
-        &self,
-        start_index: usize,
-        condition_while: &dyn Fn(&&NbVertex) -> bool,
-        direction: ClockDirection,
-        include_start_index: bool,
-    ) -> Vec<&NbVertex> {
-        self.get_iterator(start_index, direction, include_start_index, true)
-            .take_while(condition_while)
-            .collect_vec()
+    pub fn next_by_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
+        let nb = self.get_nb(other).unwrap();
+        self.get_iterator(nb.index, direction, false, true)
+            .next()
+            .unwrap()
     }
 
     /// does not include the edges to v1 and v2 respectively
@@ -196,13 +185,13 @@ impl<N> Vertex<N> {
         direction: ClockDirection,
     ) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.nb_sector_between(nb1, nb2, direction);
+            return self.sector_between_by_nb(nb1, nb2, direction);
         } else {
             panic!("v1/v2 invalid");
         }
     }
 
-    pub fn nb_sector_between(
+    pub fn sector_between_by_nb(
         &self,
         nb1: &NbVertex,
         nb2: &NbVertex,
@@ -211,20 +200,20 @@ impl<N> Vertex<N> {
         return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
     }
 
-    pub(super) fn _sector_including(
+    pub fn sector_including(
         &self,
         v1: VertexI,
         v2: VertexI,
         direction: ClockDirection,
     ) -> Vec<&NbVertex> {
         if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.nb_sector_including(nb1, nb2, direction);
+            return self.sector_including_by_nb(nb1, nb2, direction);
         } else {
             panic!("v1/v2 invalid");
         }
     }
 
-    pub fn nb_sector_including(
+    pub fn sector_including_by_nb(
         &self,
         nb1: &NbVertex,
         nb2: &NbVertex,
@@ -240,6 +229,18 @@ impl<N> Vertex<N> {
             start = false;
         }
         return result;
+    }
+
+    pub fn cycle_while(
+        &self,
+        start_index: usize,
+        condition_while: &dyn Fn(&&NbVertex) -> bool,
+        direction: ClockDirection,
+        include_start_index: bool,
+    ) -> Vec<&NbVertex> {
+        self.get_iterator(start_index, direction, include_start_index, true)
+            .take_while(condition_while)
+            .collect_vec()
     }
 }
 
