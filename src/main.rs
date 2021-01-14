@@ -33,7 +33,7 @@ fn main() {
         .about("Algorithms for manipulating Schnyder woods with split and merge")
         .subcommand(
             App::new("build")
-                .about("Builds a flipgraph and stores it to a file.")
+                .about("Builds a flip graph and stores it to a file")
                 .arg("<N> 'Number of vertices (at least 3 and at most 64)'")
                 .arg("<OUTPUT> 'Output file'")
                 .arg("-t --threads [T] 'Number of threads used for the traversal (default is one)'")
@@ -44,8 +44,8 @@ fn main() {
         )
         .subcommand(
             App::new("explore")
-                .about("Loads a flipgraph into memory for exploration.")
-                .arg("<GRAPH> 'Flipgraph file'")
+                .about("Loads a flip graph into memory for exploration")
+                .arg("<GRAPH> 'Flip graph file'")
         ).subcommand(
             App::new("tikz")
                 .about("Reads a Schnyder wood from an ascii or binary 3treecode file and generates LaTeX/TikZ directives")

@@ -95,7 +95,7 @@ pub fn build_flipgraph(
     let (tx, rx) = channel();
 
     println!(
-        "Traversing the flipgraph for n = {}, using {} threads.",
+        "Traversing the flip graph for n = {}, using {} threads.",
         n, thread_count
     );
     if let Some(min_level) = min_level {

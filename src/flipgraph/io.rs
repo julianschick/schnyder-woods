@@ -26,7 +26,7 @@ pub fn write_flipgraph(
     };
 
     writeln!(w, "{}", prefix)?;
-    writeln!(w, "{}Flipgraph Statistics (n = {})", prefix, g.get_n())?;
+    writeln!(w, "{}Flip graph Statistics (n = {})", prefix, g.get_n())?;
     writeln!(w, "{}|V| = {}", prefix, g.node_count())?;
     writeln!(w, "{}|E| = {}", prefix, g.edge_count())?;
     writeln!(w, "{}", prefix)?;

@@ -137,11 +137,11 @@ pub fn build(matches: &ArgMatches) {
     let g = build_flipgraph(n, min_level, max_level, symmetry_breaking, num_threads);
     write_flipgraph(&g, &mut stdout(), FlipgraphOutputFormat::TabbedTable, false).unwrap();
 
-    println!("\nWriting Flipgraph to file '{}'...", output_arg);
+    println!("\nWriting flip graph to file '{}'...", output_arg);
     {
         match File::create(output_path) {
             Ok(file) => match serde_cbor::to_writer(file, &g) {
-                Err(e) => println!("Flipgraph could not be written: {}", e),
+                Err(e) => println!("Flip graph could not be written: {}", e),
                 _ => println!("...done."),
             },
             Err(e) => println!(
@@ -161,7 +161,7 @@ pub fn explore(matches: &ArgMatches) {
             let mut repl = Repl::new(g);
             repl.main_loop();
         } else {
-            println!("The specified file does not seem to contain a flipgraph.");
+            println!("The specified file does not seem to contain a flip graph.");
         }
     } else {
         println!("File '{}' could not be opened for reading.", flipgraph_file);

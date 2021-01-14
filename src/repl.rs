@@ -113,7 +113,7 @@ impl Repl {
                 )
                 .subcommand(
                     App::new("select")
-                        .about("Selects nodes from the flipgraph that fulfill a set of conditions. If no output flags are set, just the count of matches is printed.")
+                        .about("Selects nodes from the flip graph that fulfill a set of conditions. If no output flags are set, just the count of matches is printed.")
                         .arg("-d, --dir [DIR] 'Output directory. Without the output directory given, the other output flags do not have any effect'")
                         .arg("-a, --ascii 'Write woods in ASCII 3TREECODE to the file \'<NODE NR>.a3t\''")
                         .arg("-b, --binary 'Write woods in binary 3TREECODE8 to the file \'<NODE NR>.b3t\''")
@@ -121,18 +121,18 @@ impl Repl {
                 )
                 .subcommand(
                     App::new("load")
-                        .about("Loads a new flipgraph to explore from a file. Replaces the previously loaded one.")
+                        .about("Loads a new flip graph to explore from a file. Replaces the previously loaded one.")
                         .arg("[FILE] 'Source file.'")
                 )
                 .subcommand(
                     App::new("stats")
-                        .about("Print statistics about the currently loaded flipgraph")
+                        .about("Print statistics about the currently loaded flip graph")
                         .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format'")
                         .arg("-d, --check 'Checks the stats against the proven formulas, and prints an error message if a check fails'")
                 )
                 .subcommand(
                     App::new("exit")
-                        .about("Exits the application (if a large flipgraph is loaded, memory cleanup will take a bit of time)")
+                        .about("Exits the application (if a large flip graph is loaded, memory cleanup will take a bit of time)")
                 )
                 .try_get_matches_from(tokens);
 
@@ -281,7 +281,7 @@ impl Repl {
             if let Ok(g) = serde_cbor::from_reader(file) {
                 self.g = g;
             } else {
-                println!("The specified file does not seem to contain a flipgraph.");
+                println!("The specified file does not seem to contain a flip graph.");
             }
         } else {
             println!("File '{}' could not be opened for reading.", filename);
