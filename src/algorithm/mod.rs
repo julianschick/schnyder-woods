@@ -423,7 +423,7 @@ fn find_sequence_(
                 retained_vertex.0, contraction1.retained_vertex.0
             );*/
             let swap_seq = wood1
-                .swap(&retained_vertex, &contraction1.retained_vertex)
+                .swap(retained_vertex, contraction1.retained_vertex)
                 .unwrap(); //TODO
                            //println!("swap seq len = {}", swap_seq.len());
 

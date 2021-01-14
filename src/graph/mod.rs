@@ -44,6 +44,11 @@ mod index_store;
 pub mod indices;
 pub mod io;
 
+/// Represents a undirected planar map (an embedded graph) with weighted vertices, edges and faces.
+/// If one of these items does not need to be weighted, the weights can be of void type '()'.
+/// This structure does not necessarily need an the embedding, it can also just hold an abstract
+/// graph. In this case, the embedding can be supplemented lateron. By default the graph enforces
+/// its own simplicity during construction (i.e. no double edges and loops can be added).
 pub struct PlanarMap<N: 'static, E: 'static, F: Clone + 'static> {
     vertices: Box<dyn IndexStore<VertexI, Vertex<N>>>,
     edges: Box<dyn IndexStore<EdgeI, Edge<E>>>,
@@ -54,6 +59,8 @@ pub struct PlanarMap<N: 'static, E: 'static, F: Clone + 'static> {
 }
 
 impl<N, E, F: Clone> PlanarMap<N, E, F> {
+    /// Creates an empty planar map that enforces its own simplicity (i.e. no double edges and loops
+    /// can be added).
     pub fn new() -> PlanarMap<N, E, F> {
         PlanarMap {
             vertices: Box::new(VecIndexStore::new()),
@@ -65,6 +72,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
+    /// Clones a planar map. The indices are cloned one to one.
+    /// # Arguments
+    /// vertex_map - maps the old vertex weights to the new vertex weights
+    /// edge_map - maps the old edge weights to the new edge weights
+    /// face_map - maps the old face weights to the new face weights
     pub fn clone_with_maps<Nn, Ee, Ff: Clone>(
         &self,
         vertex_map: fn(&N) -> Nn,
@@ -133,14 +145,103 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return cloned;
     }
 
+    /// Iterator over all vertices.
+    pub fn vertices(&self) -> impl Iterator<Item = &Vertex<N>> {
+        self.vertices.get_values()
+    }
+
+    /// Iterator over all vertex indices.
+    pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
+        self.vertices.get_indices()
+    }
+
+    /// Returns true if the given vertex index refers to a vertex, i.e. is a valid index.
     pub fn is_valid_vertex(&self, v: &VertexI) -> bool {
         self.vertices.is_valid_index(&v)
     }
 
+    /// Returns the number of vertices.
+    pub fn vertex_count(&self) -> usize {
+        self.vertices.len()
+    }
+
+    /// Returns the vertex weight or an IndexAccessError, if v is an invalid index.
+    pub fn vertex_weight(&self, v: VertexI) -> Result<&N, IndexAccessError<VertexI>> {
+        Ok(&self.try_vertex(v)?.weight)
+    }
+
+    /// Set the vertex weight of vertex v.
+    /// # Arguments
+    /// v - vertex index of vertex to be weighted
+    /// weight - vertex weight to set
+    /// # Errors
+    /// IndexAccessError if v is an invalid index.
+    pub fn set_vertex_weight(
+        &mut self,
+        v: VertexI,
+        weight: N,
+    ) -> Result<(), IndexAccessError<VertexI>> {
+        let v = self.try_vertex_mut(v)?;
+        v.weight = weight;
+        return Ok(());
+    }
+
+    /// Iterator over all edges.
+    pub fn edges(&self) -> impl Iterator<Item = &Edge<E>> {
+        self.edges.get_values()
+    }
+
+    /// Iterator over all edge indices.
+    pub fn edge_indices(&self) -> impl Iterator<Item = &EdgeI> {
+        self.edges.get_indices()
+    }
+
+    /// Returns true if the given edge index refers to an edge, i.e. is a valid index.
     pub fn is_valid_edge(&self, e: &EdgeI) -> bool {
         self.edges.is_valid_index(&e)
     }
 
+    /// Returns the number of edges.
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    /// Returns the edge weight or an IndexAccessError, if e is an invalid index.
+    pub fn edge_weight(&self, e: EdgeI) -> Result<&E, IndexAccessError<EdgeI>> {
+        Ok(&self.try_edge(e)?.weight)
+    }
+    pub fn set_edge_weight(&mut self, e: EdgeI, weight: E) -> Result<(), IndexAccessError<EdgeI>> {
+        let e = self.try_edge_mut(e)?;
+        e.weight = weight;
+        return Ok(());
+    }
+
+    /// Iterator over all faces. Does not fail if the graph has no embedding, but yields an
+    /// empty iterator then.
+    pub fn faces(&self) -> impl Iterator<Item = &Face<F>> {
+        self.faces.get_values()
+    }
+
+    /// Returns the number of edges or an error if the graph has no embedding.
+    pub fn face_count(&self) -> GraphResult<usize> {
+        if !self.embedded {
+            return GraphErr::embedding_expected();
+        }
+
+        Ok(self.faces.len())
+    }
+
+    /// Returns true if the given face index refers to a face, i.e. is a valid index.
+    /// # Errors
+    /// Returns an error if the graph has no embedding.
+    pub fn is_valid_face(&self, e: &FaceI) -> GraphResult<bool> {
+        if !self.embedded {
+            return GraphErr::embedding_expected();
+        }
+        Ok(self.faces.is_valid_index(&e))
+    }
+
+    /// Returns the edge connecting v1 and v2 if it exists, otherwise a NoSuchEdgeError.
     pub fn get_edge(&self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
         let v = self.try_vertex(v1)?;
         self.try_vertex(v2)?;
@@ -152,6 +253,12 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             .ok_or(GraphErr::from(NoSuchEdgeError::new(v1, v2)))
     }
 
+    /// Returns the tuple of vertices connected by an edge.
+    /// # Arguments
+    /// e - edge index
+    /// sig - order of the tuple
+    /// # Errors
+    /// In case 'e' is an invalid index, an IndexAccessError is returned.
     pub fn edge_pair(
         &self,
         e: EdgeI,
@@ -164,10 +271,13 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         });
     }
 
-    pub fn faces(&self) -> impl Iterator<Item = &Face<F>> {
-        self.faces.get_values()
-    }
-
+    /// Get the face adjacent to an edge. The edge is given by two vertices.
+    /// # Arguments
+    /// v1 - first vertex (tail vertex)
+    /// v2 - second vertex (head vertex)
+    /// side - picks the left or right face with respect to an edge from tail to head vertex
+    /// # Errors
+    /// Fails with an error if the graph is not embedded or if there is no edge between v1 and v2.
     pub fn get_face(&self, v1: VertexI, v2: VertexI, side: Side) -> GraphResult<FaceI> {
         if !self.is_embedded() {
             return GraphErr::embedding_expected();
@@ -189,6 +299,14 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         })
     }
 
+    /// Get a section of the fan of faces incident to the central vertex v.
+    /// # Arguments
+    /// v - central vertex
+    /// v1 - starting edge of the fan is given by the edge {v, v1}
+    /// v2 - ending edge of the fan is given by the edge {v, v2}
+    /// direction - clock direction for choosing the cw or ccw sector between {v, v1} and {v, v2}
+    /// # Errors
+    /// If any index is invalid or v1, v2 are not in the neighborhood of v an error is returned.
     pub fn faces_between(
         &self,
         v: &VertexI,
@@ -217,14 +335,17 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
+    /// Checks if the graph has no vertices.
     pub fn is_empty(&self) -> bool {
         self.vertices.is_empty()
     }
 
+    /// Checks if the graph consists of exactly one vertex.
     pub fn is_singleton(&self) -> bool {
         self.vertices.len() == 1
     }
 
+    /// Checks whether or not the graph is simple.
     pub fn is_simple(&self) -> bool {
         let loops = self.edges.get_values().any(|e| e.is_loop());
         let double_edges = self.edges.get_values().unique().count() < self.edges.len();
@@ -232,27 +353,31 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         !loops && !double_edges
     }
 
+    /// Checks whether or not the graph has an embedding (i.e. is a map).
     pub fn is_embedded(&self) -> bool {
         self.embedded
     }
 
-    pub fn edges(&self) -> impl Iterator<Item = &Edge<E>> {
-        self.edges.get_values()
+    /// Returns true if the vertex v is part of the edge e.
+    /// # Arguments
+    /// e - edge index
+    /// v - vertex index
+    /// # Errors
+    /// Fails with an error in case invalid indices are provided.
+    pub fn edge_contains(&self, e: EdgeI, v: VertexI) -> GraphResult<bool> {
+        let e = self.try_edge(e)?;
+        self.try_vertex(v)?; // check if vertex index is valid
+        Ok(e.head == v || e.tail == v)
     }
 
-    pub fn edge_indices(&self) -> impl Iterator<Item = &EdgeI> {
-        self.edges.get_indices()
-    }
-
-    pub fn edge_count(&self) -> usize {
-        self.edges.len()
-    }
-
-    pub fn edge_contains(&self, eid: &EdgeI, vid: &VertexI) -> bool {
-        let e = self.edge(*eid);
-        return &e.head == vid || &e.tail == vid;
-    }
-
+    /// Returns the next neighbor in the neighbor fan of the central vertex v with respect to
+    /// the neighbor nb.
+    /// # Arguments
+    /// v - central vertex
+    /// nb - pivot neighbor
+    /// direction - pick the direction
+    /// # Errors
+    /// Returns an error if there is no edge between v and nb.
     pub fn next_nb(
         &self,
         v: VertexI,
@@ -270,18 +395,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         }
     }
 
-    pub fn vertex_count(&self) -> usize {
-        self.vertices.len()
-    }
-
-    pub fn vertex_indices(&self) -> impl Iterator<Item = &VertexI> {
-        self.vertices.get_indices()
-    }
-
-    pub fn vertices(&self) -> impl Iterator<Item = &Vertex<N>> {
-        self.vertices.get_values()
-    }
-
     pub fn vertex_cycle(
         &self,
         vid: VertexI,
@@ -297,16 +410,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         v.neighbors.cycle(i, wrap)
     }
 
-    pub fn get_neighbors<'a>(&self, v: &VertexI) -> impl Iterator<Item = &VertexI> {
-        self.vertex(*v).neighbors.iter().map(|nb| &nb.other)
-    }
-
-    pub fn face_count(&self) -> usize {
-        if !self.embedded {
-            panic!("TODO: embedding expected");
-        }
-
-        self.faces.len()
+    /// Iterator over all neighbors of a given vertex v.
+    /// # Errors
+    /// An invalid vertex index will result in an error.
+    pub fn get_neighbors<'a>(&self, v: &VertexI) -> GraphResult<impl Iterator<Item = &VertexI>> {
+        Ok(self.try_vertex(*v)?.neighbors.iter().map(|nb| &nb.other))
     }
 
     pub fn sector_between(
@@ -324,42 +432,28 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             .collect_vec())
     }
 
-    pub fn edge_endvertex(&self, edge: EdgeI, end: EdgeEnd) -> Option<VertexI> {
-        let e = self.try_edge(edge).ok();
-        match end {
-            Tail => e.map(|e| e.tail),
-            Head => e.map(|e| e.head),
-        }
+    /// Returns one endvertex of a given edge.
+    /// # Arguments
+    /// e - edge index
+    /// end - end of the edge to return vertex for
+    /// # Errors
+    /// IndexAccessError if the edge index is invalid.
+    pub fn edge_endvertex(&self, edge: EdgeI, end: EdgeEnd) -> GraphResult<VertexI> {
+        let e = self.try_edge(edge)?;
+        Ok(match end {
+            Tail => e.tail,
+            Head => e.head,
+        })
     }
 
+    /// Returns the opposite endvertex to vertex v at edge e.
+    /// # Errors
+    /// Returns an error if one of the indices is invalid, v is not adjacent to e.
     pub fn edge_opposite_vertex(&self, e: EdgeI, v: VertexI) -> GraphResult<VertexI> {
         Ok(self.try_edge(e)?.get_other(v)?)
     }
 
-    pub fn edge_weight(&self, e: EdgeI) -> Result<&E, IndexAccessError<EdgeI>> {
-        Ok(&self.try_edge(e)?.weight)
-    }
-
-    pub fn set_edge_weight(&mut self, e: EdgeI, weight: E) -> Result<(), IndexAccessError<EdgeI>> {
-        let e = self.try_edge_mut(e)?;
-        e.weight = weight;
-        return Ok(());
-    }
-
-    pub fn vertex_weight(&self, v: VertexI) -> Result<&N, IndexAccessError<VertexI>> {
-        Ok(&self.try_vertex(v)?.weight)
-    }
-
-    pub fn set_vertex_weight(
-        &mut self,
-        v: VertexI,
-        weight: N,
-    ) -> Result<(), IndexAccessError<VertexI>> {
-        let v = self.try_vertex_mut(v)?;
-        v.weight = weight;
-        return Ok(());
-    }
-
+    /// Returns true if the graph is connected and false otherwise.
     pub fn is_connected(&self) -> bool {
         if self.is_empty() || self.is_singleton() {
             return true;
@@ -370,19 +464,29 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return connected_component.len() == self.vertex_count();
     }
 
+    /// Returns true if all faces have degree three, i.e. the map has either no faces (is not embedded)
+    /// or is a triangulation.
     pub fn is_triangulation(&self) -> bool {
         self.faces.get_values().all(|f| f.angles.len() == 3)
     }
 
+    /// Returns the connected component the given vertex v lies in.
+    /// A depth first search is conducted to find the connected component.
+    /// # Arguments
+    /// v - vertex to be contained in the connected component
+    /// forbidden_edges - set of edges to be ignored when evaluating the connectivity
+    /// # Errors
+    /// Returns an IndexAccessError if the vertex index is invalid. Invalid indices in the
+    /// collection of forbidden edges are ignored, however.
     pub fn connected_component(
         &self,
-        vertex: VertexI,
+        v: VertexI,
         forbidden_edges: &HashSet<EdgeI>,
     ) -> GraphResult<Vec<VertexI>> {
-        self.try_vertex(vertex)?;
+        self.try_vertex(v)?;
 
         let mut visited = HashSet::new();
-        let mut to_visit = vec![vertex];
+        let mut to_visit = vec![v];
 
         while let Some(v) = to_visit.pop() {
             visited.insert(v);
@@ -400,18 +504,29 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return Ok(visited.into_iter().collect());
     }
 
+    /// Finds the shortest path between 'from' and 'to' by the Dijkstra algorithm. Every edge is
+    /// counted to have weight one.
+    /// # Arguments
+    /// from - starting vertex of the path
+    /// to - end vertex of the path
+    /// forbidden_vertices - vertices that are avoided in the search
+    /// # Errors
+    /// If from or to are invalid indices, an IndexAccessError is returned.
     pub fn shortest_path(
         &self,
-        from: &VertexI,
-        to: &VertexI,
+        from: VertexI,
+        to: VertexI,
         forbidden_vertices: &HashSet<VertexI>,
-    ) -> Vec<VertexI> {
+    ) -> GraphResult<Option<Vec<VertexI>>> {
+        self.try_vertex(from)?;
+        self.try_vertex(to)?;
+
         let mut dist = HashMap::new();
         let mut pred = HashMap::new();
         let mut visited = HashSet::new();
         let mut unvisited: HashSet<_> = self.vertices.get_values().map(|v| v.id).collect();
 
-        dist.insert(*from, 0);
+        dist.insert(from, 0);
         for forbidden in forbidden_vertices {
             unvisited.remove(forbidden);
         }
@@ -441,14 +556,18 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                 });
         }
 
-        let mut rev_path = vec![*to];
-        let mut v = *to;
-        while let Some(predecessor) = pred.get(&v) {
-            rev_path.push(*predecessor);
-            v = *predecessor;
-        }
+        if dist.contains_key(&to) {
+            Ok(None)
+        } else {
+            let mut rev_path = vec![to];
+            let mut v = to;
+            while let Some(predecessor) = pred.get(&v) {
+                rev_path.push(*predecessor);
+                v = *predecessor;
+            }
 
-        return rev_path.into_iter().rev().collect();
+            Ok(Some(rev_path.into_iter().rev().collect()))
+        }
     }
 
     pub fn add_vertex(&mut self, weight: N) -> VertexI {
@@ -553,6 +672,15 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         Ok(())
     }*/
 
+    /// Adds an edge to a map.
+    /// # Arguments
+    /// v1 - tail vertex of the edge
+    /// v2 - head vertex of the edge
+    /// weight - weight of the edge
+    /// face - face that is dissected by the edge
+    /// # Errors
+    /// Erros can occur if the graph is not embedded, the face is not incident to v1 and v2 or
+    /// v1, v2 or face are invalid indices.
     pub fn add_embedded_edge(
         &mut self,
         v1: VertexI,
@@ -616,9 +744,6 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         let fid1 = self.faces.push(f1);
         let fid2 = self.faces.push(f2);
 
-        //self.edges.get_mut(&e).right_face = Some(id1);
-        //self.edges.get_mut(&e).left_face = Some(id2);
-
         self.restore_face_refs(fid1);
         self.restore_face_refs(fid2);
 
@@ -638,9 +763,16 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
         return Ok(e);
     }
 
+    /// Removes an edge of an abstract graph
+    /// # Arguments
+    /// v1 - first endvertex of the edge to remove
+    /// v2 - second endvertex of the edge to remove
+    /// # Errors
+    /// If there is no edge between v1 and v2 (which is also the case if v1 or v2 is an invalid index)
+    /// an error is returned.
     pub fn remove_edge(&mut self, v1: VertexI, v2: VertexI) -> GraphResult<EdgeI> {
         if self.embedded {
-            return GraphErr::embedding_expected();
+            return GraphErr::no_embedding_expected();
         }
 
         self.remove_edge_(v1, v2).map(|e| e.id)

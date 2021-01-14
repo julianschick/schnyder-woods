@@ -3,45 +3,70 @@ use crate::graph::error::{GraphErr, GraphResult};
 use itertools::Itertools;
 use std::collections::HashSet;
 
-pub fn read_plantri_planar_code<N, E, F: Clone>(
-    data: &Vec<u8>,
-    max_count: Option<usize>,
-    v_weights: fn(VertexI) -> N,
-    e_weights: fn(EdgeI) -> E,
-    f_weights: fn(FaceI) -> F,
-) -> GraphResult<Vec<PlanarMap<N, E, F>>> {
-    if data.len() < 15 {
-        return GraphErr::new_err("Invalid planar code file, not enough bytes.");
-    }
-
-    match std::str::from_utf8(&data[0..15]) {
-        Err(_) => return GraphErr::new_err("Invalid planar code file, header not utf8 encoded."),
-        Ok(str) => {
-            if str != ">>planar_code<<" {
-                return GraphErr::new_err("Invalid planar code file, header not found.");
-            }
-        }
-    }
-
-    let mut result = Vec::new();
-    let mut iter = data.iter().skip(15).peekable();
-
-    let mut count = 0;
-    while let Some(_) = iter.peek() {
-        let map = PlanarMap::from_plantri_planar_code(&mut iter, v_weights, e_weights, f_weights)?;
-        result.push(map);
-        count += 1;
-        if let Some(max) = max_count {
-            if max <= count {
-                return Ok(result);
-            }
-        }
-    }
-
-    return Ok(result);
-}
-
 impl<N, E, F: Clone> PlanarMap<N, E, F> {
+    /// Reads a plantri planar code file (which usually contains a whole set of embedded planar graphs) and
+    /// returns a list of PlanarMaps.
+    /// # Arguments
+    /// * data - a vector of the file bytes
+    /// * max_count - if some value k is given, only the first k graphs from the file will be read
+    /// * v_weights - weight generator function for the vertices (simplest would be '|_| ()')
+    /// * e_weights - weight generator function for the edges (simplest would be '|_| ()')
+    /// * f_weights - weight generator function for the faces (simplest would be '|_| ()')
+    /// # Returns
+    /// Various error states are possible and are triggered by invalid input data. All errors
+    /// are returned, no panics are to be expected.
+    pub fn read_plantri_planar_code(
+        data: &Vec<u8>,
+        max_count: Option<usize>,
+        v_weights: fn(VertexI) -> N,
+        e_weights: fn(EdgeI) -> E,
+        f_weights: fn(FaceI) -> F,
+    ) -> GraphResult<Vec<PlanarMap<N, E, F>>> {
+        if data.len() < 15 {
+            return GraphErr::new_err("Invalid planar code file, not enough bytes.");
+        }
+
+        match std::str::from_utf8(&data[0..15]) {
+            Err(_) => {
+                return GraphErr::new_err("Invalid planar code file, header not utf8 encoded.")
+            }
+            Ok(str) => {
+                if str != ">>planar_code<<" {
+                    return GraphErr::new_err("Invalid planar code file, header not found.");
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        let mut iter = data.iter().skip(15).peekable();
+
+        let mut count = 0;
+        while let Some(_) = iter.peek() {
+            let map =
+                PlanarMap::from_plantri_planar_code(&mut iter, v_weights, e_weights, f_weights)?;
+            result.push(map);
+            count += 1;
+            if let Some(max) = max_count {
+                if max <= count {
+                    return Ok(result);
+                }
+            }
+        }
+
+        return Ok(result);
+    }
+
+    /// Reads one embedded graph from a plantri planar code data stream given as iterator and
+    /// returns it as PlanarMap.
+    /// # Arguments
+    /// * data - iterator to the data stream, data will be read from its current position on
+    /// * max_count - if some value k is given, only the first k graphs from the file will be read
+    /// * v_weights - weight generator function for the vertices (simplest would be '|_| ()')
+    /// * e_weights - weight generator function for the edges (simplest would be '|_| ()')
+    /// * f_weights - weight generator function for the faces (simplest would be '|_| ()')
+    /// # Returns
+    /// Various error states are possible and are triggered by invalid input data, All errors
+    /// are returned, no panics are to be expected.
     pub fn from_plantri_planar_code(
         data: &mut dyn Iterator<Item = &u8>,
         v_weights: fn(VertexI) -> N,

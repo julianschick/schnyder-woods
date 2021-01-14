@@ -23,6 +23,17 @@ pub struct Edge<E> {
 
 impl<E> Edge<E> {
     pub fn get_other(&self, this: VertexI) -> GraphResult<VertexI> {
+        if self.is_loop() {
+            return if self.tail == this {
+                Ok(this)
+            } else {
+                GraphErr::new_err(&format!(
+                    "The given vertex {} is not adjacent to the edge {}.",
+                    this, self.id
+                ))
+            };
+        }
+
         Ok(match self.get_signum_by_tail(this)? {
             Forward => self.head,
             Backward => self.tail,

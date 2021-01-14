@@ -973,7 +973,7 @@ impl SchnyderMap {
         hinge_vid: VertexI,
         target_vid: Option<VertexI>,
     ) -> GraphResult<SplitData> {
-        if !self.map.edge_contains(&eid, &hinge_vid) {
+        if !self.map.edge_contains(eid, hinge_vid)? {
             return GraphErr::new_err("Hinge vertex not part of given edge");
         }
 
@@ -1539,7 +1539,7 @@ impl SchnyderMap {
         }
     }
 
-    pub fn swap(&mut self, a: &VertexI, b: &VertexI) -> GraphResult<Vec<Operation>> {
+    pub fn swap(&mut self, a: VertexI, b: VertexI) -> GraphResult<Vec<Operation>> {
         if a == b {
             return Ok(Vec::new());
         }
@@ -1548,21 +1548,26 @@ impl SchnyderMap {
 
         let route = self
             .map
-            .shortest_path(a, b, &forbidden.into_iter().collect());
+            .shortest_path(a, b, &forbidden.into_iter().collect())?
+            .expect("There should be a path, since every SchnyderMap is 3-connected");
 
         let mut result = Vec::new();
         for tmp in route.iter().skip(1) {
-            result.extend(self.swap_locally(a, tmp)?);
+            result.extend(self.swap_locally(&a, tmp)?);
         }
         for tmp in route.iter().skip(1).rev().skip(1) {
-            result.extend(self.swap_locally(b, tmp)?);
+            result.extend(self.swap_locally(&b, tmp)?);
         }
 
         return Ok(result);
     }
 
     pub fn calculate_face_counts(&self) -> HashMap<VertexI, (usize, usize, usize)> {
-        let number_of_faces = self.map.face_count() - 1;
+        let number_of_faces = self
+            .map
+            .face_count()
+            .expect("A SchnyderMap should always have an embedding")
+            - 1;
         let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(false);
 
         let mut result = HashMap::new();
