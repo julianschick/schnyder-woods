@@ -1,5 +1,6 @@
 use crate::algorithm::{find_sequence, find_sequence_2};
-use crate::flipgraph::io::{write_flipgraph, FlipgraphOutputFormat};
+use crate::flipgraph::io::FlipgraphOutputFormat::TabbedTable;
+use crate::flipgraph::io::{write_flipgraph, write_random_walk, FlipgraphOutputFormat};
 use crate::flipgraph::{build_flipgraph, SymmetryBreaking};
 use crate::repl::Repl;
 use crate::schnyder::algorithm::Operation;
@@ -99,16 +100,9 @@ pub fn build(matches: &ArgMatches) {
         }
     }
 
-    let num_threads = match str::parse::<usize>(matches.value_of("threads").unwrap_or("1")) {
-        Ok(n) if n >= 1 && n <= 64 => n,
-        Ok(_) => {
-            println!("The number of threads should be at least 1 and at most 64");
-            return;
-        }
-        _ => {
-            println!("The number of threads should be a positive number.");
-            return;
-        }
+    let num_threads = match retrieve_threads(matches) {
+        Some(t) => t,
+        _ => return,
     };
 
     let brk_orientation = matches.is_present("break-orientation-symmetry");
@@ -334,12 +328,44 @@ pub fn replay(matches: &ArgMatches) {
 }
 
 pub fn random_walk(matches: &ArgMatches) {
-    let n = match retrieve_n(matches, 200) {
+    let n = match retrieve_n(matches, 255) {
         Some(n) => n,
         None => return,
     };
 
-    crate::flipgraph::random_walk::random_walk(n, 4, Some(Duration::from_secs(60 * 60)), None);
+    let num_threads = match retrieve_threads(matches) {
+        Some(t) => t,
+        _ => return,
+    };
+
+    let time_limit = match retrieve_positive_number(matches, "time-limit", "Time limit") {
+        Ok(Some(l)) => Some(l),
+        Ok(None) => None,
+        Err(_) => return,
+    }
+    .map(|n| Duration::from_secs(n as u64));
+
+    let sample_limit = match retrieve_positive_number(matches, "sample-limit", "Sample limit") {
+        Ok(Some(l)) => Some(l),
+        Ok(None) => None,
+        Err(_) => return,
+    };
+
+    if sample_limit.is_none() && time_limit.is_none() {
+        println!("At least a sample or a time limit has to be specified.");
+        return;
+    }
+
+    let stats =
+        crate::flipgraph::random_walk::random_walk(n, num_threads, time_limit, sample_limit);
+    println!("Done. {} samples collected.", stats.total.cardinality);
+    write_random_walk(
+        &stats,
+        &mut stdout(),
+        TabbedTable,
+        matches.is_present("check"),
+    )
+    .expect("Error writing random walk statistics.");
 }
 
 fn write_out(wood: &SchnyderMap, path: Option<&str>, name: &str) {
@@ -362,6 +388,35 @@ fn retrieve_n(matches: &ArgMatches, upper_bound: usize) -> Option<usize> {
         _ => {
             println!("N should be a positive number.");
             None
+        }
+    }
+}
+
+fn retrieve_threads(matches: &ArgMatches) -> Option<usize> {
+    match str::parse::<usize>(matches.value_of("threads").unwrap_or("1")) {
+        Ok(n) if n >= 1 && n <= 64 => Some(n),
+        Ok(_) => {
+            println!("The number of threads should be at least 1 and at most 64");
+            None
+        }
+        _ => {
+            println!("The number of threads should be a positive number.");
+            None
+        }
+    }
+}
+
+fn retrieve_positive_number(
+    matches: &ArgMatches,
+    arg_name: &str,
+    human_readable_name: &str,
+) -> Result<Option<usize>, ()> {
+    match matches.value_of(arg_name).map(|m| str::parse::<usize>(m)) {
+        Some(Ok(k)) => Ok(Some(k)),
+        None => Ok(None),
+        _ => {
+            println!("{} should be a positive number.", human_readable_name);
+            Err(())
         }
     }
 }

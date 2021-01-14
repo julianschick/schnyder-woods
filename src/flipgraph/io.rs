@@ -8,6 +8,12 @@ pub enum FlipgraphOutputFormat {
     CSV,
 }
 
+#[derive(Copy, Clone)]
+pub enum HeaderType {
+    Exact,
+    RandomWalk,
+}
+
 pub fn write_flipgraph(
     g: &Flipgraph,
     w: &mut dyn Write,
@@ -26,7 +32,7 @@ pub fn write_flipgraph(
     writeln!(w, "{}", prefix)?;
 
     let stats = g.compute_stats();
-    write_stats(w, &stats, format)?;
+    write_stats(w, &stats, format, HeaderType::Exact)?;
     if with_check {
         stats.check(false);
     }
@@ -34,21 +40,36 @@ pub fn write_flipgraph(
     Ok(())
 }
 
-/*pub fn write_random_walk(w: &mut dyn Write, format: FlipgraphOutputFormat, stats: &Vec<Stats>, with_check: bool) -> std::io::Result<()> {
-    write_stats_header(w, format)?;
-    for stats_entry in stats {
-        write_stats_line(w, format, &stats_entry)?;
+pub fn write_random_walk(
+    stats: &Stats,
+    w: &mut dyn Write,
+    format: FlipgraphOutputFormat,
+    with_check: bool,
+) -> std::io::Result<()> {
+    let prefix = match format {
+        FlipgraphOutputFormat::TabbedTable => "",
+        FlipgraphOutputFormat::CSV => "# ",
+    };
+
+    writeln!(w, "{}", prefix)?;
+    writeln!(w, "{}Random Walk Statistics (n = {})", prefix, stats.n)?;
+    writeln!(w, "{}", prefix)?;
+
+    write_stats(w, &stats, format, HeaderType::RandomWalk)?;
+    if with_check {
+        stats.check(true);
     }
 
     Ok(())
-}*/
+}
 
 fn write_stats(
     w: &mut dyn Write,
     stats: &Stats,
     format: FlipgraphOutputFormat,
+    header_type: HeaderType,
 ) -> std::io::Result<()> {
-    write_stats_header(w, format)?;
+    write_stats_header(w, format, header_type)?;
     write_stats_line(w, &stats.total, format, "*")?;
     for level in (stats.min_level..=stats.max_level).rev() {
         write_stats_line(w, &stats.levels[&level], format, &level.to_string())?;
@@ -57,13 +78,26 @@ fn write_stats(
     Ok(())
 }
 
-fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::io::Result<()> {
+fn write_stats_header(
+    w: &mut dyn Write,
+    format: FlipgraphOutputFormat,
+    header_type: HeaderType,
+) -> std::io::Result<()> {
+    let count_str = match header_type {
+        HeaderType::Exact => "Woods",
+        HeaderType::RandomWalk => "Samples",
+    };
+    let min_str = match header_type {
+        HeaderType::Exact => "Minimus",
+        HeaderType::RandomWalk => "Sampled Minimums",
+    };
+
     match format {
         FlipgraphOutputFormat::TabbedTable => writeln!(
             w,
             "{:<10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
             "#Edges",
-            "#Woods",
+            &format!("#{}", count_str),
             "MinDeg",
             "AvgDeg",
             "MaxDeg",
@@ -71,13 +105,13 @@ fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::
             "Max↑Deg",
             "Min↓Deg",
             "Max↓Deg",
-            "#Minimums"
+            &format!("#{}", min_str)
         ),
         FlipgraphOutputFormat::CSV => writeln!(
             w,
             "{};{};{};{};{};{};{};{};{};{}",
             "Edges",
-            "Woods",
+            count_str,
             "MinDeg",
             "AvgDeg",
             "MaxDeg",
@@ -85,7 +119,7 @@ fn write_stats_header(w: &mut dyn Write, format: FlipgraphOutputFormat) -> std::
             "MaxUpDeg",
             "MinDownDeg",
             "MaxDownDeg",
-            "Minimums"
+            min_str
         ),
     }
 }

@@ -1,12 +1,11 @@
-use chrono::Local;
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
 use std::cmp::{max, min};
-use std::fs::File;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::stats::StatsLine;
+use crate::flipgraph::stats::Stats;
 use crate::schnyder::algorithm::Operation;
 use crate::schnyder::enums::SchnyderColor;
 use crate::schnyder::SchnyderMap;
@@ -43,7 +42,7 @@ impl StatsLine {
         }
     }
 
-    pub fn aggregate(&mut self, other: &StatsLine) {
+    pub fn reduce(&mut self, other: &StatsLine) {
         let n1 = self.cardinality as f64;
         let n2 = other.cardinality as f64;
 
@@ -66,13 +65,13 @@ pub fn random_walk(
     thread_count: usize,
     time_limit: Option<Duration>,
     sample_limit: Option<usize>,
-) {
+) -> Stats {
     if n < 3 {
         panic!("n must be at least 3.");
     }
 
     if time_limit.is_none() && sample_limit.is_none() {
-        return;
+        panic!("Neither time nor sample limit provided.");
     }
 
     let mut handles = Vec::new();
@@ -107,19 +106,9 @@ pub fn random_walk(
                 for cur in current.iter_mut() {
                     let admissible_ops = cur.get_admissible_ops().expect("TODO");
 
-                    if admissible_ops.len() >= 45 {
-                        let f = File::create(&format!(
-                            "/tmp/randomout/{}",
-                            Local::now().format("%Y-%m-%d-%H-%M-%S-%f.b3t")
-                        ));
-                        if let Ok(mut f) = f {
-                            cur.write_binary_3treecode(&mut f).expect("TODO");
-                        }
-                    }
-
                     let sample = StatsLine::from_admissible_ops(&admissible_ops);
-                    overall_sample_bin.aggregate(&sample);
-                    sample_bins[cur.map.edge_count() - min_level].aggregate(&sample);
+                    overall_sample_bin.reduce(&sample);
+                    sample_bins[cur.map.edge_count() - min_level].reduce(&sample);
 
                     let pick = rand.gen_range(0, admissible_ops.len());
                     cur.exec_op(&admissible_ops[pick]).expect("TODO");
@@ -147,7 +136,7 @@ pub fn random_walk(
             }
 
             sample_bins.push(overall_sample_bin);
-            sample_bins.reverse();
+            //sample_bins.reverse();
 
             sample_bins
         });
@@ -158,17 +147,23 @@ pub fn random_walk(
     let mut sample_bins = (0..=number_of_levels)
         .map(|_| StatsLine::neutral())
         .collect_vec();
-    /*for i in 1..=number_of_levels {
-        sample_bins[i].level = Some((max_level - (i - 1)) as u8);
-    }*/
 
     for handle in handles {
         let bins = handle.join().unwrap();
         for i in 0..sample_bins.len() {
-            sample_bins[i].aggregate(&bins[i]);
+            sample_bins[i].reduce(&bins[i]);
         }
     }
 
-    println!("Done. {} samples collected.", sample_bins[0].cardinality);
-    //write_random_walk(&mut stdout(), TabbedTable, &sample_bins, false);
+    let stats = Stats {
+        n: n as u8,
+        min_level: min_level as u16,
+        max_level: max_level as u16,
+        levels: (0..number_of_levels)
+            .map(|l| ((l + min_level) as u16, sample_bins[l]))
+            .collect(),
+        total: sample_bins[number_of_levels],
+    };
+
+    return stats;
 }

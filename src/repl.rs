@@ -105,18 +105,18 @@ impl Repl {
                 .setting(AppSettings::NoBinaryName)
                 .subcommand(
                     App::new("save")
-                        .about("Write flip graph to file(s) in data interchange formats.")
-                        .arg("-e, --edges 'Write a file containing the graph in EDGE64 format. The suffix \'.edges\' is appended to the base name.")
-                        .arg("-l, --levels 'Write a file containing the vertex levels in LEVEL8 format. The suffix \'.levels\' is appended to the base name.")
-                        .arg("-w, --woods 'Write a file containing the graph in L3TREECODE8 format. The suffix \'.woods\' is appended to the base name.")
-                        .arg("<FILE> 'Base name for the file(s) to be written.'")
+                        .about("Write flip graph to file(s) in data interchange formats")
+                        .arg("-e, --edges 'Write a file containing the graph in EDGE64 format (the suffix \'.edges\' is appended to the base name)")
+                        .arg("-l, --levels 'Write a file containing the vertex levels in LEVEL8 format (the suffix \'.levels\' is appended to the base name)")
+                        .arg("-w, --woods 'Write a file containing the graph in L3TREECODE8 format (the suffix \'.woods\' is appended to the base name)")
+                        .arg("<FILE> 'Base name for the file(s) to be written'")
                 )
                 .subcommand(
                     App::new("select")
                         .about("Selects nodes from the flipgraph that fulfill a set of conditions. If no output flags are set, just the count of matches is printed.")
-                        .arg("-d, --dir [DIR] 'Output directory. Without the output directory given, the other output flags do not have any effect.'")
-                        .arg("-a, --ascii 'Write woods in ASCII 3TREECODE to the file \'<NODE NR>.a3t\'.'")
-                        .arg("-b, --binary 'Write woods in binary 3TREECODE8 to the file \'<NODE NR>.b3t\'.'")
+                        .arg("-d, --dir [DIR] 'Output directory. Without the output directory given, the other output flags do not have any effect'")
+                        .arg("-a, --ascii 'Write woods in ASCII 3TREECODE to the file \'<NODE NR>.a3t\''")
+                        .arg("-b, --binary 'Write woods in binary 3TREECODE8 to the file \'<NODE NR>.b3t\''")
                         .arg("[CONDITION]... 'Conditions for selection of woods. The conditions must be formatted as follows: (level|deg|updeg|downdeg)(<|<=|=|=>|>)(NUMBER). If multiple conditions are given, they are joined by a logical \'AND\'.'")
                 )
                 .subcommand(
@@ -127,12 +127,12 @@ impl Repl {
                 .subcommand(
                     App::new("stats")
                         .about("Print statistics about the currently loaded flipgraph")
-                        .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format.'")
-                        .arg("-d, --check 'Checks the stats against the proven formulas. The program is terminated with an assertion failure if any formula fails.'")
+                        .arg("-c, --csv 'Prints the statistics in CSV format rather than in human readable format'")
+                        .arg("-d, --check 'Checks the stats against the proven formulas, and prints an error message if a check fails'")
                 )
                 .subcommand(
                     App::new("exit")
-                        .about("Exits the application (if a large flipgraph is loaded, memory cleanup will take a bit of time).")
+                        .about("Exits the application (if a large flipgraph is loaded, memory cleanup will take a bit of time)")
                 )
                 .try_get_matches_from(tokens);
 

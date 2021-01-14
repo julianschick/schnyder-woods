@@ -9,11 +9,12 @@ use std::collections::HashMap;
 pub struct Stats {
     pub n: u8,
     pub total: StatsLine,
-    pub levels: HashMap<u8, StatsLine>,
-    pub min_level: u8,
-    pub max_level: u8,
+    pub levels: HashMap<u16, StatsLine>,
+    pub min_level: u16,
+    pub max_level: u16,
 }
 
+#[derive(Copy, Clone)]
 pub struct StatsLine {
     pub cardinality: usize,
     pub min_deg: usize,
@@ -78,16 +79,16 @@ impl Stats {
         );
         check_geq!(
             "MINLEVEL_ENV",
-            self.min_level,
+            self.min_level as usize,
             "actual minimum level",
-            min_level(n) as u8,
+            min_level(n),
             "calculated minimum level"
         );
         check_leq!(
             "MAXLEVEL_ENV",
-            self.max_level,
+            self.max_level as usize,
             "actual maximum level",
-            max_level(n) as u8,
+            max_level(n),
             "calculated maximum level"
         );
     }
@@ -96,16 +97,16 @@ impl Stats {
         let n = self.n as usize;
         check_eq!(
             "MINLEVEL",
-            self.min_level,
+            self.min_level as usize,
             "actual minimum level",
-            min_level(n) as u8,
+            min_level(n),
             "calculated minimum level"
         );
         check_eq!(
             "MAXLEVEL",
-            self.max_level,
+            self.max_level as usize,
             "actual maximum level",
-            max_level(n) as u8,
+            max_level(n),
             "calculated maximum level"
         );
         check_leq!(
@@ -173,7 +174,7 @@ impl Flipgraph {
         let level_stats: HashMap<_, _> = self
             .get_levels()
             .iter()
-            .map(|(level, vertices)| (*level, self.compute_stats_line(vertices)))
+            .map(|(level, vertices)| (*level as u16, self.compute_stats_line(vertices)))
             .collect();
         let min_level = *level_stats.keys().min().unwrap();
         let max_level = *level_stats.keys().max().unwrap();
