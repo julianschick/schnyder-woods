@@ -4,6 +4,7 @@ use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::graph::enums::EdgeEnd::{Head, Tail};
 use crate::graph::enums::Signum::{Backward, Forward};
 use crate::graph::enums::{ClockDirection, RevertibleEnum, Side, Signum};
+use crate::graph::error::Internalizable;
 use crate::graph::error::{GraphErr, GraphResult, IndexAccessError};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::graph::PlanarMap;
@@ -117,13 +118,13 @@ impl SchnyderMap {
 
         let mut map = PlanarMap::new();
 
-        let r = map.add_vertex(Suspension(Red));
-        let g = map.add_vertex(Suspension(Green));
-        let b = map.add_vertex(Suspension(Blue));
+        let r = map.add_vertex(Suspension(Red))?;
+        let g = map.add_vertex(Suspension(Green))?;
+        let b = map.add_vertex(Suspension(Blue))?;
 
-        map.add_edge(r, g, Bicolored(Green, Red));
-        map.add_edge(g, b, Bicolored(Blue, Green));
-        map.add_edge(b, r, Bicolored(Red, Blue));
+        map.add_edge(r, g, Bicolored(Green, Red))?;
+        map.add_edge(g, b, Bicolored(Blue, Green))?;
+        map.add_edge(b, r, Bicolored(Red, Blue))?;
 
         let mut susp = HashMap::new();
         susp.insert(Red, r);
@@ -136,23 +137,24 @@ impl SchnyderMap {
         let mut path = Vec::with_capacity(vertex_count - 2);
         path.push(*susp.get(&color).unwrap());
         for _ in 0..vertex_count - 3 {
-            path.push(map.add_vertex(Normal(0)))
+            path.push(map.add_vertex(Normal(0))?)
         }
 
         for (a, b) in path.iter().tuple_windows() {
-            map.add_edge(*b, *a, Unicolored(color, Forward));
+            map.add_edge(*b, *a, Unicolored(color, Forward))?;
 
             // left and right edge
             map.add_edge(
                 *b,
                 *susp.get(&color.prev()).unwrap(),
                 Unicolored(color.prev(), Forward),
-            );
+            )?;
             map.add_edge(
                 *b,
                 *susp.get(&color.next()).unwrap(),
                 Unicolored(color.next(), Forward),
-            );
+            )
+            .internalize();
 
             faces.push((vec![*b, *a, *susp.get(&color.prev()).unwrap()], ())); // left face
             faces.push((vec![*a, *b, *susp.get(&color.next()).unwrap()], ())); // right face
@@ -186,9 +188,9 @@ impl SchnyderMap {
         let n = vertex_count;
         let mut map = PlanarMap::new();
 
-        let r = map.add_vertex(Suspension(color.prev()));
-        let g = map.add_vertex(Suspension(color));
-        let b = map.add_vertex(Suspension(color.next()));
+        let r = map.add_vertex(Suspension(color.prev()))?;
+        let g = map.add_vertex(Suspension(color))?;
+        let b = map.add_vertex(Suspension(color.next()))?;
 
         // 'upper' and 'lower' section of the outer face boundary
         let m = (n - 3) / 2;
@@ -198,39 +200,42 @@ impl SchnyderMap {
         lower.push(b);
 
         for _ in 0..m {
-            upper.push(map.add_vertex(Normal(0)));
-            lower.push(map.add_vertex(Normal(0)));
+            upper.push(map.add_vertex(Normal(0))?);
+            lower.push(map.add_vertex(Normal(0))?);
         }
         upper.push(g);
         lower.push(g);
 
         // outer edges
         for (v1, v2) in upper.iter().tuple_windows() {
-            map.add_edge(*v1, *v2, Bicolored(color, color.prev()));
+            map.add_edge(*v1, *v2, Bicolored(color, color.prev()))
+                .internalize();
         }
         for (v1, v2) in lower.iter().tuple_windows() {
-            map.add_edge(*v1, *v2, Bicolored(color, color.next()));
+            map.add_edge(*v1, *v2, Bicolored(color, color.next()))
+                .internalize();
         }
 
         // non-outer edges
         for i in 1..=m {
-            map.add_edge(lower[i], upper[i], Bicolored(color.prev(), color.next()));
+            map.add_edge(lower[i], upper[i], Bicolored(color.prev(), color.next()))
+                .internalize();
         }
 
         // special vertex 'eve' for even case
         let eve = if n % 2 == 0 {
-            Some(map.add_vertex(Normal(0)))
+            Some(map.add_vertex(Normal(0))?)
         } else {
             None
         };
 
         // left outer edge (or two edges in the even case)
         if let Some(eve) = eve {
-            map.add_edge(b, eve, Bicolored(color.prev(), color.next()));
-            map.add_edge(eve, r, Bicolored(color.prev(), color.next()));
-            map.add_edge(eve, lower[1], Unicolored(color, Forward));
+            map.add_edge(b, eve, Bicolored(color.prev(), color.next()))?;
+            map.add_edge(eve, r, Bicolored(color.prev(), color.next()))?;
+            map.add_edge(eve, lower[1], Unicolored(color, Forward))?;
         } else {
-            map.add_edge(b, r, Bicolored(color.prev(), color.next()));
+            map.add_edge(b, r, Bicolored(color.prev(), color.next()))?;
         }
 
         let mut faces = Vec::new();
@@ -283,7 +288,7 @@ impl SchnyderMap {
 
         // add all vertices
         for _ in 0..n {
-            vertex_indices.push(map.add_vertex(Normal(0)));
+            vertex_indices.push(map.add_vertex(Normal(0))?);
         }
 
         // set suspension vertices
@@ -317,7 +322,7 @@ impl SchnyderMap {
                             }
                         }
                     } else {
-                        map.add_edge(v1, v2, Unicolored(colors[c], Forward));
+                        map.add_edge(v1, v2, Unicolored(colors[c], Forward))?;
                     }
                 }
             }
@@ -456,7 +461,7 @@ impl SchnyderMap {
         // Color incoming red edges of red suspension vertex
         for (eid, signum) in smap
             .try_vertex(r)?
-            .sector_between(b, g, CCW)
+            .sector_between(b, g, CCW)?
             .iter()
             .map(|nb| {
                 (
@@ -478,7 +483,7 @@ impl SchnyderMap {
         //
         let mut frontier = smap
             .try_vertex(r)?
-            .sector_between(b, g, CCW)
+            .sector_between(b, g, CCW)?
             .iter()
             .map(|nb| nb.other)
             .collect_vec();
@@ -501,6 +506,7 @@ impl SchnyderMap {
                             .try_vertex(pivot)
                             .unwrap()
                             .sector_between(right_neighbour, left_neighbour, CW)
+                            .expect("Sector is asserted to be correct")
                             .iter()
                             .any(|nb| {
                                 frontier.contains(&nb.other) || nb.other == g || nb.other == b
@@ -529,7 +535,7 @@ impl SchnyderMap {
             // color the edges reaching from the pivot vertex to the new part of the frontier
             for (eid, signum) in smap
                 .try_vertex(pivot)?
-                .sector_between(right_neighbour, left_neighbour, CW)
+                .sector_between(right_neighbour, left_neighbour, CW)?
                 .iter()
                 .map(|nb| {
                     (
@@ -550,7 +556,7 @@ impl SchnyderMap {
             frontier.splice(
                 pos..pos,
                 smap.try_vertex(pivot)?
-                    .sector_between(left_neighbour, right_neighbour, CCW)
+                    .sector_between(left_neighbour, right_neighbour, CCW)?
                     .iter()
                     .map(|nb| nb.other)
                     .collect_vec(),
@@ -1568,7 +1574,10 @@ impl SchnyderMap {
             .face_count()
             .expect("A SchnyderMap should always have an embedding")
             - 1;
-        let (dual, _, edge_to_edge, face_to_vertex) = self.map.get_dual(false);
+        let (dual, _, edge_to_edge, face_to_vertex) = self
+            .map
+            .get_dual(false)
+            .expect("A SchnyderMap should meet the requirements for building a dual.");
 
         let mut result = HashMap::new();
 

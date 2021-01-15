@@ -49,6 +49,11 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for MapIndexStore<N, V> {
         self.map.remove(&index)
     }
 
+    fn clear(&mut self) {
+        self.map.clear();
+        self.least_free_index = 0;
+    }
+
     fn get(&self, index: &N) -> Option<&V> {
         self.map.get(index)
     }

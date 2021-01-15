@@ -79,6 +79,12 @@ impl<N: Index, V: Ideable<N>> IndexStore<N, V> for VecIndexStore<N, V> {
         self.data[idx].take()
     }
 
+    fn clear(&mut self) {
+        self.data.clear();
+        self.indices.clear();
+        self.least_free_index = 0;
+    }
+
     fn get(&self, index: &N) -> Option<&V> {
         match self.data.get((*index).into()) {
             Some(Some(x)) => Some(x),

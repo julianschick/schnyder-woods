@@ -22,28 +22,33 @@ pub struct Edge<E> {
 }
 
 impl<E> Edge<E> {
-    pub fn get_other(&self, this: VertexI) -> GraphResult<VertexI> {
+    /// Gets the opposite vertex of 'v' at this edge.
+    /// # Errors
+    /// If 'v' is not adjacent to the edge, an error is yielded.
+    pub fn get_other(&self, v: VertexI) -> GraphResult<VertexI> {
         if self.is_loop() {
-            return if self.tail == this {
-                Ok(this)
+            return if self.tail == v {
+                Ok(v)
             } else {
                 GraphErr::new_err(&format!(
                     "The given vertex {} is not adjacent to the edge {}.",
-                    this, self.id
+                    v, self.id
                 ))
             };
         }
 
-        Ok(match self.get_signum_by_tail(this)? {
+        Ok(match self.get_signum_by_tail(v)? {
             Forward => self.head,
             Backward => self.tail,
         })
     }
 
+    /// Returns true if this edge is a loop
     pub(super) fn is_loop(&self) -> bool {
         self.tail == self.head
     }
 
+    /// Returns the specified endvertex of this edge.
     pub(super) fn get_vertex(&self, end: EdgeEnd) -> VertexI {
         match end {
             EdgeEnd::Head => self.head,
@@ -51,6 +56,11 @@ impl<E> Edge<E> {
         }
     }
 
+    /// Gets the orientation of the internal storage of this edge, assuming 'v' is the tail vertex.
+    /// # Returns
+    /// If 'v' is the tail, the result is 'Forward'. Otherwise it is 'Backward'.
+    /// # Errors
+    /// If 'v' is not adjacent to this edge, it will return an error.
     pub fn get_signum_by_tail(&self, v: VertexI) -> GraphResult<Signum> {
         if self.is_loop() {
             return GraphErr::new_err("Cannot determine signum for loop edge.");
@@ -68,19 +78,30 @@ impl<E> Edge<E> {
         }
     }
 
+    /// Gets the orientation of the internal storage of this edge, assuming 'v' is the head vertex.
+    /// # Returns
+    /// If 'v' is the head, the result is 'Forward'. Otherwise it is 'Backward'.
+    /// # Errors
+    /// If 'v' is not adjacent to this edge, it will return an error.
     pub fn get_signum_by_head(&self, v: VertexI) -> GraphResult<Signum> {
         Ok(self.get_signum_by_tail(v)?.reversed())
     }
 
+    /// Returns the vertex pair adjacent to the edge.
+    /// # Arguments
+    /// signum - Order of the pair with respect to the internal storage orientation of this edge.
+    /// If 'Forward' is given, the pair is ordered as internally stored, otherwise it is reversed.
     pub(super) fn to_vertex_pair(&self, signum: Signum) -> (VertexI, VertexI) {
         return swap((self.tail, self.head), signum == Backward);
     }
 
+    /// Returns the left face and panics if the left face is not set. For internal usage.
     pub(super) fn left_face(&self) -> FaceI {
         self.left_face
             .expect("PlanarMap internal error: face reference expected to be present.")
     }
 
+    /// Returns the right face and panics if the left face is not set. For internal usage.
     pub(super) fn right_face(&self) -> FaceI {
         self.right_face
             .expect("PlanarMap internal error: face reference expected to be present.")
@@ -143,17 +164,33 @@ pub struct Vertex<N> {
 }
 
 impl<N> Vertex<N> {
-    /// Get reference to the NbVertex describing the link to the vertex 'other' or None if no such link exists.
-    pub(super) fn get_nb(&self, other: VertexI) -> Option<&NbVertex> {
-        self.neighbors.iter().find(|nb| nb.other == other)
+    /// Get NbVertex describing the link to the neighbor 'other'.
+    /// # Errors
+    /// Returns an error, if there is no edge to 'other'.
+    pub(super) fn get_nb(&self, other: VertexI) -> GraphResult<&NbVertex> {
+        self.neighbors
+            .iter()
+            .find(|nb| nb.other == other)
+            .ok_or(GraphErr::new(&format!(
+                "{} is not in the neighborhood of {}",
+                other, self
+            )))
     }
 
-    /// Get mutable reference to the NbVertex describing the link to the vertex 'other' or None if no such link exists.
-    pub(super) fn get_nb_mut(&mut self, other: VertexI) -> Option<&mut NbVertex> {
-        self.neighbors.iter_mut().find(|nb| nb.other == other)
+    /// Get mutable NbVertex describing the link to the neighbor 'other'.
+    /// # Errors
+    /// Returns an error, if there is no edge to 'other'.
+    pub(super) fn get_nb_mut(&mut self, other: VertexI) -> GraphResult<&mut NbVertex> {
+        let my_index = self.id;
+        self.neighbors
+            .iter_mut()
+            .find(|nb| nb.other == other)
+            .ok_or(GraphErr::new(&format!(
+                "{} is not in the neighborhood of {}",
+                other, my_index
+            )))
     }
 
-    /// does contain start_index at the end (wraps around), if condition is always true
     /// Get an iterator over all neighbors.
     /// # Arguments
     /// * start_index - start with the neighbor of this index
@@ -175,33 +212,53 @@ impl<N> Vertex<N> {
         }
     }
 
+    /// Returns the next neighbor in the given direction
+    /// # Arguments
+    /// nb - reference neighbor
+    /// direction - direction to march one step from the reference neighbor
     pub fn next(&self, nb: &NbVertex, direction: ClockDirection) -> &NbVertex {
         self.get_iterator(nb.index, direction, false, true)
             .next()
             .unwrap()
     }
 
-    pub fn next_by_nb(&self, other: VertexI, direction: ClockDirection) -> &NbVertex {
-        let nb = self.get_nb(other).unwrap();
-        self.get_iterator(nb.index, direction, false, true)
+    /// Returns the next neighbor in the given direction
+    /// # Arguments
+    /// other - reference neighbor
+    /// direction - direction to march one step from the reference neighbor
+    /// # Error
+    /// Fails with an error, if there is no edge to 'other'.
+    pub fn next_by_nb(&self, other: VertexI, direction: ClockDirection) -> GraphResult<&NbVertex> {
+        let nb = self.get_nb(other)?;
+        Ok(self
+            .get_iterator(nb.index, direction, false, true)
             .next()
-            .unwrap()
+            .unwrap())
     }
 
-    /// does not include the edges to v1 and v2 respectively
+    /// Returns the sector of the fan between 'v1' and 'v2' exclusively.
+    /// # Arguments
+    /// v1 - first bound of the sector (exclusive)
+    /// v2 - second bound of the sector (exclusive)
+    /// direction - picks the clockwise or counterclockwise sector
+    /// # Errors
+    /// Returns an error if 'v1' or 'v2' are not neighboring.
     pub fn sector_between(
         &self,
         v1: VertexI,
         v2: VertexI,
         direction: ClockDirection,
-    ) -> Vec<&NbVertex> {
-        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.sector_between_by_nb(nb1, nb2, direction);
-        } else {
-            panic!("v1/v2 invalid");
-        }
+    ) -> GraphResult<Vec<&NbVertex>> {
+        Ok(self.sector_between_by_nb(self.get_nb(v1)?, self.get_nb(v2)?, direction))
     }
 
+    /// Returns the sector of the fan between 'nb1' and 'nb2' exclusively.
+    /// # Arguments
+    /// nb1 - first bound of the sector (exclusive)
+    /// nb2 - second bound of the sector (exclusive)
+    /// direction - picks the clockwise or counterclockwise sector
+    /// # Errors
+    /// Caution: The results are undefined, if 'nb1' or 'nb2' are not in the list of this vertex.
     pub fn sector_between_by_nb(
         &self,
         nb1: &NbVertex,
@@ -211,19 +268,29 @@ impl<N> Vertex<N> {
         return self.cycle_while(nb1.index, &|nb| nb.other != nb2.other, direction, false);
     }
 
+    /// Returns the sector of the fan between 'v1' and 'v2' inclusively.
+    /// # Arguments
+    /// v1 - first bound of the sector (inclusive)
+    /// v2 - second bound of the sector (inclusive)
+    /// direction - picks the clockwise or counterclockwise sector
+    /// # Errors
+    /// Returns an error if 'v1' or 'v2' are not neighboring.
     pub fn sector_including(
         &self,
         v1: VertexI,
         v2: VertexI,
         direction: ClockDirection,
-    ) -> Vec<&NbVertex> {
-        if let (Some(nb1), Some(nb2)) = (self.get_nb(v1), self.get_nb(v2)) {
-            return self.sector_including_by_nb(nb1, nb2, direction);
-        } else {
-            panic!("v1/v2 invalid");
-        }
+    ) -> GraphResult<Vec<&NbVertex>> {
+        Ok(self.sector_including_by_nb(self.get_nb(v1)?, self.get_nb(v2)?, direction))
     }
 
+    /// Returns the sector of the fan between 'nb1' and 'nb2' inclusively.
+    /// # Arguments
+    /// nb1 - first bound of the sector (inclusive)
+    /// nb2 - second bound of the sector (inclusive)
+    /// direction - picks the clockwise or counterclockwise sector
+    /// # Errors
+    /// Caution: The results are undefined, if 'nb1' or 'nb2' are not in the list of this vertex.
     pub fn sector_including_by_nb(
         &self,
         nb1: &NbVertex,
@@ -242,6 +309,17 @@ impl<N> Vertex<N> {
         return result;
     }
 
+    /// Cycles through the neighbors starting with a specified index as long as a condition is true.
+    /// However, every neighbor apart from the starting neighbor is visited exactly once. The starting
+    /// neighbor is visited once in the end if include_start_index is false and twice, in the end
+    /// and in the beginning, otherwise.
+    /// # Arguments
+    /// start_index - index to start with
+    /// condition_while - cycle condition
+    /// direction - direction for cycling
+    /// include_start_index - whether or not to include the start index in the iterator
+    /// # Errors
+    /// Panics if the start_index is invalid.
     pub fn cycle_while(
         &self,
         start_index: usize,

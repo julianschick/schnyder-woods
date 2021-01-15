@@ -5,7 +5,7 @@ use crate::graph::enums::ClockDirection::{CCW, CW};
 use crate::graph::enums::Side::{Left, Right};
 use crate::graph::enums::Signum::{Backward, Forward};
 use crate::graph::enums::{ClockDirection, Side, Signum};
-use crate::graph::error::{GraphErr, GraphResult, IndexAccessError};
+use crate::graph::error::{GraphErr, GraphResult, IndexAccessError, Internalizable};
 use crate::graph::indices::{EdgeI, FaceI, VertexI};
 use crate::schnyder::algorithm::OpType::{ExtMerge, ExtSplit, Merge, Split};
 use crate::schnyder::enums::IndexedEnum;
@@ -406,8 +406,14 @@ pub fn check_triangle(wood: &SchnyderMap, eid: EdgeI, side: Side) -> GraphResult
         let (tail, head) = (wood.map.try_vertex(tail)?, wood.map.try_vertex(head)?);
 
         let (tail_apex, head_apex) = match side {
-            Side::Right => (tail.next_by_nb(head.id, CW), head.next_by_nb(tail.id, CCW)),
-            Side::Left => (tail.next_by_nb(head.id, CCW), head.next_by_nb(tail.id, CW)),
+            Side::Right => (
+                tail.next_by_nb(head.id, CW).internalize(),
+                head.next_by_nb(tail.id, CCW).internalize(),
+            ),
+            Side::Left => (
+                tail.next_by_nb(head.id, CCW).internalize(),
+                head.next_by_nb(tail.id, CW).internalize(),
+            ),
         };
 
         (tail.id, head.id, tail_apex.other, head_apex.other)
@@ -435,7 +441,7 @@ pub fn make_contractible(wood: &mut SchnyderMap, eid: EdgeI) -> GraphResult<Vec<
         return GraphErr::new_err("Only in triangulations edges can be made contractible");
     }
 
-    let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid);
+    let (tail, tail_nb, e, head_nb, head) = wood.map.edge_with_nb(eid)?;
     //let yummi = &wood.calculate_face_counts();
     let mut result = Vec::new();
 
@@ -536,7 +542,7 @@ pub fn make_inner_edge(
         wood.get_suspension_vertex(color.prev()),
         wood.get_suspension_vertex(color.next()),
         CCW,
-    );
+    )?;
 
     if nbs.len() < 2 {
         panic!("assertion failed! (vertex count >= 4 and non presence of inner edge should guarantee at least 2 nbs");

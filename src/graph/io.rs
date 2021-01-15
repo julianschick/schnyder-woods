@@ -82,7 +82,11 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
             // neighbors are given in clockwise order, so that the embedding is implied
             for i in 1..n + 1 {
                 let weight = v_weights(result.vertices.next_index());
-                index_list.push(result.add_vertex(weight));
+                index_list.push(
+                    result
+                        .add_vertex(weight)
+                        .expect("Graph should not be embedded at this stage."),
+                );
 
                 let mut nb = Vec::new();
                 let mut other = if let Some(&byte) = data.next() {
@@ -129,7 +133,7 @@ impl<N, E, F: Clone> PlanarMap<N, E, F> {
                         return GraphErr::new_err("Referential integrity of planar code broken.");
                     }
 
-                    result.add_edge_(v1, v2, pos1, pos2, weight);
+                    result.add_edge_(v1, v2, pos1, pos2, weight)?;
                 }
             }
 

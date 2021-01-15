@@ -25,6 +25,8 @@ pub trait IndexStore<N: Index, V: Ideable<N>> {
     fn insert(&mut self, item: V, index: &N) -> Result<(), IndexAccessError<N>>;
     /// Removes the item with the given index and returns it. Returns None if the index is invalid.
     fn remove(&mut self, index: &N) -> Option<V>;
+    /// Drops all contents.
+    fn clear(&mut self);
 
     /// Reference to the item with the given index or None, if the index is invalid.
     fn get(&self, index: &N) -> Option<&V>;
