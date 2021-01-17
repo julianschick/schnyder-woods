@@ -12,3 +12,4 @@ Split and merge are mutually inverse and can, thus, be interpreted as 'flip' and
 <p align="center">
   <img alt="Flipgraph" src="https://github.com/julianschick/schnyder-woods/blob/master/img/flipgraph.png?raw=true" />
 </p>
+The software package in this repository can generate these flip graphs, find paths within it and much more.
